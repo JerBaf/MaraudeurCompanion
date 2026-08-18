@@ -1,0 +1,121 @@
+rules_version = '2';
+
+// ===========================================================================
+// Règles de sécurité Firestore — Maraudeur Companion
+//
+// C'EST LE SEUL ENDROIT QUI PROTÈGE VOS DONNÉES.
+// La configuration Firebase du site est publique par conception : n'importe qui
+// peut la lire dans le JavaScript livré au navigateur. Ce qui empêche un
+// inconnu d'accéder à votre table, c'est le mot de passe des deux comptes ;
+// et ce qui empêche une joueuse de lire ses cycles restants, ce sont ces règles.
+//
+// À faire dans la console Firebase (Authentication → Email/Password) :
+//   1. Créer le compte  table@maraudeur.local  — mot de passe = CODE DE TABLE
+//   2. Créer le compte  mj@maraudeur.local     — mot de passe = PIN MJ
+//   3. Copier ce fichier dans Firestore → Règles, puis Publier.
+//
+// Changer le code de table = changer le mot de passe du premier compte.
+// ===========================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function courriel() {
+      return request.auth.token.email;
+    }
+
+    function estMJ() {
+      return request.auth != null && courriel() == 'mj@maraudeur.local';
+    }
+
+    function estJoueuse() {
+      return request.auth != null && courriel() == 'table@maraudeur.local';
+    }
+
+    function deLaTable() {
+      return estMJ() || estJoueuse();
+    }
+
+    // Champs réellement modifiés par une écriture.
+    function champsTouches() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    match /tables/{tableId} {
+
+      allow read: if deLaTable();
+      allow write: if estMJ();
+
+      // --- État de la table : mode, tour, phase de combat -------------------
+      // La MJ pilote tout ; les joueuses ne touchent qu'à l'objet `combat`,
+      // pour y déposer leur initiative.
+      match /state/{doc} {
+        allow read: if deLaTable();
+        allow create, delete: if estMJ();
+        allow update: if estMJ()
+                      || (estJoueuse() && champsTouches().hasOnly(['combat']));
+      }
+
+      // --- Fiches de personnage --------------------------------------------
+      // Lisibles et modifiables par toute la table. Les règles ne distinguent
+      // pas les joueuses entre elles (elles partagent un compte) : c'est un
+      // choix assumé pour une table entre amies.
+      match /characters/{charId} {
+        allow read, write: if deLaTable();
+      }
+
+      // --- 🔒 SECRETS DE LA MJ ---------------------------------------------
+      // Nombre de cycles initial et restant : la joueuse ne doit JAMAIS les
+      // connaître, sinon la tension du système disparaît.
+      //
+      // Firestore ne sait pas restreindre la lecture champ par champ : un
+      // document lisible l'est en entier. C'est précisément pourquoi ces
+      // valeurs vivent dans une collection à part plutôt que dans la fiche.
+      // Les masquer à l'écran n'aurait rien protégé — la console du navigateur
+      // les aurait révélées.
+      match /secrets/{charId} {
+        allow read, write: if estMJ();
+      }
+
+      // --- Adversaires ------------------------------------------------------
+      // La MJ les crée et les retire ; une joueuse ne peut qu'ajouter des
+      // dégâts, ce qui rend l'écran de combat vivant sans lui laisser
+      // supprimer une créature ou trafiquer une Évasion.
+      match /adversaries/{advId} {
+        allow read: if deLaTable();
+        allow create, delete: if estMJ();
+        allow update: if estMJ()
+                      || (estJoueuse() && champsTouches().hasOnly(['degatsSubis']));
+      }
+
+      // --- Catalogue --------------------------------------------------------
+      // Contenu du jeu : lecture pour tous, écriture réservée à la MJ.
+      match /catalog/{entryId} {
+        allow read: if deLaTable();
+        allow write: if estMJ();
+      }
+
+      // --- Sessions et feux de camp ----------------------------------------
+      match /sessions/{sessionId} {
+        allow read: if deLaTable();
+        allow write: if estMJ();
+      }
+
+      match /campfires/{campfireId} {
+        allow read, write: if deLaTable();
+      }
+
+      // --- 🔒 Journal -------------------------------------------------------
+      // Les joueuses y déposent leurs actions mais ne peuvent pas le relire :
+      // il contient les décisions et les tirages de la MJ.
+      match /log/{eventId} {
+        allow read: if estMJ();
+        allow create: if deLaTable();
+        allow update, delete: if estMJ();
+      }
+    }
+
+    // Aucune règle fourre-tout ici : en Firestore les règles s'additionnent,
+    // et tout chemin non couvert par un `allow` est refusé par défaut.
+  }
+}

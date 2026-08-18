@@ -6,8 +6,4 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/MaraudeurCompanion/',
   plugins: [react()],
-  test: {
-    include: ['src/**/*.test.ts'],
-    environment: 'node',
-  },
 })
