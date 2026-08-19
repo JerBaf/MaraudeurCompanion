@@ -1,5 +1,4 @@
 import type { Catalog } from './catalog.ts'
-import { tirerCycles, type Rng } from './random.ts'
 import { TAILLE_GRIMOIRE } from './campfire.ts'
 import {
   COMPETENCES,
@@ -40,31 +39,28 @@ export interface DemandeCreation {
   claimedBy?: string | null
 }
 
-export interface PersonnageCree {
-  char: Character
-  /** 🔒 À écrire dans la collection réservée à la MJ, jamais avec la fiche. */
-  secret: CharacterSecret
-}
-
 /**
- * Crée un personnage et son enveloppe secrète.
+ * Crée la fiche d'un personnage.
  *
- * Le nombre de cycles (1d4+2) est tiré ici et part immédiatement dans
- * `CharacterSecret` : il ne doit jamais toucher le document de fiche, qui est
- * lisible par toute la table.
+ * ⚠️ Ne tire **pas** les cycles. Le nombre de cycles (1d4+2) ne doit jamais
+ * transiter par l'appareil de la joueuse : son navigateur en garderait la trace
+ * et il suffirait d'ouvrir la console au bon moment pour le connaître, ce que
+ * le système veut précisément empêcher (« chaque cycle passé pourrait être le
+ * dernier »).
+ *
+ * Les cycles sont saisis par la MJ depuis son écran, quand elle le décide.
  */
 export function creerPersonnage(
   demande: DemandeCreation,
   catalog: Catalog,
-  rng: Rng,
   maintenant: number,
-): PersonnageCree {
+): Character {
   const classe = catalog.classe(demande.classeId)
   if (!classe) throw new Error(`Classe inconnue : ${demande.classeId}`)
 
   const sorts = [...classe.sortsIds]
 
-  const char: Character = {
+  return {
     id: demande.id,
     nom: demande.nom,
     classeId: classe.id,
@@ -90,15 +86,21 @@ export function creerPersonnage(
     createdAt: maintenant,
     updatedAt: maintenant,
   }
+}
 
-  const secret: CharacterSecret = {
-    characterId: demande.id,
-    cyclesTotal: tirerCycles(rng),
-    cyclesConsommes: 0,
-    notesMJ: '',
-  }
+/**
+ * Enveloppe secrète vierge, créée par la MJ.
+ *
+ * `cyclesTotal` à 0 signifie « pas encore renseigné » : la MJ tire ses dés à sa
+ * table et saisit la valeur quand elle le souhaite.
+ */
+export function secretVierge(characterId: string): CharacterSecret {
+  return { characterId, cyclesTotal: 0, cyclesConsommes: 0, notesMJ: '' }
+}
 
-  return { char, secret }
+/** Vrai tant que la MJ n'a pas renseigné le nombre de cycles. */
+export function cyclesNonRenseignes(secret: CharacterSecret | null): boolean {
+  return secret === null || secret.cyclesTotal <= 0
 }
 
 function passifsInitiaux(moteur: string | undefined): EtatPassifs {

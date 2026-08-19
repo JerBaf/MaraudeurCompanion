@@ -68,13 +68,9 @@ export function seededRng(seed: number): Rng {
 // Tirages propres au jeu
 // ---------------------------------------------------------------------------
 
-/**
- * Nombre de cycles que peut soutenir une âme : 1d4+2.
- * 🔒 Le résultat ne doit jamais être exposé à la joueuse (Rules_For_Agents.pdf, « Mort »).
- */
-export function tirerCycles(rng: Rng): number {
-  return rng.int(1, 4) + 2
-}
+// Les cycles (1d4+2) ne sont volontairement pas tirés ici : la MJ lance ses dés
+// à sa table et saisit la valeur depuis son écran. C'est le seul moyen que le
+// nombre ne transite jamais par l'appareil d'une joueuse.
 
 /** Initiative de combat : 1d6. [4-6] joue avant la MJ, [1-3] après. */
 export function tirerInitiative(rng: Rng): number {

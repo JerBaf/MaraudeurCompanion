@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { SEED } from '../content/seed.ts'
 import { resoudreCampPourPersonnage } from './campfire.ts'
 import { createCatalog } from './catalog.ts'
-import { appliquerProfil, creerPersonnage, maitrisesSuiventLeProfil } from './character.ts'
+import {
+  appliquerProfil,
+  creerPersonnage,
+  cyclesNonRenseignes,
+  maitrisesSuiventLeProfil,
+  secretVierge,
+} from './character.ts'
 import {
   ACTIONS_ALTERNATIVES,
   estSonTour,
@@ -45,7 +51,7 @@ import type { Character, Sort } from './types.ts'
 const catalog = createCatalog(SEED)
 
 function nouveauPerso(classeId: string, patch: Partial<Character> = {}): Character {
-  const { char } = creerPersonnage(
+  const char = creerPersonnage(
     {
       id: 'pj-test',
       nom: 'Maya',
@@ -53,7 +59,6 @@ function nouveauPerso(classeId: string, patch: Partial<Character> = {}): Charact
       maitrises: appliquerProfil(['physique', 'roublardise'], 'esprit'),
     },
     catalog,
-    seededRng(1),
     0,
   )
   return { ...char, ...patch }
@@ -80,16 +85,23 @@ describe('création de personnage', () => {
     expect(char.grimoire).toHaveLength(3)
   })
 
-  it('garde les cycles hors de la fiche publique', () => {
-    const { char, secret } = creerPersonnage(
+  it('ne fait jamais transiter les cycles par la fiche', () => {
+    const char = creerPersonnage(
       { id: 'x', nom: 'Lila', classeId: 'trickster', maitrises: appliquerProfil(['esprit', 'social'], 'physique') },
       catalog,
-      seededRng(7),
       0,
     )
-    expect(secret.cyclesTotal).toBeGreaterThanOrEqual(3)
-    expect(secret.cyclesTotal).toBeLessThanOrEqual(6)
+    // La création n'a lieu que sur l'appareil de la joueuse : rien qui touche
+    // aux cycles ne doit s'y trouver, ni dans la fiche, ni en mémoire.
     expect(JSON.stringify(char)).not.toContain('cycle')
+  })
+
+  it('démarre avec des cycles non renseignés, à saisir par la MJ', () => {
+    const vierge = secretVierge('x')
+    expect(vierge.cyclesTotal).toBe(0)
+    expect(cyclesNonRenseignes(vierge)).toBe(true)
+    expect(cyclesNonRenseignes(null)).toBe(true)
+    expect(cyclesNonRenseignes({ ...vierge, cyclesTotal: 4 })).toBe(false)
   })
 
   it('valide le profil de maîtrise type', () => {

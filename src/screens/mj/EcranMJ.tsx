@@ -16,6 +16,7 @@ import {
   surSecret,
 } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { cyclesNonRenseignes, secretVierge } from '../../domain/character.ts'
 import { computeEvasion, computeSixthSens, computeToutesCompetences } from '../../domain/competences.ts'
 import { cyclesRestants, fatigueRestante, resoudreGrillePleine } from '../../domain/fatigue.ts'
 import { MAX_FOI, SEUIL_COMBUSTION, modificateurMJ } from '../../domain/modifiers.ts'
@@ -225,8 +226,17 @@ function DetailPersonnage({
   }
 
   async function resoudreFatiguePleine() {
-    if (!secret) return
-    const r = resoudreGrillePleine(char, secret, catalog, cryptoRng)
+    // Sans nombre de cycles, impossible de savoir si ce cycle est le dernier :
+    // on refuse plutôt que de déclarer la fin du personnage par défaut.
+    if (cyclesNonRenseignes(secret)) {
+      setCyclesVisibles(true)
+      setMessage(
+        "Renseignez d'abord le nombre de cycles de ce personnage : sans lui, impossible de savoir si celui-ci est le dernier.",
+      )
+      return
+    }
+
+    const r = resoudreGrillePleine(char, secret as CharacterSecret, catalog, cryptoRng)
     await enregistrerPersonnage(r.char)
     await enregistrerSecret(r.secret)
 
@@ -255,26 +265,7 @@ function DetailPersonnage({
       {message && <p className="alerte alerte--info">{message}</p>}
 
       {/* --- Secret MJ --- */}
-      <div className="alerte alerte--secret">
-        <div className="rangee rangee--entre">
-          <span className="etiquette" style={{ color: 'inherit' }}>
-            Cycles — secret
-          </span>
-          <button type="button" className="btn btn--fantome" onClick={() => setCyclesVisibles((v) => !v)}>
-            {cyclesVisibles ? 'Masquer' : 'Révéler'}
-          </button>
-        </div>
-        {cyclesVisibles &&
-          (secret ? (
-            <p style={{ margin: '6px 0 0' }}>
-              {cyclesRestants(secret)} cycle(s) restant(s) sur {secret.cyclesTotal}.
-            </p>
-          ) : (
-            <p style={{ margin: '6px 0 0' }} className="tres-discret">
-              Aucun secret enregistré pour ce personnage.
-            </p>
-          ))}
-      </div>
+      <Cycles char={char} secret={secret} visible={cyclesVisibles} onVisible={setCyclesVisibles} />
 
       {/* --- Compétences --- */}
       <section className="pile pile--serree">
@@ -377,6 +368,125 @@ function DetailPersonnage({
           Supprimer ce personnage
         </button>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Cycles d'un personnage — 🔒 visible de la MJ seule.
+ *
+ * La valeur est **saisie à la main** : la MJ tire son 1d4+2 à sa table et
+ * l'entre ici. Rien n'est tiré par l'app, et surtout rien ne transite par
+ * l'appareil de la joueuse, dont le navigateur en garderait la trace.
+ *
+ * Le bloc reste replié par défaut : l'écran MJ est souvent visible de la table.
+ */
+function Cycles({
+  char,
+  secret,
+  visible,
+  onVisible,
+}: {
+  char: Character
+  secret: CharacterSecret | null
+  visible: boolean
+  onVisible: (v: boolean) => void
+}) {
+  const [enregistrement, setEnregistrement] = useState(false)
+
+  const courant = secret ?? secretVierge(char.id)
+  const nonRenseigne = cyclesNonRenseignes(secret)
+
+  async function ecrire(patch: Partial<CharacterSecret>) {
+    setEnregistrement(true)
+    try {
+      const suivant: CharacterSecret = { ...courant, ...patch }
+      // Les cycles consommés ne peuvent pas dépasser le total ni passer sous zéro.
+      suivant.cyclesTotal = Math.max(0, suivant.cyclesTotal)
+      suivant.cyclesConsommes = Math.max(0, Math.min(suivant.cyclesTotal, suivant.cyclesConsommes))
+      await enregistrerSecret(suivant)
+    } finally {
+      setEnregistrement(false)
+    }
+  }
+
+  return (
+    <div className="alerte alerte--secret">
+      <div className="rangee rangee--entre">
+        <span className="etiquette" style={{ color: 'inherit' }}>
+          Cycles — secret
+        </span>
+        <div className="rangee" style={{ gap: 6 }}>
+          {nonRenseigne && !visible && <span className="puce puce--desavantage">à renseigner</span>}
+          <button type="button" className="btn btn--fantome" onClick={() => onVisible(!visible)}>
+            {visible ? 'Masquer' : 'Révéler'}
+          </button>
+        </div>
+      </div>
+
+      {visible && (
+        <div className="pile pile--serree" style={{ marginTop: 10 }}>
+          {nonRenseigne && (
+            <p className="tres-discret" style={{ margin: 0 }}>
+              Tirez votre 1d4+2 à la table, puis saisissez le total ici.
+            </p>
+          )}
+
+          <div className="rangee" style={{ gap: 12 }}>
+            <label className="champ" style={{ flex: 1 }}>
+              <span className="etiquette" style={{ color: 'inherit' }}>
+                Total
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={courant.cyclesTotal || ''}
+                placeholder="—"
+                disabled={enregistrement}
+                onChange={(e) => void ecrire({ cyclesTotal: Number(e.target.value) || 0 })}
+              />
+            </label>
+
+            <label className="champ" style={{ flex: 1 }}>
+              <span className="etiquette" style={{ color: 'inherit' }}>
+                Consommés
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={courant.cyclesTotal}
+                value={courant.cyclesConsommes}
+                disabled={enregistrement || nonRenseigne}
+                onChange={(e) => void ecrire({ cyclesConsommes: Number(e.target.value) || 0 })}
+              />
+            </label>
+          </div>
+
+          {!nonRenseigne && (
+            <p style={{ margin: 0 }}>
+              <strong>{cyclesRestants(courant)}</strong> cycle(s) restant(s) sur{' '}
+              {courant.cyclesTotal}.
+              {cyclesRestants(courant) === 0 && ' Le prochain cycle achevé est le dernier.'}
+            </p>
+          )}
+
+          <label className="champ">
+            <span className="etiquette" style={{ color: 'inherit' }}>
+              Notes privées
+            </span>
+            <textarea
+              defaultValue={courant.notesMJ}
+              placeholder="Ce que la joueuse ne doit pas savoir…"
+              onBlur={(e) => {
+                if (e.target.value !== courant.notesMJ) void ecrire({ notesMJ: e.target.value })
+              }}
+            />
+          </label>
+        </div>
+      )}
     </div>
   )
 }

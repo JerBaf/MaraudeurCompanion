@@ -166,7 +166,8 @@ Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
 | Cristal épuisé | sur **1 et 2** (le texte fait foi sur la table du PDF) |
 | Pool du Détachement | tous les sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base |
 | Feu de camp | qualifié **repos court** ou **fin de journée** — seul le second rend le 6th Sens et lève Fardeaux, Serments et Marques journalières |
-| Dés | physiques à table ; l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter, les risques d'investissement et les cycles |
+| Dés | physiques à table ; l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
+| Cycles (1d4+2) | **saisis à la main par la MJ** depuis son écran, modifiables à tout moment. Jamais tirés par l'app : la valeur ne doit à aucun moment transiter par l'appareil d'une joueuse |
 
 Un point reste ouvert et se change en une ligne
 (`VOIE_FLAMME_CUMULATIVE` dans [`src/domain/modifiers.ts`](src/domain/modifiers.ts)) :

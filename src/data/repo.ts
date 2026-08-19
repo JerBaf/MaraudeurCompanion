@@ -120,16 +120,22 @@ export async function journaliser(
 // Personnages
 // ---------------------------------------------------------------------------
 
+/**
+ * Crée un personnage depuis l'écran joueuse.
+ *
+ * 🔒 N'écrit **que** la fiche. Les cycles vivent dans `secrets/`, une collection
+ * réservée à la MJ : les y écrire depuis le navigateur d'une joueuse serait à la
+ * fois refusé par les règles et contraire au but recherché — son appareil
+ * connaîtrait la valeur. La MJ les saisit depuis son écran quand elle le veut.
+ */
 export async function creerEtEnregistrerPersonnage(
   demande: Omit<DemandeCreation, 'id'>,
   catalog: Catalog,
 ): Promise<Character> {
   const id = nouvelIdentifiant()
-  const { char, secret } = creerPersonnage({ ...demande, id }, catalog, cryptoRng, Date.now())
+  const char = creerPersonnage({ ...demande, id }, catalog, Date.now())
 
   await store.setDoc(chemins.personnage(id), char)
-  // 🔒 Les cycles partent dans une collection distincte, jamais dans la fiche.
-  await store.setDoc(chemins.secret(id), secret)
   await journaliser(char.nom, 'creation', `${char.nom} rejoint la table (${char.classeId}).`)
 
   return char
