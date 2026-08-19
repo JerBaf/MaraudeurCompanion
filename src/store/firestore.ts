@@ -19,6 +19,7 @@ import {
   type Firestore,
 } from 'firebase/firestore'
 
+import { signalerErreur } from './erreurs.ts'
 import { ErreurAuth, type Auth, type Chemin, type Role, type Store, type Unsubscribe } from './types.ts'
 
 /**
@@ -51,7 +52,7 @@ export const firestoreStore: Store = {
       doc(db(), chemin),
       (snap) => cb(snap.exists() ? (snap.data() as T) : null),
       (err) => {
-        console.error(`Lecture refusée sur ${chemin}`, err)
+        signalerErreur(chemin, 'lecture', err)
         cb(null)
       },
     )
@@ -62,33 +63,54 @@ export const firestoreStore: Store = {
       collection(db(), chemin),
       (snap) => cb(snap.docs.map((d) => d.data() as T)),
       (err) => {
-        console.error(`Lecture refusée sur ${chemin}`, err)
+        signalerErreur(chemin, 'lecture', err)
         cb([])
       },
     )
   },
 
   async getDoc<T>(chemin: Chemin): Promise<T | null> {
-    const snap = await fsGetDoc(doc(db(), chemin))
-    return snap.exists() ? (snap.data() as T) : null
+    return surveiller(chemin, 'lecture', async () => {
+      const snap = await fsGetDoc(doc(db(), chemin))
+      return snap.exists() ? (snap.data() as T) : null
+    })
   },
 
   async getCollection<T>(chemin: Chemin): Promise<T[]> {
-    const snap = await getDocs(collection(db(), chemin))
-    return snap.docs.map((d) => d.data() as T)
+    return surveiller(chemin, 'lecture', async () => {
+      const snap = await getDocs(collection(db(), chemin))
+      return snap.docs.map((d) => d.data() as T)
+    })
   },
 
   async setDoc<T>(chemin: Chemin, valeur: T): Promise<void> {
-    await fsSetDoc(doc(db(), chemin), valeur as object)
+    return surveiller(chemin, 'écriture', () => fsSetDoc(doc(db(), chemin), valeur as object))
   },
 
   async updateDoc(chemin: Chemin, patch: Record<string, unknown>): Promise<void> {
-    await fsUpdateDoc(doc(db(), chemin), patch)
+    return surveiller(chemin, 'écriture', () => fsUpdateDoc(doc(db(), chemin), patch))
   },
 
   async deleteDoc(chemin: Chemin): Promise<void> {
-    await fsDeleteDoc(doc(db(), chemin))
+    return surveiller(chemin, 'écriture', () => fsDeleteDoc(doc(db(), chemin)))
   },
+}
+
+/**
+ * Signale l'échec à l'écran puis le relaie à l'appelant.
+ * On ne l'avale pas : un `await` qui échoue doit continuer d'échouer.
+ */
+async function surveiller<T>(
+  chemin: Chemin,
+  operation: 'lecture' | 'écriture',
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action()
+  } catch (e) {
+    signalerErreur(chemin, operation, e)
+    throw e
+  }
 }
 
 // ---------------------------------------------------------------------------

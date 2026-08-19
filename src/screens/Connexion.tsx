@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
-import { CODE_TABLE_LOCAL, MODE_LOCAL, PIN_MJ_LOCAL } from '../config.ts'
-import { auth, ErreurAuth } from '../store/index.ts'
+import { CODE_TABLE_LOCAL, PIN_MJ_LOCAL } from '../config.ts'
+import { auth, EN_MODE_LOCAL, ErreurAuth } from '../store/index.ts'
 
 /**
  * Porte d'entrée : un code de table pour les joueuses, un PIN pour la MJ.
@@ -94,7 +94,7 @@ export function Connexion() {
           </button>
         </form>
 
-        {MODE_LOCAL && (
+        {EN_MODE_LOCAL && (
           <div className="alerte alerte--info">
             <strong>Mode local</strong> — les données restent dans ce navigateur et se
             synchronisent entre onglets. Code de table <code>{CODE_TABLE_LOCAL}</code>, PIN MJ{' '}
