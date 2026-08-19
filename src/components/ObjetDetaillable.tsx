@@ -14,6 +14,7 @@ export function ObjetDetaillable({
   nom,
   meta,
   detail,
+  precision,
   puce,
   actif,
   indisponible,
@@ -22,6 +23,8 @@ export function ObjetDetaillable({
   nom: string
   meta?: ReactNode
   detail?: string
+  /** Encadré supplémentaire sous l'effet par défaut, quand le contexte le précise. */
+  precision?: { titre: string; texte: string }
   puce?: ReactNode
   actif?: boolean
   indisponible?: boolean
@@ -53,9 +56,17 @@ export function ObjetDetaillable({
       </button>
 
       {ouvert && detail && (
-        <div className="effet__detail">
-          <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{detail}</p>
-        </div>
+        <>
+          <div className="effet__detail">
+            <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{detail}</p>
+          </div>
+          {precision && (
+            <div className="effet__detail effet__detail--precision">
+              <span className="etiquette">{precision.titre}</span>
+              <p style={{ margin: '4px 0 0', whiteSpace: 'pre-line' }}>{precision.texte}</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

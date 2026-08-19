@@ -19,23 +19,42 @@ import type { Character, Competence, Magie, Modifier, ModifierTarget, Sort } fro
 // Voie de la Flamme
 // ---------------------------------------------------------------------------
 
-export type PalierFlamme = 'aucun' | 'perception' | 'fureur'
-
 /**
- * ⚠️ Point d'interprétation du PDF.
+ * Voie de la Flamme.
  *
- * Rules_For_Agents.pdf liste trois paliers : « 1-3 rien / 4-6 gagne un 6th Sens
- * supplémentaire / 7-9 avantage sur tous les jets de Physique ». Le texte se lit
- * comme des paliers qui se remplacent — c'est ce qui est implémenté ici. Passer
- * cette constante à `true` les rend cumulatifs (7-9 conserverait alors le 6th
- * Sens supplémentaire), si votre table le joue ainsi.
+ * Les paliers sont **cumulatifs** : à 7 brûlures on conserve le 6th Sens
+ * supplémentaire du palier 4-6 et on gagne en plus l'avantage en Physique.
+ *
+ * Modélisé comme une liste de seuils plutôt qu'une énumération de paliers
+ * exclusifs : ajouter un palier revient à ajouter une entrée ici, sans toucher
+ * ni au calcul, ni aux écrans.
  */
-export const VOIE_FLAMME_CUMULATIVE = false
+export interface PalierFlamme {
+  id: string
+  /** Nombre de brûlures à partir duquel le palier s'applique. */
+  seuil: number
+  nom: string
+  effet: string
+}
 
-export function palierVoieDeLaFlamme(brulures: number): PalierFlamme {
-  if (brulures >= 7) return 'fureur'
-  if (brulures >= 4) return 'perception'
-  return 'aucun'
+export const PALIERS_FLAMME: PalierFlamme[] = [
+  {
+    id: 'perception',
+    seuil: 4,
+    nom: 'Voie de la Flamme (4+)',
+    effet: 'Perception accrue de la chaleur : un point de 6th Sens supplémentaire.',
+  },
+  {
+    id: 'fureur',
+    seuil: 7,
+    nom: 'Voie de la Flamme (7+)',
+    effet: 'Le brasier vous porte : avantage sur tous les jets de Physique.',
+  },
+]
+
+/** Tous les paliers atteints, du plus bas au plus haut. */
+export function paliersFlammeAtteints(brulures: number): PalierFlamme[] {
+  return PALIERS_FLAMME.filter((p) => brulures >= p.seuil)
 }
 
 export const SEUIL_COMBUSTION = 9
@@ -161,17 +180,22 @@ export function derivedModifiers(char: Character, catalog: Catalog): Modifier[] 
     })
   }
 
-  // --- Voie de la Flamme (Magie du Sang) ---
-  const palier = palierVoieDeLaFlamme(char.brulures)
-  if (palier === 'perception' || (VOIE_FLAMME_CUMULATIVE && palier === 'fureur')) {
-    out.push(
-      derive('flamme:sens', 'voie-flamme', 'Voie de la Flamme (4-6)', { kind: 'sixth-sens' }, { kind: 'add', value: 1 }),
-    )
-  }
-  if (palier === 'fureur') {
-    out.push(
-      derive('flamme:physique', 'voie-flamme', 'Voie de la Flamme (7-9)', { kind: 'competence', competence: 'physique' }, { kind: 'avantage' }),
-    )
+  // --- Voie de la Flamme (Magie du Sang), cumulative ---
+  for (const palier of paliersFlammeAtteints(char.brulures)) {
+    if (palier.id === 'perception') {
+      out.push(derive('flamme:sens', 'voie-flamme', palier.nom, { kind: 'sixth-sens' }, { kind: 'add', value: 1 }))
+    }
+    if (palier.id === 'fureur') {
+      out.push(
+        derive(
+          'flamme:physique',
+          'voie-flamme',
+          palier.nom,
+          { kind: 'competence', competence: 'physique' },
+          { kind: 'avantage' },
+        ),
+      )
+    }
   }
 
   // --- Dusk Hunter : Overdrive ---

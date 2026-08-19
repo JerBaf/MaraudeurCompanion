@@ -708,6 +708,15 @@ textarea {
   color: var(--parchemin-doux);
 }
 
+/* Encadré de précision : ce que le contexte courant ajoute à l'effet par défaut
+   (la personnalité incarnée par un Soulshifter, par exemple). */
+.effet__detail--precision {
+  margin-top: 6px;
+  border-color: color-mix(in srgb, var(--ambre) 45%, transparent);
+  background: color-mix(in srgb, var(--ambre) 8%, var(--encre));
+  color: var(--parchemin);
+}
+
 .effet__liste {
   margin: 8px 0 0;
   padding-left: 18px;

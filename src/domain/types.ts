@@ -265,10 +265,14 @@ export interface VieSoulshifter {
   /** Face du dé qui la désigne. */
   face: number
   nom: string
-  companion: string
-  element: string
-  tribue: string
-  sens: string
+  /**
+   * Précision apportée à chaque sort, indexée par identifiant de sort.
+   *
+   * Indexer par `id` plutôt que par des champs fixes permet à une vie de ne
+   * préciser qu'une partie des sorts, et à un sort ajouté plus tard d'être
+   * couvert sans toucher au code.
+   */
+  precisions: Record<string, string>
 }
 
 export interface Character {

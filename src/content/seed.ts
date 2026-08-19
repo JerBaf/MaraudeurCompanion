@@ -183,19 +183,23 @@ export const VIES_SOULSHIFTER: VieSoulshifter[] = [
   {
     face: 1,
     nom: 'Abaddon, Maître du Néant',
-    companion: 'Un spectre',
-    element: 'Boule de gravitation',
-    tribue:
-      'Peut rendre invisible une personne volontaire. La cible prend 1 Marque (Oblivion) par minute.',
-    sens: 'Peut ressentir si des éléments sont cachés.',
+    precisions: {
+      companion: 'Un spectre.',
+      element: 'Boule de gravitation.',
+      tribue:
+        'Peut rendre invisible une personne volontaire. La cible prend 1 Marque (Oblivion) par minute.',
+      sens: 'Peut ressentir si des éléments sont cachés.',
+    },
   },
   {
     face: 2,
     nom: 'T-rexcité',
-    companion: 'Un dinosaure de taille moyenne',
-    element: 'Une liane',
-    tribue: 'Change sa peau en écaille, gagne +1 en Évasion',
-    sens: 'Gagne +4 en intimidation',
+    precisions: {
+      companion: 'Un dinosaure de taille moyenne.',
+      element: 'Une liane.',
+      tribue: 'Change sa peau en écaille, gagne +1 en Évasion.',
+      sens: 'Gagne +4 en intimidation.',
+    },
   },
 ]
 

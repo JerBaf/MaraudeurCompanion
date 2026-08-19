@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import type { Catalog } from '../domain/catalog.ts'
-import { facesDuDeDeVies } from '../domain/effets.ts'
+import { facesDuDeDeVies, vieActive } from '../domain/effets.ts'
 import { cryptoRng } from '../domain/random.ts'
 import type { Character, VieSoulshifter } from '../domain/types.ts'
 
@@ -38,7 +38,7 @@ export function Passifs({
 
       {classe.passifMoteur === 'dusk-hexcore' && <Hexcore char={char} maj={maj} />}
       {classe.passifMoteur === 'soulshifter-vies' && (
-        <Vies char={char} vies={vies} maj={maj} />
+        <Vies char={char} vies={vies} catalog={catalog} maj={maj} />
       )}
       {classe.passifMoteur === 'trickster-voie' && (
         <VoieTrickster char={char} maj={maj} deverrouille={autoriserToutChanger} />
@@ -93,16 +93,18 @@ function Hexcore({ char, maj }: { char: Character; maj: (t: (c: Character) => Ch
 function Vies({
   char,
   vies,
+  catalog,
   maj,
 }: {
   char: Character
   vies: readonly VieSoulshifter[]
+  catalog: Catalog
   maj: (t: (c: Character) => Character) => void
 }) {
   const [dernierTirage, setDernierTirage] = useState<string | null>(null)
   const faces = facesDuDeDeVies(char)
   const connues = char.passifs.viesConnues ?? []
-  const active = vies.find((v) => v.face === char.passifs.vieActive)
+  const active = vieActive(char, vies)
 
   function tirer() {
     if (faces === 0) return
@@ -129,11 +131,11 @@ function Vies({
         <div className="objet objet--actif">
           <span className="objet__corps">
             <span className="objet__nom">{active.nom}</span>
-            <span className="objet__meta">
-              Companion : {active.companion} · Element : {active.element}
-            </span>
-            <span className="objet__meta">Tribue : {active.tribue}</span>
-            <span className="objet__meta">Sens : {active.sens}</span>
+            {Object.entries(active.precisions).map(([sortId, texte]) => (
+              <span key={sortId} className="objet__meta">
+                {catalog.sort(sortId)?.nom ?? sortId} : {texte}
+              </span>
+            ))}
           </span>
         </div>
       ) : (

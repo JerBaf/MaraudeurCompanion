@@ -199,6 +199,41 @@ export function rangSortSang(bruluresDepensees: number): number {
 // Disponibilité d'un sort
 // ---------------------------------------------------------------------------
 
+/**
+ * Un sort utilisable sans occuper un des 3 emplacements du Grimoire.
+ *
+ * Aujourd'hui, seules les illusions du Trickster ayant choisi la voie
+ * Illusionniste entrent dans ce cas : elles sont disponibles en permanence,
+ * échappent à la sélection du Feu de Camp, et toute illusion acquise plus tard
+ * le sera de la même façon — sans code supplémentaire.
+ */
+export function estHorsEmplacement(sort: Sort, char: Character): boolean {
+  return sort.illusion === true && char.passifs.voieTrickster === 'illusionniste'
+}
+
+/**
+ * Le Grimoire tel qu'il s'affiche : les sorts préparés au Feu de Camp, suivis
+ * de ceux qui sont disponibles en permanence.
+ */
+export function grimoireEffectif(
+  char: Character,
+  catalog: Catalog,
+): { sort: Sort; horsEmplacement: boolean }[] {
+  const prepares = char.grimoire
+    .map((id) => catalog.sort(id))
+    .filter((s): s is Sort => Boolean(s))
+    .map((sort) => ({ sort, horsEmplacement: false }))
+
+  const permanents = char.possede.sorts
+    .map((id) => catalog.sort(id))
+    .filter((s): s is Sort => Boolean(s) && estHorsEmplacement(s as Sort, char))
+    // Une illusion préparée par erreur ne doit pas apparaître deux fois.
+    .filter((s) => !char.grimoire.includes((s as Sort).id))
+    .map((sort) => ({ sort: sort as Sort, horsEmplacement: true }))
+
+  return [...prepares, ...permanents]
+}
+
 export type RaisonIndisponible = 'hors-grimoire' | 'cristal-epuise' | 'foi-insuffisante' | 'brulures-insuffisantes'
 
 /**
@@ -213,8 +248,7 @@ export function disponibiliteSort(
 ): { disponible: boolean; raisons: RaisonIndisponible[] } {
   const raisons: RaisonIndisponible[] = []
 
-  const gratuitHorsGrimoire = sort.illusion === true && char.passifs.voieTrickster === 'illusionniste'
-  if (!gratuitHorsGrimoire && !char.grimoire.includes(sort.id)) raisons.push('hors-grimoire')
+  if (!estHorsEmplacement(sort, char) && !char.grimoire.includes(sort.id)) raisons.push('hors-grimoire')
   if (char.sortsEpuises.includes(sort.id)) raisons.push('cristal-epuise')
 
   const coutFoi = coutFoiEffectif(sort, char, catalog)

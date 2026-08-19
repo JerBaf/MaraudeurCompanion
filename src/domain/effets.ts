@@ -1,5 +1,5 @@
 import type { Catalog } from './catalog.ts'
-import { allModifiers, palierVoieDeLaFlamme } from './modifiers.ts'
+import { allModifiers, paliersFlammeAtteints } from './modifiers.ts'
 import { LIBELLE_COMPETENCE, type Character, type Modifier, type VieSoulshifter } from './types.ts'
 
 /**
@@ -167,32 +167,30 @@ export function effetsActifs(
     })
   }
 
-  // Soulshifter : la vie incarnée colore les quatre sorts.
+  // Soulshifter : la vie incarnée précise l'effet de chaque sort.
+  const vie = vieActive(char, vies)
   if (char.passifs.vieActive != null) {
-    const vie = vies.find((v) => v.face === char.passifs.vieActive)
     effets.push({
       id: `passif:vie:${char.passifs.vieActive}`,
       nom: vie ? vie.nom : `Vie n°${char.passifs.vieActive}`,
       origine: 'choisi',
       resume: 'Personnalité incarnée pour l’heure en cours',
       detail: vie
-        ? `Companion : ${vie.companion}\nElement : ${vie.element}\nTribue : ${vie.tribue}\nSens : ${vie.sens}`
+        ? Object.entries(vie.precisions)
+            .map(([sortId, texte]) => `${catalog.sort(sortId)?.nom ?? sortId} : ${texte}`)
+            .join('\n')
         : 'Personnalité inconnue du catalogue.',
       modificateurs: [],
     })
   }
 
-  // Voie de la Flamme : le palier « perception » et « fureur » produisent bien
-  // des modificateurs (déjà regroupés plus haut), mais on explicite le palier
-  // courant pour que la joueuse comprenne d'où il vient.
-  const palier = palierVoieDeLaFlamme(char.brulures)
-  if (palier !== 'aucun') {
-    const existant = effets.find((e) => e.nom.startsWith('Voie de la Flamme'))
+  // Voie de la Flamme : les paliers atteints produisent chacun leur modificateur
+  // (déjà regroupés plus haut). On explicite ici d'où ils viennent, en rappelant
+  // qu'ils se cumulent — un palier franchi ne remplace pas le précédent.
+  for (const palier of paliersFlammeAtteints(char.brulures)) {
+    const existant = effets.find((e) => e.nom === palier.nom)
     if (existant) {
-      existant.detail =
-        palier === 'perception'
-          ? `Vous portez ${char.brulures} brûlures (palier 4-6). La chaleur aiguise votre perception : vous gagnez un point de 6th Sens supplémentaire. Il disparaîtra si vous descendez sous 4 ou montez à 7.`
-          : `Vous portez ${char.brulures} brûlures (palier 7-9). Le brasier vous porte : avantage sur tous les jets de Physique. Attention, à 9 brûlures la Combustion vous coûte un Point de Fatigue.`
+      existant.detail = `Vous portez ${char.brulures} brûlures, ce qui atteint le seuil de ${palier.seuil}. ${palier.effet} Les paliers de la Voie de la Flamme se cumulent : vous conservez les bonus des seuils inférieurs.`
     }
   }
 
@@ -210,4 +208,27 @@ export function effetsActifs(
  */
 export function facesDuDeDeVies(char: Character): number {
   return char.passifs.viesConnues?.length ?? 0
+}
+
+/** La vie actuellement incarnée, si le personnage en a une. */
+export function vieActive(
+  char: Character,
+  vies: readonly VieSoulshifter[],
+): VieSoulshifter | null {
+  if (char.passifs.vieActive == null) return null
+  return vies.find((v) => v.face === char.passifs.vieActive) ?? null
+}
+
+/**
+ * Précision que la personnalité en cours apporte à un sort donné.
+ *
+ * Renvoie `null` quand aucune vie n'est incarnée ou que celle-ci ne dit rien de
+ * ce sort — l'écran n'affiche alors que l'effet par défaut.
+ */
+export function precisionPersonnalite(
+  sortId: string,
+  char: Character,
+  vies: readonly VieSoulshifter[],
+): string | null {
+  return vieActive(char, vies)?.precisions[sortId] ?? null
 }

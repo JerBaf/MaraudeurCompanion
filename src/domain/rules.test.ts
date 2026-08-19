@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { SEED } from '../content/seed.ts'
-import { resoudreCampPourPersonnage } from './campfire.ts'
+import { resoudreCampPourPersonnage, TAILLE_GRIMOIRE } from './campfire.ts'
 import { createCatalog } from './catalog.ts'
 import {
   appliquerProfil,
@@ -23,7 +23,7 @@ import {
   computeEvasion,
   computeSixthSens,
 } from './competences.ts'
-import { effetsActifs, facesDuDeDeVies } from './effets.ts'
+import { effetsActifs, facesDuDeDeVies, precisionPersonnalite, vieActive } from './effets.ts'
 import {
   cyclesRestants,
   effectuerDetachement,
@@ -36,6 +36,8 @@ import {
   coutAdditionnel,
   coutFoiEffectif,
   disponibiliteSort,
+  estHorsEmplacement,
+  grimoireEffectif,
   resoudreArcane,
 } from './magie.ts'
 import {
@@ -44,10 +46,10 @@ import {
   modificateurEsquive,
   modificateurFardeau,
   modificateurSerment,
-  palierVoieDeLaFlamme,
+  paliersFlammeAtteints,
 } from './modifiers.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
-import type { Character, Sort } from './types.ts'
+import type { Character, Sort, VieSoulshifter } from './types.ts'
 
 const catalog = createCatalog(SEED)
 
@@ -161,15 +163,15 @@ describe('Actions Rapides', () => {
 // ---------------------------------------------------------------------------
 
 describe('Voie de la Flamme', () => {
-  it('découpe les paliers 1-3 / 4-6 / 7-9', () => {
-    expect(palierVoieDeLaFlamme(0)).toBe('aucun')
-    expect(palierVoieDeLaFlamme(3)).toBe('aucun')
-    expect(palierVoieDeLaFlamme(4)).toBe('perception')
-    expect(palierVoieDeLaFlamme(6)).toBe('perception')
-    expect(palierVoieDeLaFlamme(7)).toBe('fureur')
+  it('franchit les seuils 4 puis 7', () => {
+    expect(paliersFlammeAtteints(0).map((p) => p.id)).toEqual([])
+    expect(paliersFlammeAtteints(3).map((p) => p.id)).toEqual([])
+    expect(paliersFlammeAtteints(4).map((p) => p.id)).toEqual(['perception'])
+    expect(paliersFlammeAtteints(6).map((p) => p.id)).toEqual(['perception'])
+    expect(paliersFlammeAtteints(7).map((p) => p.id)).toEqual(['perception', 'fureur'])
   })
 
-  it('accorde +1 6th Sens entre 4 et 6 brûlures, sans rien persister', () => {
+  it('accorde +1 6th Sens dès 4 brûlures, sans rien persister', () => {
     const calme = nouveauPerso('dusk-hunter', { brulures: 3 })
     const chaud = nouveauPerso('dusk-hunter', { brulures: 5 })
 
@@ -179,14 +181,21 @@ describe('Voie de la Flamme', () => {
     expect(derivedModifiers(chaud, catalog).some((m) => m.target.kind === 'sixth-sens')).toBe(true)
   })
 
-  it('bascule sur l’avantage en Physique à partir de 7 brûlures', () => {
+  it('cumule les paliers : à 8 brûlures, 6th Sens ET avantage en Physique', () => {
     const brasier = nouveauPerso('dusk-hunter', { brulures: 8 })
     expect(computeCompetence(brasier, catalog, 'physique').net).toBe('avantage')
-    expect(computeSixthSens(brasier, catalog).max).toBe(1)
+    // Le palier 7 ne remplace pas le palier 4 : le point de 6th Sens reste acquis.
+    expect(computeSixthSens(brasier, catalog).max).toBe(2)
   })
 
-  it('ne produit jamais un reste de 6th Sens négatif en changeant de palier', () => {
-    const char = nouveauPerso('dusk-hunter', { brulures: 8, sixthSensUtilises: 2 })
+  it('retire les deux bonus en redescendant sous 4', () => {
+    const refroidi = nouveauPerso('dusk-hunter', { brulures: 2 })
+    expect(computeSixthSens(refroidi, catalog).max).toBe(1)
+    expect(computeCompetence(refroidi, catalog, 'physique').net).toBe('neutre')
+  })
+
+  it('ne produit jamais un reste de 6th Sens négatif', () => {
+    const char = nouveauPerso('dusk-hunter', { brulures: 0, sixthSensUtilises: 3 })
     expect(computeSixthSens(char, catalog).restants).toBe(0)
   })
 })
@@ -302,6 +311,82 @@ describe('disponibilité des sorts', () => {
 })
 
 // ---------------------------------------------------------------------------
+
+describe('Illusions hors emplacement', () => {
+  const illusionniste = () =>
+    nouveauPerso('trickster', {
+      grimoire: ['polymorph', 'tame', 'word-baboum'],
+      possede: {
+        sorts: ['polymorph', 'tame', 'word-baboum', 'word-crackers', 'ya-gat-fooled', 'mage-hand'],
+        equipements: [],
+        ameliorations: [],
+      },
+      passifs: { voieTrickster: 'illusionniste' },
+    })
+
+  it('ajoute les illusions au Grimoire sans consommer d’emplacement', () => {
+    const grimoire = grimoireEffectif(illusionniste(), catalog)
+    const prepares = grimoire.filter((e) => !e.horsEmplacement)
+    const permanents = grimoire.filter((e) => e.horsEmplacement)
+
+    expect(prepares).toHaveLength(TAILLE_GRIMOIRE)
+    expect(permanents.map((e) => e.sort.id).sort()).toEqual(['mage-hand', 'ya-gat-fooled'])
+    // Le sort simplement possédé mais non préparé reste au sac à dos.
+    expect(grimoire.some((e) => e.sort.id === 'word-crackers')).toBe(false)
+  })
+
+  it('n’ajoute rien pour un Conteur', () => {
+    const conteur = { ...illusionniste(), passifs: { voieTrickster: 'conteur' as const } }
+    expect(grimoireEffectif(conteur, catalog).every((e) => !e.horsEmplacement)).toBe(true)
+  })
+
+  it('rend toute illusion acquise plus tard disponible d’office', () => {
+    // Le catalogue ne contient que deux illusions ; on vérifie que la règle
+    // porte bien sur le marqueur du sort, pas sur une liste figée.
+    const base = illusionniste()
+    const sansIllusions = {
+      ...base,
+      possede: { ...base.possede, sorts: ['polymorph', 'tame', 'word-baboum'] },
+    }
+    expect(grimoireEffectif(sansIllusions, catalog).some((e) => e.horsEmplacement)).toBe(false)
+
+    const avecUne = {
+      ...base,
+      possede: { ...base.possede, sorts: ['polymorph', 'tame', 'word-baboum', 'mage-hand'] },
+    }
+    expect(grimoireEffectif(avecUne, catalog).filter((e) => e.horsEmplacement)).toHaveLength(1)
+  })
+
+  it('laisse lancer une illusion absente des 3 emplacements', () => {
+    const mageHand = catalog.sort('mage-hand') as Sort
+    expect(estHorsEmplacement(mageHand, illusionniste())).toBe(true)
+    expect(disponibiliteSort(mageHand, illusionniste(), catalog).disponible).toBe(true)
+  })
+})
+
+describe('précisions de personnalité', () => {
+  const vies: VieSoulshifter[] = [
+    { face: 1, nom: 'Abaddon', precisions: { element: 'Boule de gravitation.' } },
+    { face: 2, nom: 'T-rexcité', precisions: { element: 'Une liane.', tribue: '+1 Évasion.' } },
+  ]
+
+  it('renvoie le texte de la vie incarnée', () => {
+    const char = nouveauPerso('soulshifter', { passifs: { viesConnues: [1, 2], vieActive: 2 } })
+    expect(precisionPersonnalite('element', char, vies)).toBe('Une liane.')
+    expect(precisionPersonnalite('tribue', char, vies)).toBe('+1 Évasion.')
+  })
+
+  it('renvoie null pour un sort que la vie ne précise pas', () => {
+    const char = nouveauPerso('soulshifter', { passifs: { viesConnues: [1, 2], vieActive: 1 } })
+    expect(precisionPersonnalite('tribue', char, vies)).toBeNull()
+  })
+
+  it('renvoie null quand aucune vie n’est incarnée', () => {
+    const char = nouveauPerso('soulshifter', { passifs: { viesConnues: [1, 2], vieActive: null } })
+    expect(precisionPersonnalite('element', char, vies)).toBeNull()
+    expect(vieActive(char, vies)).toBeNull()
+  })
+})
 
 describe('combat', () => {
   it('inflige E − N quand le jet passe l’Évasion', () => {
@@ -485,8 +570,12 @@ describe('Feu de Camp', () => {
 // ---------------------------------------------------------------------------
 
 describe('effets actifs', () => {
-  const vies = [
-    { face: 2, nom: 'T-rexcité', companion: 'Un dinosaure', element: 'Une liane', tribue: '+1 Évasion', sens: '+4 intimidation' },
+  const vies: VieSoulshifter[] = [
+    {
+      face: 2,
+      nom: 'T-rexcité',
+      precisions: { companion: 'Un dinosaure.', element: 'Une liane.', tribue: '+1 Évasion.' },
+    },
   ]
 
   it('regroupe les modificateurs par source et nomme leur origine', () => {
@@ -522,6 +611,14 @@ describe('effets actifs', () => {
 
     expect(effet?.origine).toBe('derive')
     expect(effet?.detail).toContain('5 brûlures')
+  })
+
+  it('liste les deux paliers de la Flamme quand ils sont tous deux atteints', () => {
+    const char = nouveauPerso('dusk-hunter', { brulures: 8 })
+    const flamme = effetsActifs(char, catalog).filter((e) => e.nom.startsWith('Voie de la Flamme'))
+
+    expect(flamme).toHaveLength(2)
+    expect(flamme.every((e) => e.detail.includes('se cumulent'))).toBe(true)
   })
 
   it('décrit la personnalité incarnée par le Soulshifter', () => {

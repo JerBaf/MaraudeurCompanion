@@ -169,12 +169,12 @@ Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
 | Dés | physiques à table ; l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
 | Cycles (1d4+2) | **saisis à la main par la MJ** depuis son écran, modifiables à tout moment. Jamais tirés par l'app : la valeur ne doit à aucun moment transiter par l'appareil d'une joueuse |
 
-Un point reste ouvert et se change en une ligne
-(`VOIE_FLAMME_CUMULATIVE` dans [`src/domain/modifiers.ts`](src/domain/modifiers.ts)) :
-les paliers de la Voie de la Flamme sont traités comme **exclusifs** — à 7-9
-brûlures on gagne l'avantage en Physique mais on perd le 6th Sens supplémentaire
-des paliers 4-6. C'est la lecture littérale du PDF ; dites-le si votre table les
-joue cumulatifs.
+| Voie de la Flamme | paliers **cumulatifs** : à 7 brûlures on conserve le 6th Sens du seuil 4 et on gagne l'avantage en Physique |
+| Illusions du Trickster | disponibles en permanence, **hors des 3 emplacements** du Grimoire ; toute illusion acquise plus tard l'est aussi |
+
+Les seuils de la Voie de la Flamme sont déclarés dans `PALIERS_FLAMME`
+([`src/domain/modifiers.ts`](src/domain/modifiers.ts)) : en ajouter un revient à
+ajouter une entrée, sans toucher au calcul ni aux écrans.
 
 ---
 

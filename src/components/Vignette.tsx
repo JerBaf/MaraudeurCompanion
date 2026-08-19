@@ -11,21 +11,18 @@ export function Vignette({
   valeur,
   note,
   teinte,
-  children,
 }: {
   libelle: string
   valeur: ReactNode
   /** Ligne de détail sous la valeur : d'où elle vient. */
   note?: string
   teinte?: string
-  children?: ReactNode
 }) {
   return (
     <div className="vignette" style={teinte ? ({ '--teinte': teinte } as React.CSSProperties) : undefined}>
       <span className="etiquette">{libelle}</span>
       <span className="vignette__valeur">{valeur}</span>
       {note && <span className="vignette__note">{note}</span>}
-      {children}
     </div>
   )
 }

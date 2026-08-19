@@ -8,7 +8,9 @@ import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { journaliser, modifierPersonnage } from '../../data/repo.ts'
+import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { precisionPersonnalite, vieActive } from '../../domain/effets.ts'
 import {
   actionsRapidesMax,
   computeEvasion,
@@ -21,12 +23,13 @@ import {
   combustionVolontaire,
   coutFoiEffectif,
   disponibiliteSort,
+  grimoireEffectif,
 } from '../../domain/magie.ts'
 import {
   EVASION_DE_BASE,
   MAX_FOI,
   MAX_MARQUES,
-  palierVoieDeLaFlamme,
+  paliersFlammeAtteints,
   SEUIL_COMBUSTION,
 } from '../../domain/modifiers.ts'
 import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
@@ -118,7 +121,7 @@ function OngletFiche({
   const evasion = computeEvasion(char, catalog)
   const sens = computeSixthSens(char, catalog)
   const rapidesMax = actionsRapidesMax(char, catalog)
-  const palier = palierVoieDeLaFlamme(char.brulures)
+  const paliers = paliersFlammeAtteints(char.brulures)
   const restante = fatigueRestante(char)
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
@@ -281,13 +284,8 @@ function OngletFiche({
           valeur={char.brulures}
           max={SEUIL_COMBUSTION}
           onChange={(v) => maj((c) => ({ ...c, brulures: v }))}
-          note={
-            palier === 'fureur'
-              ? 'Voie de la Flamme — avantage sur tous les jets de Physique'
-              : palier === 'perception'
-                ? 'Voie de la Flamme — un point de 6th Sens supplémentaire'
-                : undefined
-          }
+          // Les paliers se cumulent : on les liste tous, pas seulement le plus haut.
+          {...(paliers.length > 0 ? { note: paliers.map((p) => p.effet).join(' ') } : {})}
         />
 
         <div className="rangee">
@@ -359,10 +357,25 @@ export function decrireCoutSort(sort: Sort, coutFoi: number | null): string {
   }
 }
 
-function LigneSort({ sort, char, catalog }: { sort: Sort; char: Character; catalog: Catalog }) {
+function LigneSort({
+  sort,
+  char,
+  catalog,
+  horsEmplacement,
+}: {
+  sort: Sort
+  char: Character
+  catalog: Catalog
+  horsEmplacement?: boolean
+}) {
   const dispo = disponibiliteSort(sort, char, catalog)
   const coutFoi = coutFoiEffectif(sort, char, catalog)
   const epuise = char.sortsEpuises.includes(sort.id)
+
+  // La personnalité incarnée par un Soulshifter ne remplace pas l'effet du
+  // sort : elle le précise. Les deux s'affichent donc l'un sous l'autre.
+  const precision = precisionPersonnalite(sort.id, char, VIES_SOULSHIFTER)
+  const vie = vieActive(char, VIES_SOULSHIFTER)
 
   return (
     <ObjetDetaillable
@@ -371,42 +384,48 @@ function LigneSort({ sort, char, catalog }: { sort: Sort; char: Character; catal
       meta={`${LIBELLE_MAGIE[sort.magie]} · ${decrireCoutSort(sort, coutFoi)}${sort.de ? ` · ${sort.de}` : ''} · ${sort.duree}`}
       detail={sort.effet}
       indisponible={!dispo.disponible}
-      {...(epuise ? { puce: <span className="puce puce--desavantage">Épuisé</span> } : {})}
+      {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
+      {...(epuise
+        ? { puce: <span className="puce puce--desavantage">Épuisé</span> }
+        : horsEmplacement
+          ? { puce: <span className="puce puce--ambre">Hors emplacement</span> }
+          : {})}
     />
   )
 }
 
 function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
-  const grimoire = char.grimoire.map((id) => catalog.sort(id)).filter((s): s is Sort => Boolean(s))
-  const illusions =
-    char.passifs.voieTrickster === 'illusionniste'
-      ? char.possede.sorts.map((id) => catalog.sort(id)).filter((s): s is Sort => Boolean(s?.illusion))
-      : []
+  const grimoire = grimoireEffectif(char, catalog)
+  const prepares = grimoire.filter((e) => !e.horsEmplacement).length
+  const permanents = grimoire.length - prepares
 
   return (
     <div className="pile">
       <section className="carte pile pile--serree">
         <div className="carte__titre">
           <span className="etiquette">Grimoire</span>
-          <span className="tres-discret">{grimoire.length}/3 · figé jusqu'au feu de camp</span>
+          <span className="tres-discret">
+            {prepares}/{TAILLE_GRIMOIRE} préparé(s)
+            {permanents > 0 ? ` + ${permanents} en permanence` : ''}
+          </span>
         </div>
         {grimoire.length === 0 && <p className="vide">Aucun sort préparé.</p>}
-        {grimoire.map((sort) => (
-          <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
+        {grimoire.map(({ sort, horsEmplacement }) => (
+          <LigneSort
+            key={sort.id}
+            sort={sort}
+            char={char}
+            catalog={catalog}
+            horsEmplacement={horsEmplacement}
+          />
         ))}
+        {permanents > 0 && (
+          <p className="tres-discret" style={{ margin: 0 }}>
+            Les sorts « hors emplacement » sont disponibles en permanence et ne comptent pas dans
+            la limite de {TAILLE_GRIMOIRE}.
+          </p>
+        )}
       </section>
-
-      {illusions.length > 0 && (
-        <section className="carte pile pile--serree">
-          <div className="carte__titre">
-            <span className="etiquette">Illusions</span>
-            <span className="tres-discret">à volonté, hors Grimoire</span>
-          </div>
-          {illusions.map((sort) => (
-            <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
-          ))}
-        </section>
-      )}
     </div>
   )
 }
