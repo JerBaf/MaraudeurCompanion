@@ -1,7 +1,7 @@
 import { TABLE_ID } from '../config.ts'
 import { SEED } from '../content/seed.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
-import { etatCombatInitial, sousGroupeSuivant } from '../domain/combat.ts'
+import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
 import { creerPersonnage, type DemandeCreation } from '../domain/character.ts'
 import { effectuerDetachement, type ElementDetachable } from '../domain/fatigue.ts'
 import { expireModifiers, type EvenementExpiration } from '../domain/modifiers.ts'
@@ -309,9 +309,11 @@ export async function definirInitiative(
 /**
  * Passe au sous-groupe suivant, et au tour suivant après « Après la MJ ».
  *
- * ⚠️ C'est ici que tombent les Esquives et les Diversions : `expireModifiers`
- * est appliqué à **tous** les personnages, car une Diversion posée par une
- * joueuse vit sur la fiche d'une autre.
+ * ⚠️ C'est ici que tombent les Esquives et les Diversions. L'expiration est
+ * évaluée à **chaque** activation et non au seul changement de tour : une
+ * Esquive doit couvrir le moment de la MJ, une Diversion peut n'être valable
+ * que pour l'activation en cours. Elle s'applique à **tous** les personnages,
+ * car une Diversion posée par une joueuse vit sur la fiche d'une autre.
  */
 export async function avancerSousGroupe(
   etat: EtatTable,
@@ -326,7 +328,10 @@ export async function avancerSousGroupe(
     combat: { ...combat, sousGroupeActif: sousGroupe, tour },
   })
 
-  if (nouveauTour) await expirerSurTousLesPersonnages(personnages, { kind: 'tour', tour })
+  await expirerSurTousLesPersonnages(personnages, {
+    kind: 'moment',
+    moment: indexMoment(tour, sousGroupe),
+  })
 }
 
 /**

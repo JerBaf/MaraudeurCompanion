@@ -72,6 +72,35 @@ async function normaliserExistants() {
   return reparees
 }
 
+/**
+ * Écrit la liste des icônes réellement présentes.
+ *
+ * L'app ne peut pas lister `public/` à l'exécution : sans ce fichier, l'écran
+ * MJ n'aurait aucun moyen de proposer un choix d'icônes pour une créature du
+ * bestiaire. Le manifeste est régénéré à chaque exécution, donc il inclut
+ * automatiquement les dessins que vous auriez déposés vous-même.
+ */
+async function ecrireManifeste() {
+  const fichiers = (await readdir(dossierIcones))
+    .filter((f) => f.endsWith('.svg'))
+    .map((f) => f.slice(0, -4))
+    .sort()
+
+  const contenu = [
+    '// Généré par `npm run icons` — ne pas modifier à la main.',
+    '//',
+    "// Liste des icônes présentes dans public/icons, pour que l'écran MJ",
+    '// puisse en proposer le choix. Déposez un fichier et relancez le script.',
+    '',
+    'export const ICONES_DISPONIBLES = [',
+    ...fichiers.map((f) => `  '${f}',`),
+    '] as const',
+    '',
+  ].join('\n')
+
+  await writeFile(path.join(racine, 'src', 'content', 'icones.ts'), contenu, 'utf8')
+}
+
 /** Extrait les noms d'icônes du contenu livré avec l'app. */
 async function iconesReferencees() {
   const dossier = path.join(racine, 'src', 'content')
@@ -99,6 +128,7 @@ async function main() {
 
   const manquantes = voulues.filter((n) => !existsSync(path.join(dossierIcones, `${n}.svg`)))
   if (manquantes.length === 0) {
+    await ecrireManifeste()
     console.log(`${voulues.length} icône(s) déjà présente(s). Rien à télécharger.`)
     return
   }
@@ -156,6 +186,8 @@ async function main() {
     ].join('\n'),
     'utf8',
   )
+
+  await ecrireManifeste()
 
   console.log(`${telechargees} icône(s) téléchargée(s) dans public/icons/.`)
   if (introuvables.length > 0) {

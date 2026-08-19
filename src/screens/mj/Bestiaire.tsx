@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Icone } from '../../components/Icone.tsx'
+import { ICONES_DISPONIBLES } from '../../content/icones.ts'
 import { enregistrerModele, nouveauModele, supprimerModele, surBestiaire } from '../../data/repo.ts'
 import type { ModeleAdversaire } from '../../domain/types.ts'
 
@@ -109,15 +110,28 @@ export function Bestiaire() {
             </label>
           </div>
 
-          <label className="champ">
-            <span className="tres-discret">Icône — nom d'un fichier de public/icons</span>
-            <input
-              type="text"
-              value={edition.icone}
-              onChange={(e) => setEdition({ ...edition, icone: e.target.value.trim() })}
-              placeholder="spectre"
-            />
-          </label>
+          <div className="champ">
+            <span className="tres-discret">
+              Icône — {ICONES_DISPONIBLES.length} disponibles. Pour en ajouter, déposez un SVG dans
+              public/icons et relancez <code>npm run icons</code>.
+            </span>
+            <div className="grille-icones" role="radiogroup" aria-label="Icône de la créature">
+              {ICONES_DISPONIBLES.map((nom) => (
+                <button
+                  key={nom}
+                  type="button"
+                  role="radio"
+                  aria-checked={edition.icone === nom}
+                  aria-label={nom}
+                  title={nom}
+                  className={`choix-icone ${edition.icone === nom ? 'choix-icone--actif' : ''}`}
+                  onClick={() => setEdition({ ...edition, icone: nom })}
+                >
+                  <Icone nom={nom} taille={30} />
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="rangee">
             <button type="button" className="btn btn--fantome" onClick={() => setEdition(null)}>

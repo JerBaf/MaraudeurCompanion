@@ -51,6 +51,72 @@ export function sousGroupeInitiative(d6: number): 'avant-mj' | 'apres-mj' {
 
 export const ORDRE_SOUS_GROUPES: SousGroupe[] = ['avant-mj', 'mj', 'apres-mj']
 
+// ---------------------------------------------------------------------------
+// Horloge de combat
+// ---------------------------------------------------------------------------
+
+/**
+ * Un combat n'avance pas par tours mais par **moments** : chaque tour contient
+ * trois activations successives (avant la MJ, la MJ, après la MJ). On les
+ * numérote sur une seule ligne du temps, ce qui permet de dire simplement
+ * « cet effet dure jusqu'à tel moment ».
+ *
+ *   tour 1 : 0 (avant-mj) · 1 (mj) · 2 (après-mj)
+ *   tour 2 : 3 (avant-mj) · 4 (mj) · 5 (après-mj)
+ *
+ * C'est indispensable parce que « jusqu'au prochain tour » ne veut pas dire la
+ * même chose selon qui bénéficie de l'effet : une joueuse qui agit après la MJ
+ * et qui aide une alliée agissant avant la MJ lui donne un bonus pour le tour
+ * *suivant*, alors que la même aide rendue à quelqu'un de son propre
+ * sous-groupe ne vaut que pour le tour en cours.
+ */
+export function indexMoment(tour: number, sousGroupe: SousGroupe): number {
+  return (tour - 1) * ORDRE_SOUS_GROUPES.length + ORDRE_SOUS_GROUPES.indexOf(sousGroupe)
+}
+
+export function momentCourant(combat: EtatCombat): number {
+  return indexMoment(combat.tour, combat.sousGroupeActif)
+}
+
+/**
+ * Prochain moment où `sousGroupe` agit, à partir de `depuis` **inclus**.
+ * Si c'est déjà son tour, renvoie le moment courant.
+ */
+export function prochaineActivation(depuis: number, sousGroupe: SousGroupe): number {
+  const position = ORDRE_SOUS_GROUPES.indexOf(sousGroupe)
+  const debutDuTour = Math.floor(depuis / ORDRE_SOUS_GROUPES.length) * ORDRE_SOUS_GROUPES.length
+  const candidat = debutDuTour + position
+  return candidat >= depuis ? candidat : candidat + ORDRE_SOUS_GROUPES.length
+}
+
+/**
+ * Échéance d'une Esquive.
+ *
+ * C'est un bonus **défensif** : il doit couvrir tout l'intervalle pendant lequel
+ * la joueuse subit des attaques sans pouvoir réagir, c'est-à-dire jusqu'à sa
+ * prochaine activation. Il tombe donc au moment où elle rejoue.
+ */
+export function echeanceEsquive(combat: EtatCombat, sousGroupeJoueuse: SousGroupe): number {
+  return prochaineActivation(momentCourant(combat) + 1, sousGroupeJoueuse)
+}
+
+/**
+ * Échéance d'une Diversion.
+ *
+ * C'est un bonus **offensif** : il est consommé quand la bénéficiaire attaque.
+ * Il doit donc rester actif pendant toute sa prochaine activation — celle en
+ * cours si c'est déjà son sous-groupe — et disparaître juste après.
+ */
+export function echeanceDiversion(combat: EtatCombat, sousGroupeBeneficiaire: SousGroupe): number {
+  return prochaineActivation(momentCourant(combat), sousGroupeBeneficiaire) + 1
+}
+
+/** Sous-groupe d'un personnage, ou `null` s'il n'a pas encore lancé son d6. */
+export function sousGroupeDe(char: Character, combat: EtatCombat): SousGroupe | null {
+  const d6 = combat.initiatives[char.id]
+  return d6 === undefined ? null : sousGroupeInitiative(d6)
+}
+
 export function sousGroupeSuivant(courant: SousGroupe): { sousGroupe: SousGroupe; nouveauTour: boolean } {
   const i = ORDRE_SOUS_GROUPES.indexOf(courant)
   const suivant = ORDRE_SOUS_GROUPES[(i + 1) % ORDRE_SOUS_GROUPES.length] as SousGroupe

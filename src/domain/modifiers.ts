@@ -233,8 +233,11 @@ export function allModifiers(char: Character, catalog: Catalog): Modifier[] {
 export type EvenementExpiration =
   /** Un feu de camp vient d'être résolu. */
   | { kind: 'camp'; finDeJournee: boolean }
-  /** Le combat vient de passer au tour `tour`. */
-  | { kind: 'tour'; tour: number }
+  /**
+   * Le combat vient d'atteindre ce moment de l'horloge. À évaluer à **chaque**
+   * changement de sous-groupe, pas seulement au changement de tour.
+   */
+  | { kind: 'moment'; moment: number }
   /** Le combat est terminé. */
   | { kind: 'fin-combat' }
 
@@ -252,11 +255,9 @@ export function expireModifiers(mods: readonly Modifier[], ev: EvenementExpirati
       case 'fin-de-journee':
         // Un repos court ne lève ni Fardeau, ni Serment, ni Marque journalière.
         return !(ev.kind === 'camp' && ev.finDeJournee)
-      case 'fin-tour-suivant': {
-        // Posé au tour N, actif jusqu'à la fin du tour N : il tombe dès que le
-        // combat passe au tour suivant, et disparaît avec le combat.
+      case 'moment-combat': {
         if (ev.kind === 'fin-combat') return false
-        if (ev.kind === 'tour') return ev.tour <= m.expires.turnId
+        if (ev.kind === 'moment') return ev.moment < m.expires.momentFin
         return true
       }
       case 'fin-de-combat':
@@ -308,14 +309,17 @@ export function modificateurMarque(competence: Competence): Modifier {
   }
 }
 
-/** Action Alternative « Esquiver » : +1 Évasion jusqu'au tour suivant. */
-export function modificateurEsquive(tour: number): Modifier {
+/**
+ * Action Alternative « Esquiver » : +1 Évasion jusqu'à sa prochaine activation.
+ * L'échéance se calcule avec `echeanceEsquive` (`combat.ts`).
+ */
+export function modificateurEsquive(momentFin: number): Modifier {
   return {
     id: nouvelId('esquive'),
     source: { kind: 'action-alt', label: 'Esquiver' },
     target: { kind: 'evasion' },
     op: { kind: 'add', value: 1 },
-    expires: { kind: 'fin-tour-suivant', turnId: tour },
+    expires: { kind: 'moment-combat', momentFin },
   }
 }
 
@@ -323,15 +327,16 @@ export function modificateurEsquive(tour: number): Modifier {
  * Action Alternative « Faire diversion » : +1 Point d'Énergie à une alliée.
  *
  * C'est le cas qui valide le design du moteur — un modificateur posé par une
- * joueuse sur la fiche d'une autre, avec sa propre échéance.
+ * joueuse sur la fiche d'une autre, avec une échéance qui dépend du sous-groupe
+ * de la bénéficiaire. Voir `echeanceDiversion` (`combat.ts`).
  */
-export function modificateurDiversion(tour: number, poseParNom: string): Modifier {
+export function modificateurDiversion(momentFin: number, poseParNom: string): Modifier {
   return {
     id: nouvelId('diversion'),
     source: { kind: 'action-alt', label: `Diversion de ${poseParNom}` },
     target: { kind: 'energie-attaque' },
     op: { kind: 'add', value: 1 },
-    expires: { kind: 'fin-tour-suivant', turnId: tour },
+    expires: { kind: 'moment-combat', momentFin },
     posePar: poseParNom,
   }
 }

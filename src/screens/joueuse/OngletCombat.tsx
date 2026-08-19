@@ -12,23 +12,27 @@ import type { Catalog } from '../../domain/catalog.ts'
 import {
   ACTIONS_ALTERNATIVES,
   appliquerDegats,
+  echeanceDiversion,
+  echeanceEsquive,
   estSonTour,
   evasionAffichee,
   LIBELLE_SOUS_GROUPE,
   resoudreAttaque,
-  sousGroupeInitiative,
+  sousGroupeDe,
 } from '../../domain/combat.ts'
 import { computeBonusEnergieAttaque } from '../../domain/competences.ts'
 import { modificateurDiversion, modificateurEsquive } from '../../domain/modifiers.ts'
-import type { Adversaire, Character, EtatTable } from '../../domain/types.ts'
+import type { Adversaire, Character, EtatCombat, EtatTable } from '../../domain/types.ts'
 import { RappelsCombat } from './RappelsCombat.tsx'
 
 /**
  * Écran de combat de la joueuse.
  *
- * Décision arrêtée avec la MJ : la joueuse saisit sa cible et son jet, l'app
- * calcule `E − N` et applique les dégâts pour toute la table. La MJ garde la
- * main pour corriger depuis son écran.
+ * L'écran se déverrouille en trois étapes, à la demande de la MJ : tant qu'une
+ * joueuse n'a pas déposé son initiative elle ne voit **rien d'autre** ; tant que
+ * ce n'est pas le tour de son sous-groupe elle ne voit que les adversaires.
+ * L'objectif est qu'aucun champ de saisie ne soit visible à un moment où elle
+ * n'a pas le droit d'agir — sans quoi la table se met à jouer hors tour.
  *
  * Les dés restent physiques : on saisit un résultat, l'app n'en lance aucun.
  */
@@ -51,33 +55,34 @@ export function OngletCombat({
     return <p className="vide">La MJ n'a pas encore démarré le combat.</p>
   }
 
-  const monInitiative = combat.initiatives[char.id]
-  const monTour = estSonTour(char, combat)
+  // --- Étape 1 : tant que l'initiative n'est pas déposée, rien d'autre ---
+  if (combat.initiatives[char.id] === undefined) {
+    return <SaisieInitiative etat={etat} char={char} />
+  }
 
+  // --- Étape 2 : ce n'est pas son tour, on ne montre que les adversaires ---
+  if (!estSonTour(char, combat)) {
+    return (
+      <div className="pile">
+        <Attente char={char} combat={combat} />
+        <ListeAdversaires adversaires={adversaires} />
+        <RappelsCombat />
+      </div>
+    )
+  }
+
+  // --- Étape 3 : c'est son tour, tout est déverrouillé ---
   return (
     <div className="pile">
-      {monInitiative === undefined ? (
-        <SaisieInitiative etat={etat} char={char} />
-      ) : monTour ? (
-        <p className="tour-actif">C'est à vous de jouer.</p>
-      ) : (
-        <p className="tour-attente">
-          {LIBELLE_SOUS_GROUPE[combat.sousGroupeActif]} · tour {combat.tour}. Vous jouez{' '}
-          {LIBELLE_SOUS_GROUPE[sousGroupeInitiative(monInitiative)].toLowerCase()} (d6 ={' '}
-          {monInitiative}).
-        </p>
-      )}
-
+      <p className="tour-actif">C'est à vous de jouer.</p>
       <Attaque
         char={char}
         catalog={catalog}
-        etat={etat}
+        combat={combat}
         adversaires={adversaires}
         personnages={personnages}
       />
-
       <ListeAdversaires adversaires={adversaires} />
-
       <RappelsCombat />
     </div>
   )
@@ -91,6 +96,7 @@ function SaisieInitiative({ etat, char }: { etat: EtatTable; char: Character }) 
       <span className="etiquette">Votre initiative</span>
       <p className="discret" style={{ margin: 0 }}>
         Lancez votre d6 et saisissez le résultat. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après.
+        Le reste de l'écran s'ouvrira ensuite.
       </p>
       <div className="rangee">
         {[1, 2, 3, 4, 5, 6].map((d) => (
@@ -106,6 +112,16 @@ function SaisieInitiative({ etat, char }: { etat: EtatTable; char: Character }) 
         ))}
       </div>
     </section>
+  )
+}
+
+function Attente({ char, combat }: { char: Character; combat: EtatCombat }) {
+  const mien = sousGroupeDe(char, combat)
+  return (
+    <p className="tour-attente">
+      <strong>Patientez.</strong> Tour {combat.tour} — {LIBELLE_SOUS_GROUPE[combat.sousGroupeActif]}.
+      {mien && ` Vous jouez ${LIBELLE_SOUS_GROUPE[mien].toLowerCase()}.`}
+    </p>
   )
 }
 
@@ -139,13 +155,13 @@ function ListeAdversaires({ adversaires }: { adversaires: Adversaire[] }) {
 function Attaque({
   char,
   catalog,
-  etat,
+  combat,
   adversaires,
   personnages,
 }: {
   char: Character
   catalog: Catalog
-  etat: EtatTable
+  combat: EtatCombat
   adversaires: Adversaire[]
   personnages: Character[]
 }) {
@@ -154,7 +170,6 @@ function Attaque({
   const [resultat, setResultat] = useState<string | null>(null)
   const [alternative, setAlternative] = useState(false)
 
-  const combat = etat.combat!
   const bonus = computeBonusEnergieAttaque(char, catalog).bonus
   const cible = adversaires.find((a) => a.id === cibleId)
   const jetNombre = Number(jet)
@@ -187,62 +202,62 @@ function Attaque({
   }
 
   return (
-    <section className="carte pile">
-      <div className="carte__titre">
-        <span className="etiquette">Attaquer</span>
-        {bonus !== 0 && (
-          <span className="puce puce--ambre">
-            {bonus > 0 ? '+' : ''}
-            {bonus} PE
+    <>
+      <section className="carte pile">
+        <div className="carte__titre">
+          <span className="etiquette">Attaquer</span>
+          {bonus !== 0 && (
+            <span className="puce puce--ambre">
+              {bonus > 0 ? '+' : ''}
+              {bonus} PE
+            </span>
+          )}
+        </div>
+
+        <label className="champ">
+          <span className="tres-discret">Cible</span>
+          <select value={cibleId} onChange={(e) => setCibleId(e.target.value)}>
+            <option value="">— choisir —</option>
+            {adversaires.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nom} (Évasion {evasionAffichee(a, false)})
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="champ">
+          <span className="tres-discret">
+            Résultat de votre dé{bonus !== 0 ? ` — ${bonus > 0 ? '+' : ''}${bonus} sera ajouté` : ''}
           </span>
-        )}
-      </div>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={jet}
+            onChange={(e) => setJet(e.target.value)}
+            placeholder="3"
+          />
+        </label>
 
-      <label className="champ">
-        <span className="tres-discret">Cible</span>
-        <select value={cibleId} onChange={(e) => setCibleId(e.target.value)}>
-          <option value="">— choisir —</option>
-          {adversaires.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.nom} (Évasion {evasionAffichee(a, false)})
-            </option>
-          ))}
-        </select>
-      </label>
+        <button
+          type="button"
+          className="btn btn--principal btn--large"
+          onClick={() => void resoudre()}
+          disabled={!saisieValide}
+        >
+          Résoudre
+        </button>
 
-      <label className="champ">
-        <span className="tres-discret">
-          Résultat de votre dé{bonus !== 0 ? ` — ${bonus > 0 ? '+' : ''}${bonus} sera ajouté` : ''}
-        </span>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={jet}
-          onChange={(e) => setJet(e.target.value)}
-          placeholder="3"
-        />
-      </label>
+        {resultat && <p className="alerte alerte--info">{resultat}</p>}
+      </section>
 
-      <button
-        type="button"
-        className="btn btn--principal btn--large"
-        onClick={() => void resoudre()}
-        disabled={!saisieValide}
-      >
-        Résoudre
-      </button>
-
-      {resultat && <p className="alerte alerte--info">{resultat}</p>}
-
-      {alternative && (
-        <ActionsAlternatives
-          char={char}
-          personnages={personnages}
-          tour={combat.tour}
-          onFait={() => setAlternative(false)}
-        />
-      )}
-    </section>
+      <ActionsAlternatives
+        char={char}
+        personnages={personnages}
+        combat={combat}
+        ouvertParEchec={alternative}
+      />
+    </>
   )
 }
 
@@ -251,96 +266,140 @@ function Attaque({
 /**
  * Le bouton « G pas touchão ».
  *
- * S'ouvre automatiquement quand un jet n'a pas percé l'Évasion, et reste
- * accessible autrement. Les deux effets expirent au tour suivant — la
- * Diversion étant posée sur la fiche d'une **autre** joueuse.
+ * S'ouvre de lui-même quand un jet n'a pas percé l'Évasion, et reste
+ * accessible le reste du temps. Les deux actions se choisissent en touchant
+ * leur encadré ; la désignation de l'alliée n'apparaît qu'après avoir choisi
+ * la Diversion, pour que l'écran ne montre jamais un champ sans objet.
  */
 function ActionsAlternatives({
   char,
   personnages,
-  tour,
-  onFait,
+  combat,
+  ouvertParEchec,
 }: {
   char: Character
   personnages: Character[]
-  tour: number
-  onFait: () => void
+  combat: EtatCombat
+  ouvertParEchec: boolean
 }) {
+  const [ouvert, setOuvert] = useState(false)
+  const [choix, setChoix] = useState<'esquiver' | 'diversion' | null>(null)
   const [cibleId, setCibleId] = useState('')
   const [message, setMessage] = useState<string | null>(null)
 
+  const deploye = ouvert || ouvertParEchec
   const allies = personnages.filter((p) => p.id !== char.id)
+  const monSousGroupe = sousGroupeDe(char, combat)
 
   async function esquiver() {
+    if (!monSousGroupe) return
     await modifierPersonnage(char, (c) => ({
       ...c,
-      modifiers: [...c.modifiers, modificateurEsquive(tour)],
+      modifiers: [...c.modifiers, modificateurEsquive(echeanceEsquive(combat, monSousGroupe))],
     }))
-    setMessage('Esquive posée : +1 à votre Évasion jusqu’au tour suivant.')
-    onFait()
+    setMessage('Esquive posée : +1 à votre Évasion jusqu’à votre prochain tour.')
+    setChoix(null)
   }
 
   async function faireDiversion() {
     const allie = allies.find((a) => a.id === cibleId)
     if (!allie) return
+
+    // L'échéance dépend du sous-groupe de la bénéficiaire : si elle a déjà
+    // joué ce tour-ci, le bonus vaut pour son activation du tour suivant.
+    const sousGroupeAllie = sousGroupeDe(allie, combat)
+    if (!sousGroupeAllie) {
+      setMessage(`${allie.nom} n'a pas encore déposé son initiative.`)
+      return
+    }
+
     await enregistrerPersonnage({
       ...allie,
-      modifiers: [...allie.modifiers, modificateurDiversion(tour, char.nom)],
+      modifiers: [
+        ...allie.modifiers,
+        modificateurDiversion(echeanceDiversion(combat, sousGroupeAllie), char.nom),
+      ],
     })
     await journaliser(char.nom, 'diversion', `${char.nom} fait diversion pour ${allie.nom} (+1 PE).`)
-    setMessage(`Diversion pour ${allie.nom} : +1 Point d'Énergie jusqu’au tour suivant.`)
-    onFait()
+    setMessage(`Diversion pour ${allie.nom} : +1 Point d'Énergie pour sa prochaine action.`)
+    setChoix(null)
+    setCibleId('')
+  }
+
+  if (!deploye) {
+    return (
+      <button type="button" className="btn-touchao" onClick={() => setOuvert(true)}>
+        G pas touchão
+      </button>
+    )
   }
 
   return (
-    <div className="carte pile pile--serree" style={{ background: 'var(--encre)' }}>
-      <span className="etiquette">G pas touchão</span>
+    <section className="carte carte--touchao pile">
+      <div className="carte__titre">
+        <span className="titre-touchao">G pas touchão</span>
+        {!ouvertParEchec && (
+          <button type="button" className="btn btn--fantome" onClick={() => setOuvert(false)}>
+            Fermer
+          </button>
+        )}
+      </div>
+
       <p className="discret" style={{ margin: 0 }}>
         Votre jet n'a pas percé les défenses adverses. Plutôt que de perdre votre tour, employez
-        ces Points d'Énergie autrement.
+        ces Points d'Énergie autrement — touchez une action pour la choisir.
       </p>
 
       {ACTIONS_ALTERNATIVES.map((a) => (
-        <div key={a.id} className="pile pile--serree">
-          <div className="objet">
-            <span className="objet__corps">
-              <span className="objet__nom">{a.nom}</span>
-              <span className="objet__meta">{a.description}</span>
-            </span>
-          </div>
-
-          {a.id === 'esquiver' ? (
-            <button type="button" className="btn btn--large" onClick={() => void esquiver()}>
-              Esquiver
-            </button>
-          ) : (
-            <div className="rangee">
-              <select
-                value={cibleId}
-                onChange={(e) => setCibleId(e.target.value)}
-                style={{ flex: 1, minHeight: 44 }}
-              >
-                <option value="">— quelle alliée ? —</option>
-                {allies.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nom}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => void faireDiversion()}
-                disabled={!cibleId}
-              >
-                Faire diversion
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          key={a.id}
+          type="button"
+          className={`choix-action ${choix === a.id ? 'choix-action--actif' : ''}`}
+          aria-pressed={choix === a.id}
+          onClick={() => setChoix(choix === a.id ? null : a.id)}
+        >
+          <span className="objet__corps">
+            <span className="choix-action__nom">{a.nom}</span>
+            <span className="objet__meta">{a.description}</span>
+          </span>
+        </button>
       ))}
 
+      {choix === 'esquiver' && (
+        <button type="button" className="btn btn--principal btn--large" onClick={() => void esquiver()}>
+          Confirmer l'esquive
+        </button>
+      )}
+
+      {choix === 'diversion' && (
+        <div className="pile pile--serree">
+          <label className="champ">
+            <span className="tres-discret">Quelle alliée aidez-vous ?</span>
+            <select value={cibleId} onChange={(e) => setCibleId(e.target.value)}>
+              <option value="">— choisir —</option>
+              {allies.map((p) => {
+                const sg = sousGroupeDe(p, combat)
+                return (
+                  <option key={p.id} value={p.id}>
+                    {p.nom}
+                    {sg ? ` — ${LIBELLE_SOUS_GROUPE[sg].toLowerCase()}` : ' — sans initiative'}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn btn--principal btn--large"
+            onClick={() => void faireDiversion()}
+            disabled={!cibleId}
+          >
+            Confirmer la diversion
+          </button>
+        </div>
+      )}
+
       {message && <p className="alerte alerte--info">{message}</p>}
-    </div>
+    </section>
   )
 }

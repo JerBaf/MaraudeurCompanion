@@ -13,16 +13,21 @@ import {
 import {
   ACTIONS_ALTERNATIVES,
   appliquerDegats,
+  echeanceDiversion,
+  echeanceEsquive,
   estSonTour,
   estTombe,
   evasionAffichee,
+  indexMoment,
   instancierAdversaire,
+  prochaineActivation,
   repartirParInitiative,
   resoudreAttaque,
   sousGroupeInitiative,
 } from './combat.ts'
 import {
   actionsRapidesMax,
+  computeBonusEnergieAttaque,
   computeCompetence,
   computeEvasion,
   computeSixthSens,
@@ -47,13 +52,21 @@ import {
 import {
   derivedModifiers,
   expireModifiers,
+  modificateurDiversion,
   modificateurEsquive,
   modificateurFardeau,
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
-import type { Character, ModeleAdversaire, Sort, VieSoulshifter } from './types.ts'
+import type {
+  Character,
+  EtatCombat,
+  ModeleAdversaire,
+  Sort,
+  VieSoulshifter,
+} from './types.ts'
+import type { SousGroupe } from './combat.ts'
 
 const catalog = createCatalog(SEED)
 
@@ -339,6 +352,25 @@ describe('Illusions hors emplacement', () => {
     expect(grimoire.some((e) => e.sort.id === 'word-crackers')).toBe(false)
   })
 
+  /**
+   * Régression : les illusions étaient absentes des sorts accordés à la
+   * création, donc un Trickster tout neuf ne les voyait nulle part.
+   */
+  it('accorde les illusions dès la création, sans qu’elles occupent un emplacement', () => {
+    const neuf = nouveauPerso('trickster')
+
+    expect(neuf.possede.sorts).toContain('ya-gat-fooled')
+    expect(neuf.possede.sorts).toContain('mage-hand')
+    expect(neuf.grimoire).not.toContain('ya-gat-fooled')
+    expect(neuf.grimoire).toHaveLength(TAILLE_GRIMOIRE)
+
+    const grimoire = grimoireEffectif(neuf, catalog)
+    expect(grimoire.filter((e) => e.horsEmplacement).map((e) => e.sort.id).sort()).toEqual([
+      'mage-hand',
+      'ya-gat-fooled',
+    ])
+  })
+
   it('n’ajoute rien pour un Conteur', () => {
     const conteur = { ...illusionniste(), passifs: { voieTrickster: 'conteur' as const } }
     expect(grimoireEffectif(conteur, catalog).every((e) => !e.horsEmplacement)).toBe(true)
@@ -508,17 +540,102 @@ describe('bestiaire et adversaires', () => {
   })
 })
 
+describe('horloge de combat', () => {
+  it('numérote les moments sur une seule ligne du temps', () => {
+    expect(indexMoment(1, 'avant-mj')).toBe(0)
+    expect(indexMoment(1, 'mj')).toBe(1)
+    expect(indexMoment(1, 'apres-mj')).toBe(2)
+    expect(indexMoment(2, 'avant-mj')).toBe(3)
+  })
+
+  it('trouve la prochaine activation, le moment courant compris', () => {
+    // On est au moment 2 (tour 1, après-MJ).
+    expect(prochaineActivation(2, 'apres-mj')).toBe(2) // c'est déjà son tour
+    expect(prochaineActivation(2, 'avant-mj')).toBe(3) // déjà passé : au tour suivant
+    expect(prochaineActivation(0, 'apres-mj')).toBe(2) // plus loin dans le même tour
+  })
+})
+
 describe('Esquiver', () => {
+  const combat = (tour: number, sousGroupeActif: SousGroupe): EtatCombat => ({
+    tour,
+    sousGroupeActif,
+    initiatives: {},
+  })
+
   it('ajoute +1 à l’Évasion', () => {
-    const char = nouveauPerso('trickster', { modifiers: [modificateurEsquive(3)] })
+    const char = nouveauPerso('trickster', {
+      modifiers: [modificateurEsquive(echeanceEsquive(combat(1, 'apres-mj'), 'apres-mj'))],
+    })
     expect(computeEvasion(char, catalog).total).toBe(2)
   })
 
-  it('survit à son tour et tombe au tour suivant', () => {
-    const mods = [modificateurEsquive(3)]
-    expect(expireModifiers(mods, { kind: 'tour', tour: 3 })).toHaveLength(1)
-    expect(expireModifiers(mods, { kind: 'tour', tour: 4 })).toHaveLength(0)
+  /**
+   * Une Esquive est défensive : elle doit couvrir le moment de la MJ, sinon
+   * elle ne protège de rien. Elle tombe quand la joueuse rejoue.
+   */
+  it('couvre le tour de la MJ et tombe à la prochaine activation de la joueuse', () => {
+    // Joueuse « avant-MJ » qui esquive au tour 1 (moment 0).
+    const mods = [modificateurEsquive(echeanceEsquive(combat(1, 'avant-mj'), 'avant-mj'))]
+
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(1, 'mj') })).toHaveLength(1)
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(1, 'apres-mj') })).toHaveLength(1)
+    // Elle rejoue : l'esquive est consommée.
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(2, 'avant-mj') })).toHaveLength(0)
     expect(expireModifiers(mods, { kind: 'fin-combat' })).toHaveLength(0)
+  })
+})
+
+describe('Faire diversion', () => {
+  const combat = (tour: number, sousGroupeActif: SousGroupe): EtatCombat => ({
+    tour,
+    sousGroupeActif,
+    initiatives: {},
+  })
+
+  /**
+   * Le cas décrit par la MJ : une joueuse « après-MJ » aide une alliée
+   * « avant-MJ ». Celle-ci a déjà joué ce tour-ci, donc le bonus est pour son
+   * activation du tour suivant — et doit y survivre.
+   */
+  it('vaut pour le tour suivant quand la bénéficiaire a déjà joué', () => {
+    const echeance = echeanceDiversion(combat(1, 'apres-mj'), 'avant-mj')
+    const mods = [modificateurDiversion(echeance, 'Ilma')]
+
+    // Le combat passe au tour 2 : la bénéficiaire va jouer, le bonus est là.
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(2, 'avant-mj') })).toHaveLength(1)
+    // Elle a joué : le bonus disparaît.
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(2, 'mj') })).toHaveLength(0)
+  })
+
+  /**
+   * L'autre cas : on aide quelqu'un de son propre sous-groupe. Elle joue dans
+   * le même moment que nous, donc le bonus ne vaut que pour ce tour-ci.
+   */
+  it('ne vaut que pour le tour en cours dans son propre sous-groupe', () => {
+    const echeance = echeanceDiversion(combat(1, 'apres-mj'), 'apres-mj')
+    const mods = [modificateurDiversion(echeance, 'Ilma')]
+
+    // Toujours actif pendant l'activation en cours.
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(1, 'apres-mj') })).toHaveLength(1)
+    // Le combat avance : le bonus n'est pas reporté au tour suivant.
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(2, 'avant-mj') })).toHaveLength(0)
+  })
+
+  it('vaut pour ce tour-ci quand la bénéficiaire n’a pas encore joué', () => {
+    // Joueuse « avant-MJ » qui aide une alliée « après-MJ » : celle-ci joue
+    // plus tard dans le même tour.
+    const echeance = echeanceDiversion(combat(1, 'avant-mj'), 'apres-mj')
+    const mods = [modificateurDiversion(echeance, 'Ilma')]
+
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(1, 'apres-mj') })).toHaveLength(1)
+    expect(expireModifiers(mods, { kind: 'moment', moment: indexMoment(2, 'avant-mj') })).toHaveLength(0)
+  })
+
+  it('donne bien +1 Point d’Énergie à la bénéficiaire', () => {
+    const echeance = echeanceDiversion(combat(1, 'avant-mj'), 'apres-mj')
+    const char = nouveauPerso('trickster', { modifiers: [modificateurDiversion(echeance, 'Ilma')] })
+    expect(computeBonusEnergieAttaque(char, catalog).bonus).toBe(1)
   })
 })
 

@@ -188,11 +188,18 @@ describe('mode Combat', () => {
     await waitFor(() => expect(screen.getByText(/dégâts 0 \/ 6/)).toBeTruthy())
     cleanup()
 
-    // --- La joueuse voit la créature, mais ni son Évasion ni son seuil ---
+    // --- La joueuse ne voit rien tant qu'elle n'a pas déposé son initiative ---
     sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
-
     fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+
+    await waitFor(() => expect(screen.getByText('Votre initiative')).toBeTruthy())
+    expect(screen.queryByText('Carcasse')).toBeNull()
+    expect(screen.queryByText('Résoudre')).toBeNull()
+    expect(screen.queryByText('G pas touchão')).toBeNull()
+
+    // --- Une fois l'initiative posée, la créature apparaît ---
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
     await waitFor(() => expect(screen.getByText('Carcasse')).toBeTruthy())
 
     // L'Évasion reste masquée tant que la MJ ne l'a pas rendue publique,
@@ -204,6 +211,36 @@ describe('mode Combat', () => {
     const docAdversaire = clesStockage().find((k) => k.includes('/adversaries/'))
     expect(docAdversaire).toBeDefined()
     expect(localStorage.getItem(docAdversaire as string)).not.toContain('fatigueMax')
+  })
+
+  /**
+   * Demande explicite de la MJ : une joueuse dont ce n'est pas le sous-groupe
+   * ne doit pas avoir l'impression de pouvoir agir. Elle consulte les
+   * adversaires, rien de plus.
+   */
+  it('n’offre aucune saisie à une joueuse dont ce n’est pas le tour', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(screen.getByRole('button', { name: 'Combat' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+    fireEvent.click(await screen.findByText('Démarrer un combat'))
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+
+    // Un 1 la place « après la MJ », alors que le tour actif est « avant la MJ ».
+    fireEvent.click(await screen.findByRole('button', { name: '1' }))
+
+    await waitFor(() => expect(screen.getByText('Patientez.')).toBeTruthy())
+    expect(screen.queryByText('Attaquer')).toBeNull()
+    expect(screen.queryByText('Résoudre')).toBeNull()
+    expect(screen.queryByText('G pas touchão')).toBeNull()
+    // Elle garde en revanche la vue sur les adversaires.
+    expect(screen.getByText('Adversaires')).toBeTruthy()
   })
 
   it('laisse la joueuse déposer son initiative et lui dit quand c’est son tour', async () => {

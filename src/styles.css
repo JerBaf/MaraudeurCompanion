@@ -725,6 +725,39 @@ textarea {
   color: var(--ambre);
 }
 
+/* Sélecteur d'icônes : une grille défilante plutôt qu'une saisie à l'aveugle. */
+.grille-icones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--encre-4);
+  border-radius: var(--rayon);
+  background: var(--encre);
+}
+
+.choix-icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--encre-3);
+  padding: 4px;
+}
+
+.choix-icone:hover {
+  border-color: var(--encre-4);
+}
+
+.choix-icone--actif {
+  border-color: var(--ambre);
+  background: color-mix(in srgb, var(--ambre) 15%, var(--encre-3));
+}
+
 /* --------------------------------------------------------------------------
    Combat
    -------------------------------------------------------------------------- */
@@ -756,6 +789,70 @@ textarea {
   color: var(--parchemin-faible);
   text-align: center;
   font-size: 0.9rem;
+}
+
+/* « G pas touchão » — le recours quand un coup ne passe pas. Doit sauter aux
+   yeux au milieu du reste de l'écran de combat, d'où le rouge et la taille. */
+.btn-touchao {
+  width: 100%;
+  min-height: 60px;
+  border-radius: var(--rayon-l);
+  border: 2px solid var(--sang);
+  background: color-mix(in srgb, var(--sang) 18%, var(--encre));
+  color: var(--sang-vif);
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  letter-spacing: 0.02em;
+  transition: background 0.12s ease;
+}
+
+.btn-touchao:hover {
+  background: color-mix(in srgb, var(--sang) 30%, var(--encre));
+}
+
+.carte--touchao {
+  border-color: var(--sang);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--sang) 10%, var(--encre-2));
+}
+
+.titre-touchao {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  color: var(--sang-vif);
+}
+
+/* Les deux actions alternatives sont des encadrés qu'on sélectionne. */
+.choix-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--rayon);
+  border: 2px solid var(--encre-4);
+  background: var(--encre-3);
+  color: var(--parchemin);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.choix-action:hover {
+  border-color: color-mix(in srgb, var(--sang) 50%, var(--encre-4));
+}
+
+.choix-action--actif {
+  border-color: var(--sang-vif);
+  background: color-mix(in srgb, var(--sang) 16%, var(--encre-3));
+}
+
+.choix-action__nom {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+}
+
+.choix-action--actif .choix-action__nom {
+  color: var(--sang-vif);
 }
 
 .etape {

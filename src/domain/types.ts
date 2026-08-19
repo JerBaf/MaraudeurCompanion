@@ -88,7 +88,13 @@ export type ModifierExpiry =
   | { kind: 'jamais' }
   | { kind: 'fin-de-camp' }
   | { kind: 'fin-de-journee' }
-  | { kind: 'fin-tour-suivant'; turnId: number }
+  /**
+   * Disparaît quand le combat atteint ce moment de l'horloge (voir
+   * `indexMoment` dans `combat.ts`). L'échéance dépend du bénéficiaire et de la
+   * nature de l'effet — un bonus défensif et un bonus offensif ne vivent pas
+   * jusqu'au même instant.
+   */
+  | { kind: 'moment-combat'; momentFin: number }
   | { kind: 'fin-de-combat' }
 
 export type ModifierSourceKind =
