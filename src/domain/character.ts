@@ -60,11 +60,6 @@ export function creerPersonnage(
 
   const sorts = [...classe.sortsIds]
 
-  // Les sorts disponibles en permanence — les illusions du Trickster — ne
-  // consomment pas d'emplacement : les laisser garnir le Grimoire de départ
-  // priverait la joueuse de ses vrais sorts.
-  const pourLeGrimoire = sorts.filter((id) => catalog.sort(id)?.illusion !== true)
-
   return {
     id: demande.id,
     nom: demande.nom,
@@ -81,7 +76,7 @@ export function creerPersonnage(
     actionsRapidesUtilisees: 0,
     equipe: { arme: null, armure: null, bibelot: null },
     // Le Grimoire n'accepte que 3 sorts : les suivants attendent dans le sac à dos.
-    grimoire: pourLeGrimoire.slice(0, TAILLE_GRIMOIRE),
+    grimoire: sorts.slice(0, TAILLE_GRIMOIRE),
     possede: { sorts, equipements: [], ameliorations: [] },
     sortsEpuises: [],
     cicatrices: [],

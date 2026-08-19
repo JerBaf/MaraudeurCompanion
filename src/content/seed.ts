@@ -343,17 +343,9 @@ const CLASSES: Classe[] = [
       "Le Trickster incarne l'essence même de la magie, celle qui transforme toute illusion en moment enchanteur. Que ce soit avec des tours, des acolytes ou par ses mots, il peut retourner n'importe quelle situation en usant simplement de sa malice.",
     passifTexte:
       "Le Trickster choisit sa voie à la phase Grimoire du Feu de Camp. Conteur : le coût en Points de Foi des sorts « Word: » est réduit de 1. Illusionniste : les illusions (Ya gat fooled, Mage hand) sont utilisables à volonté, sans contrepartie et hors des 3 slots du Grimoire.",
-    // Les illusions font partie de l'attirail du Trickster dès le départ :
-    // la voie Illusionniste les rend utilisables à volonté, hors des 3
-    // emplacements du Grimoire.
-    sortsIds: [
-      'polymorph',
-      'tame',
-      'word-baboum',
-      'word-crackers',
-      'ya-gat-fooled',
-      'mage-hand',
-    ],
+    // Les illusions ne figurent pas ici : la voie Illusionniste y donne accès
+    // en permanence, elles sont dérivées du catalogue et non possédées.
+    sortsIds: ['polymorph', 'tame', 'word-baboum', 'word-crackers'],
   },
 ]
 

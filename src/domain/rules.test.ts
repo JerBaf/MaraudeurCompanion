@@ -48,6 +48,7 @@ import {
   estHorsEmplacement,
   grimoireEffectif,
   resoudreArcane,
+  sortsHorsEmplacement,
 } from './magie.ts'
 import {
   derivedModifiers,
@@ -353,22 +354,48 @@ describe('Illusions hors emplacement', () => {
   })
 
   /**
-   * Régression : les illusions étaient absentes des sorts accordés à la
-   * création, donc un Trickster tout neuf ne les voyait nulle part.
+   * Régression vécue à table : les illusions n'apparaissaient nulle part.
+   *
+   * Elles sont désormais dérivées du passif et non de l'inventaire, ce qui
+   * les rend visibles pour un personnage **déjà créé** — cas qui bloquait,
+   * puisqu'un correctif à la création ne l'aurait jamais atteint.
    */
-  it('accorde les illusions dès la création, sans qu’elles occupent un emplacement', () => {
+  it('donne accès aux illusions sans les faire posséder', () => {
     const neuf = nouveauPerso('trickster')
 
-    expect(neuf.possede.sorts).toContain('ya-gat-fooled')
-    expect(neuf.possede.sorts).toContain('mage-hand')
-    expect(neuf.grimoire).not.toContain('ya-gat-fooled')
+    // Elles ne sont pas des biens : ni à l'inventaire, ni dans les 3 slots.
+    expect(neuf.possede.sorts).not.toContain('ya-gat-fooled')
     expect(neuf.grimoire).toHaveLength(TAILLE_GRIMOIRE)
 
-    const grimoire = grimoireEffectif(neuf, catalog)
-    expect(grimoire.filter((e) => e.horsEmplacement).map((e) => e.sort.id).sort()).toEqual([
-      'mage-hand',
-      'ya-gat-fooled',
-    ])
+    const permanents = grimoireEffectif(neuf, catalog)
+      .filter((e) => e.horsEmplacement)
+      .map((e) => e.sort.id)
+      .sort()
+    expect(permanents).toEqual(['mage-hand', 'ya-gat-fooled'])
+  })
+
+  it('les affiche pour un personnage créé avant l’ajout du passif', () => {
+    // Fiche telle qu'elle existe déjà en base : aucune illusion à l'inventaire.
+    const ancien = nouveauPerso('trickster', {
+      possede: { sorts: ['polymorph', 'tame', 'word-baboum'], equipements: [], ameliorations: [] },
+      grimoire: ['polymorph', 'tame', 'word-baboum'],
+      passifs: { voieTrickster: 'illusionniste' },
+    })
+
+    const permanents = grimoireEffectif(ancien, catalog).filter((e) => e.horsEmplacement)
+    expect(permanents.map((e) => e.sort.id).sort()).toEqual(['mage-hand', 'ya-gat-fooled'])
+    expect(disponibiliteSort(catalog.sort('mage-hand') as Sort, ancien, catalog).disponible).toBe(true)
+  })
+
+  it('les retire immédiatement si la voie passe à Conteur', () => {
+    const conteur = nouveauPerso('trickster', { passifs: { voieTrickster: 'conteur' } })
+    expect(sortsHorsEmplacement(conteur, catalog)).toHaveLength(0)
+  })
+
+  it('ne les met jamais dans le pool du Détachement', () => {
+    // Ce ne sont pas des possessions : un Détachement ne peut pas les emporter.
+    const char = nouveauPerso('trickster')
+    expect(poolDetachement(char, catalog).map((e) => e.id)).not.toContain('mage-hand')
   })
 
   it('n’ajoute rien pour un Conteur', () => {
@@ -376,21 +403,28 @@ describe('Illusions hors emplacement', () => {
     expect(grimoireEffectif(conteur, catalog).every((e) => !e.horsEmplacement)).toBe(true)
   })
 
-  it('rend toute illusion acquise plus tard disponible d’office', () => {
-    // Le catalogue ne contient que deux illusions ; on vérifie que la règle
-    // porte bien sur le marqueur du sort, pas sur une liste figée.
-    const base = illusionniste()
-    const sansIllusions = {
-      ...base,
-      possede: { ...base.possede, sorts: ['polymorph', 'tame', 'word-baboum'] },
+  it('rend toute illusion ajoutée plus tard disponible d’office', () => {
+    // Une nouvelle illusion arrive au catalogue, comme la MJ en ajoutera.
+    // Aucune fiche n'est modifiée : elle doit devenir disponible d'elle-même.
+    const nouvelle: Sort = {
+      kind: 'sort',
+      id: 'mirage-tardif',
+      nom: 'Mirage tardif',
+      icone: 'magic-swirl',
+      classeId: 'trickster',
+      magie: 'arcane',
+      cout: { kind: 'aucun' },
+      de: null,
+      duree: '1 minute',
+      effet: 'Une illusion acquise en cours de campagne.',
+      illusion: true,
     }
-    expect(grimoireEffectif(sansIllusions, catalog).some((e) => e.horsEmplacement)).toBe(false)
+    const enrichi = createCatalog([...SEED, nouvelle])
 
-    const avecUne = {
-      ...base,
-      possede: { ...base.possede, sorts: ['polymorph', 'tame', 'word-baboum', 'mage-hand'] },
-    }
-    expect(grimoireEffectif(avecUne, catalog).filter((e) => e.horsEmplacement)).toHaveLength(1)
+    const ids = sortsHorsEmplacement(illusionniste(), enrichi)
+      .map((s) => s.id)
+      .sort()
+    expect(ids).toEqual(['mage-hand', 'mirage-tardif', 'ya-gat-fooled'])
   })
 
   it('laisse lancer une illusion absente des 3 emplacements', () => {

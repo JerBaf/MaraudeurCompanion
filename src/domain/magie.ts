@@ -203,17 +203,32 @@ export function rangSortSang(bruluresDepensees: number): number {
  * Un sort utilisable sans occuper un des 3 emplacements du Grimoire.
  *
  * Aujourd'hui, seules les illusions du Trickster ayant choisi la voie
- * Illusionniste entrent dans ce cas : elles sont disponibles en permanence,
- * échappent à la sélection du Feu de Camp, et toute illusion acquise plus tard
- * le sera de la même façon — sans code supplémentaire.
+ * Illusionniste entrent dans ce cas.
  */
 export function estHorsEmplacement(sort: Sort, char: Character): boolean {
   return sort.illusion === true && char.passifs.voieTrickster === 'illusionniste'
 }
 
 /**
+ * Sorts auxquels un passif donne accès en permanence.
+ *
+ * ⚠️ Ils sont **dérivés du catalogue**, pas lus dans l'inventaire du
+ * personnage. C'est ce que dit la règle : le passif Illusionniste « donne accès
+ * à » ces sorts, il ne les fait pas posséder. Trois conséquences voulues :
+ *
+ *  - une illusion ajoutée au catalogue devient aussitôt disponible pour toutes
+ *    les Illusionnistes, y compris les personnages déjà créés ;
+ *  - un Détachement ne peut pas les faire perdre — ce ne sont pas des biens ;
+ *  - changer de voie au Feu de Camp les retire d'un coup, sans rien à nettoyer.
+ */
+export function sortsHorsEmplacement(char: Character, catalog: Catalog): Sort[] {
+  if (char.passifs.voieTrickster !== 'illusionniste') return []
+  return catalog.sorts().filter((s) => s.illusion === true && s.classeId === char.classeId)
+}
+
+/**
  * Le Grimoire tel qu'il s'affiche : les sorts préparés au Feu de Camp, suivis
- * de ceux qui sont disponibles en permanence.
+ * de ceux auxquels un passif donne accès en permanence.
  */
 export function grimoireEffectif(
   char: Character,
@@ -224,12 +239,10 @@ export function grimoireEffectif(
     .filter((s): s is Sort => Boolean(s))
     .map((sort) => ({ sort, horsEmplacement: false }))
 
-  const permanents = char.possede.sorts
-    .map((id) => catalog.sort(id))
-    .filter((s): s is Sort => Boolean(s) && estHorsEmplacement(s as Sort, char))
+  const permanents = sortsHorsEmplacement(char, catalog)
     // Une illusion préparée par erreur ne doit pas apparaître deux fois.
-    .filter((s) => !char.grimoire.includes((s as Sort).id))
-    .map((sort) => ({ sort: sort as Sort, horsEmplacement: true }))
+    .filter((s) => !char.grimoire.includes(s.id))
+    .map((sort) => ({ sort, horsEmplacement: true }))
 
   return [...prepares, ...permanents]
 }
