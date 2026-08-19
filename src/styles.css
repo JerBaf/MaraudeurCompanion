@@ -758,6 +758,19 @@ textarea {
   background: color-mix(in srgb, var(--ambre) 15%, var(--encre-3));
 }
 
+/* Phase de Feu de Camp en cours — annoncée par la MJ, l'écran la suit. */
+.phase-active {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--rayon-l);
+  background: color-mix(in srgb, var(--ambre) 14%, var(--encre-2));
+  border: 1px solid var(--ambre-sourd);
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  color: var(--ambre-vif);
+  text-align: center;
+}
+
 /* --------------------------------------------------------------------------
    Combat
    -------------------------------------------------------------------------- */

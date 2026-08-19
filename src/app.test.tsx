@@ -263,6 +263,114 @@ describe('mode Combat', () => {
   })
 })
 
+describe('Feu de Camp', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  afterEach(cleanup)
+
+  async function tablePreteAvecPersonnage() {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+    )
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: 'Ilma' } })
+    fireEvent.click(await screen.findByText('Dusk Hunter'))
+    fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+    fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+    cleanup()
+  }
+
+  /** Ouvre une session puis prépare un camp, sans le lancer. */
+  async function prepareUnCamp() {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Feu de camp' }))
+    fireEvent.click(await screen.findByText('Ouvrir une nouvelle session'))
+    fireEvent.click(await screen.findByText('Préparer un feu de camp'))
+    await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
+  }
+
+  it('garde la préparation hors de portée des joueuses', async () => {
+    await tablePreteAvecPersonnage()
+    await prepareUnCamp()
+
+    fireEvent.change(screen.getByPlaceholderText(/teaser de la session/i), {
+      target: { value: 'Une infiltration au Bone-Fire.' },
+    })
+
+    // Le brouillon vit dans la collection réservée à la MJ…
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('secrets/campfire-brouillon'))).toBe(true),
+    )
+    // …et aucun camp public n'existe encore.
+    expect(clesStockage().some((k) => k.includes('/campfires/'))).toBe(false)
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+
+    // Ni onglet, ni brief : la joueuse ne sait rien.
+    expect(screen.queryByRole('tab', { name: 'Feu de camp' })).toBeNull()
+    expect(document.body.textContent).not.toContain('infiltration')
+  })
+
+  it('restaure la Fatigue au lancement et ouvre l’onglet côté joueuse', async () => {
+    await tablePreteAvecPersonnage()
+
+    // La joueuse encaisse deux Points de Fatigue.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('Points de Fatigue')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Points de Fatigue : 2' }))
+    await waitFor(() => expect(screen.getByText('3 restant(s)')).toBeTruthy())
+    cleanup()
+
+    await prepareUnCamp()
+    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+
+    // L'onglet s'ouvre de lui-même, et la Fatigue est revenue.
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Feu de camp' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('tab', { name: 'Fiche' }))
+    await waitFor(() => expect(screen.getByText('5 restant(s)')).toBeTruthy())
+  })
+
+  it('suit la phase pilotée par la MJ', async () => {
+    await tablePreteAvecPersonnage()
+    await prepareUnCamp()
+    fireEvent.change(screen.getByPlaceholderText(/teaser de la session/i), {
+      target: { value: 'Une infiltration au Bone-Fire.' },
+    })
+    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brief de Mission' }))
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText(/infiltration au Bone-Fire/)).toBeTruthy())
+    // Elle ne peut pas acheter pendant le brief.
+    expect(screen.queryByText('Boutique')).toBeNull()
+  })
+})
+
 describe('parcours de création', () => {
   beforeEach(() => {
     localStorage.clear()

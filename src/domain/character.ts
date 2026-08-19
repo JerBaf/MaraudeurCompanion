@@ -78,6 +78,7 @@ export function creerPersonnage(
     // Le Grimoire n'accepte que 3 sorts : les suivants attendent dans le sac à dos.
     grimoire: sorts.slice(0, TAILLE_GRIMOIRE),
     possede: { sorts, equipements: [], ameliorations: [] },
+    investissements: [],
     sortsEpuises: [],
     cicatrices: [],
     passifs: passifsInitiaux(classe.passifMoteur),

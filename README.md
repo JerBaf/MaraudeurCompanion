@@ -4,8 +4,8 @@ Companion app de table pour le jeu de rôle **Entre-Monde**.
 La MJ pilote depuis un ordinateur, les joueuses depuis leur téléphone, et tout
 se synchronise en temps réel.
 
-État : **lots 1 et 2 livrés** — socle technique, phase Standard et mode Combat.
-Le Feu de Camp (lot 3) suivra.
+État : **les trois lots sont livrés** — socle technique, phase Standard, mode Combat
+et Feu de Camp.
 
 ---
 
@@ -69,7 +69,8 @@ dans **Firestore → Règles**, puis **Publier**.
 
 > ⚠️ **À republier après le lot 2** : le bestiaire a besoin de sa règle, et la
 > règle du combat a été resserrée pour qu'une joueuse ne puisse plus faire
-> avancer le tour.
+> avancer le tour. Le lot 3 n'a en revanche demandé **aucune** modification :
+> le feu de camp en préparation se range dans la collection déjà réservée à la MJ.
 
 ⚠️ **Ne sautez pas cette étape.** C'est le seul mécanisme qui empêche une
 joueuse de lire son nombre de cycles restants — et donc de savoir combien de vies
@@ -175,6 +176,9 @@ Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
 | Bestiaire | écrit par la MJ, **hors du catalogue** : celui-ci est lisible par les joueuses, y ranger les Évasions et les seuils aurait tout révélé |
 | Seuil de Fatigue d'un adversaire | 🔒 jamais dans le document que lisent les joueuses ; elles ne voient que les dégâts cumulés |
 | Fin de combat | efface adversaires, initiatives et effets de tour, après confirmation |
+| Résolution du camp | à **l'ouverture**, pas à la fermeture — sans quoi le Serment prononcé à la phase Grimoire serait effacé aussitôt |
+| Session | ouverte explicitement par la MJ ; c'est là que les investissements rendent leurs comptes |
+| Contenu de la boutique | saisi par la MJ dans l'éditeur (Réglages) — le contenu livré en dur n'atteint jamais une base déjà amorcée |
 | Voie de la Flamme | paliers **cumulatifs** : à 7 brûlures on conserve le 6th Sens du seuil 4 et on gagne l'avantage en Physique |
 | Illusions du Trickster | disponibles en permanence, **hors des 3 emplacements** du Grimoire ; toute illusion acquise plus tard l'est aussi |
 
@@ -192,4 +196,18 @@ Les icônes viennent de [game-icons.net](https://game-icons.net), sous licence
 
 Pour remplacer une icône par un dessin à vous (style Moebius ou Ghibli), déposez
 votre fichier dans `public/icons/` sous le même nom : aucun code à toucher, et
-`npm run icons` ne l'écrasera pas.
+`npm run icons` ne l'écrasera pas. Le script régénère `src/content/icones.ts`,
+la liste que proposent les sélecteurs d'icônes du bestiaire et du catalogue.
+
+---
+
+## Une limite à connaître
+
+**L'amorçage n'écrase jamais une entrée existante.** C'est volontaire — sans quoi
+il effacerait vos modifications à chaque déploiement. Mais cela signifie que le
+contenu livré avec l'app n'atteint **pas** une base déjà initialisée.
+
+Conséquence pratique : tout ce qui doit évoluer passe par l'éditeur de catalogue,
+ou est **dérivé** plutôt que stocké (c'est ainsi que les illusions du Trickster
+sont devenues visibles sans migration). Le bouton « Réinitialiser le catalogue »
+force la réécriture, mais écrase aussi vos propres entrées.

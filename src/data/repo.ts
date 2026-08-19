@@ -1,5 +1,11 @@
 import { TABLE_ID } from '../config.ts'
 import { SEED } from '../content/seed.ts'
+import {
+  jetonsSessionVierges,
+  resoudreCampPourPersonnage,
+  resoudreInvestissements,
+  type BilanInvestissements,
+} from '../domain/campfire.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
 import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
 import { creerPersonnage, type DemandeCreation } from '../domain/character.ts'
@@ -13,9 +19,13 @@ import type {
   EntreeCatalogue,
   EtatTable,
   EvenementJournal,
+  Campfire,
+  JetonsSession,
   ModeleAdversaire,
   ModeTable,
+  PhaseCampfire,
   SeuilsAdversaires,
+  Session,
 } from '../domain/types.ts'
 import { store } from '../store/index.ts'
 
@@ -38,6 +48,19 @@ export const chemins = {
   modele: (id: string) => `${racine}/bestiary/${id}`,
   /** 🔒 Seuils de Fatigue des adversaires en jeu, en un seul document. */
   seuilsAdversaires: `${racine}/secrets/adversaires`,
+  sessions: `${racine}/sessions`,
+  session: (id: string) => `${racine}/sessions/${id}`,
+  campfires: `${racine}/campfires`,
+  campfire: (id: string) => `${racine}/campfires/${id}`,
+  /**
+   * 🔒 Le camp en préparation.
+   *
+   * Rangé dans `secrets/` et non dans `campfires/` : les joueuses ont accès en
+   * lecture à toute la collection publique des camps, et y écrire une
+   * préparation leur livrerait le brief de mission et les offres de boutique
+   * avant l'annonce. Lancer un camp consiste à publier ce brouillon.
+   */
+  brouillonCampfire: `${racine}/secrets/campfire-brouillon`,
   catalogue: `${racine}/catalog`,
   entreeCatalogue: (id: string) => `${racine}/catalog/${id}`,
   journal: `${racine}/log`,
@@ -103,6 +126,16 @@ export const surBestiaire = (cb: (m: ModeleAdversaire[]) => void) =>
 /** 🔒 Réservé à la MJ par les règles Firestore. */
 export const surSeuilsAdversaires = (cb: (s: SeuilsAdversaires) => void) =>
   store.subscribeDoc<SeuilsAdversaires>(chemins.seuilsAdversaires, (s) => cb(s ?? {}))
+
+export const surSession = (id: string, cb: (s: Session | null) => void) =>
+  store.subscribeDoc<Session>(chemins.session(id), cb)
+
+export const surCampfire = (id: string, cb: (c: Campfire | null) => void) =>
+  store.subscribeDoc<Campfire>(chemins.campfire(id), cb)
+
+/** 🔒 Réservé à la MJ par les règles Firestore. */
+export const surBrouillonCampfire = (cb: (c: Campfire | null) => void) =>
+  store.subscribeDoc<Campfire>(chemins.brouillonCampfire, cb)
 
 export const surJournal = (cb: (e: EvenementJournal[]) => void) =>
   store.subscribeCollection<EvenementJournal>(chemins.journal, (evts) =>
@@ -365,6 +398,158 @@ async function expirerSurTousLesPersonnages(
 
 export async function enregistrerEtat(etat: EtatTable): Promise<void> {
   await store.setDoc(chemins.etat, etat)
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+export interface BilanOuverture {
+  session: Session
+  /** Bilan des investissements, par personnage. */
+  bilans: { char: Character; bilan: BilanInvestissements }[]
+}
+
+/**
+ * Ouvre une nouvelle session.
+ *
+ * C'est le moment où les investissements rendent leurs comptes : loyers versés,
+ * cargaisons arrivées ou perdues, rénovations à payer. Les tirages sont faits
+ * ici, une fois, et le résultat est persisté — relancer l'écran ne rejoue pas
+ * la chance.
+ */
+export async function ouvrirSession(etat: EtatTable, personnages: readonly Character[]): Promise<BilanOuverture> {
+  const anterieures = await store.getCollection<Session>(chemins.sessions)
+  const numero = anterieures.reduce((max, s) => Math.max(max, s.numero), 0) + 1
+
+  const catalog = createCatalog(await store.getCollection<EntreeCatalogue>(chemins.catalogue))
+
+  const bilans: BilanOuverture['bilans'] = []
+  for (const char of personnages) {
+    const bilan = resoudreInvestissements(char, catalog, numero, cryptoRng)
+    if (bilan.total !== 0) {
+      await enregistrerPersonnage({ ...char, lumens: Math.max(0, char.lumens + bilan.total) })
+    }
+    bilans.push({ char, bilan })
+  }
+
+  const session: Session = {
+    id: nouvelIdentifiant(),
+    numero,
+    ouverteLe: Date.now(),
+    jetons: Object.fromEntries(personnages.map((c) => [c.id, jetonsSessionVierges()])),
+  }
+
+  await store.setDoc(chemins.session(session.id), session)
+  await store.setDoc(chemins.etat, { ...etat, sessionId: session.id })
+  await journaliser('MJ', 'session', `Ouverture de la session ${numero}.`)
+
+  for (const { char, bilan } of bilans) {
+    for (const ligne of bilan.lignes) {
+      await journaliser('MJ', 'investissement', `${char.nom} — ${ligne.nom} : ${ligne.recit}`)
+    }
+  }
+
+  return { session, bilans }
+}
+
+export async function enregistrerSession(session: Session): Promise<void> {
+  await store.setDoc(chemins.session(session.id), session)
+}
+
+/** Met à jour les jetons d'un personnage dans la session en cours. */
+export async function majJetons(
+  session: Session,
+  characterId: string,
+  patch: Partial<JetonsSession>,
+): Promise<void> {
+  const actuels = session.jetons[characterId] ?? jetonsSessionVierges()
+  await enregistrerSession({
+    ...session,
+    jetons: { ...session.jetons, [characterId]: { ...actuels, ...patch } },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Feu de Camp
+// ---------------------------------------------------------------------------
+
+export function nouveauBrouillon(sessionNumero: number, debutDeSession: boolean): Campfire {
+  return {
+    id: nouvelIdentifiant(),
+    sessionNumero,
+    finDeJournee: false,
+    debutDeSession,
+    phase: debutDeSession ? 'banque' : 'brief',
+    brief: '',
+    offres: {},
+    investissementsProposes: [],
+    lanceLe: null,
+  }
+}
+
+/** 🔒 Écrit dans la collection réservée à la MJ : rien ne fuite avant le lancement. */
+export async function enregistrerBrouillon(brouillon: Campfire): Promise<void> {
+  await store.setDoc(chemins.brouillonCampfire, brouillon)
+}
+
+export async function abandonnerBrouillon(): Promise<void> {
+  await store.deleteDoc(chemins.brouillonCampfire)
+}
+
+/**
+ * Publie le brouillon : le camp devient visible et la table y bascule.
+ *
+ * ⚠️ C'est **ici** que le camp est résolu pour chaque personnage — Fatigue
+ * restaurée, cristaux étudiés, effets journaliers levés. Le faire à la
+ * fermeture effacerait le Serment que la joueuse vient d'engager à la phase
+ * Grimoire, alors qu'il vaut pour la journée qui commence.
+ */
+export async function lancerCampfire(
+  etat: EtatTable,
+  brouillon: Campfire,
+  personnages: readonly Character[],
+): Promise<Campfire> {
+  const campfire: Campfire = { ...brouillon, lanceLe: Date.now() }
+  await store.setDoc(chemins.campfire(campfire.id), campfire)
+
+  for (const char of personnages) {
+    const { char: resolu, effets } = resoudreCampPourPersonnage(char, {
+      finDeJournee: campfire.finDeJournee,
+    })
+    await enregistrerPersonnage(resolu)
+    if (effets.length > 0) {
+      await journaliser('MJ', 'camp', `${char.nom} — ${effets.join(' · ')}`)
+    }
+  }
+
+  await store.setDoc(chemins.etat, {
+    ...etat,
+    mode: 'campfire',
+    campfireId: campfire.id,
+    jour: campfire.finDeJournee ? etat.jour + 1 : etat.jour,
+  })
+  await abandonnerBrouillon()
+  await journaliser(
+    'MJ',
+    'camp',
+    campfire.finDeJournee ? 'Feu de camp — fin de journée.' : 'Feu de camp — repos court.',
+  )
+
+  return campfire
+}
+
+export async function definirPhase(campfire: Campfire, phase: PhaseCampfire): Promise<void> {
+  await store.setDoc(chemins.campfire(campfire.id), { ...campfire, phase })
+}
+
+export async function terminerCampfire(etat: EtatTable): Promise<void> {
+  await store.setDoc(chemins.etat, { ...etat, mode: 'standard', campfireId: null })
+  await journaliser('MJ', 'camp', 'Fin du feu de camp.')
+}
+
+export async function enregistrerCampfire(campfire: Campfire): Promise<void> {
+  await store.setDoc(chemins.campfire(campfire.id), campfire)
 }
 
 // ---------------------------------------------------------------------------

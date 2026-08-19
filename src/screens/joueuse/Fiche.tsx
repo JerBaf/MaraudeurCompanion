@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Avatar } from '../../components/Avatar.tsx'
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
+import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
@@ -67,11 +68,12 @@ interface Props {
   onQuitter: () => void
 }
 
-type Onglet = 'fiche' | 'combat' | 'sorts' | 'sac'
+type Onglet = 'fiche' | 'combat' | 'camp' | 'sorts' | 'sac'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   fiche: 'Fiche',
   combat: 'Combat',
+  camp: 'Feu de camp',
   sorts: 'Sorts',
   sac: 'Sac à dos',
 }
@@ -81,12 +83,27 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
   const classe = catalog.classe(char.classeId)
 
   const enCombat = etat?.mode === 'combat'
+  const auCamp = etat?.mode === 'campfire'
   const monTour = enCombat && estSonTour(char, etat.combat)
 
-  // « La phase Combat voit certains éléments se rajouter » : l'onglet apparaît
-  // en plus des autres, il n'en remplace aucun.
-  const onglets: Onglet[] = enCombat ? ['fiche', 'combat', 'sorts', 'sac'] : ['fiche', 'sorts', 'sac']
+  // Combat et Feu de camp *ajoutent* un onglet, ils n'en remplacent aucun :
+  // la fiche reste consultable à tout moment.
+  const onglets: Onglet[] = [
+    'fiche',
+    ...(enCombat ? (['combat'] as const) : []),
+    ...(auCamp ? (['camp'] as const) : []),
+    'sorts',
+    'sac',
+  ]
   const ongletActif = onglets.includes(onglet) ? onglet : 'fiche'
+
+  // Quand la MJ lance un feu de camp ou un combat, on y amène la joueuse :
+  // sans cela, elle resterait sur sa fiche sans voir que la table a basculé.
+  useEffect(() => {
+    if (auCamp) setOnglet('camp')
+    else if (enCombat) setOnglet('combat')
+    else setOnglet('fiche')
+  }, [auCamp, enCombat])
 
   const maj = (transformer: (c: Character) => Character) => {
     void modifierPersonnage(char, transformer)
@@ -131,6 +148,9 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
             adversaires={adversaires}
             personnages={personnages}
           />
+        )}
+        {ongletActif === 'camp' && etat && (
+          <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />
         )}
         {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} />}
         {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}

@@ -6,7 +6,9 @@ import { Icone } from '../../components/Icone.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { Bestiaire } from './Bestiaire.tsx'
+import { EditeurCatalogue } from './EditeurCatalogue.tsx'
 import { Inventaire } from './Inventaire.tsx'
+import { PanneauCampfire } from './PanneauCampfire.tsx'
 import { PanneauCombat } from './PanneauCombat.tsx'
 import {
   amorcerSiNecessaire,
@@ -55,11 +57,12 @@ interface Props {
   onDeconnexion: () => void
 }
 
-type Onglet = 'table' | 'combat' | 'journal' | 'reglages'
+type Onglet = 'table' | 'combat' | 'camp' | 'journal' | 'reglages'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   table: 'Table',
   combat: 'Combat',
+  camp: 'Feu de camp',
   journal: 'Journal',
   reglages: 'Réglages',
 }
@@ -73,7 +76,9 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
   // L'onglet Combat n'apparaît qu'en mode Combat : hors affrontement, il n'a
   // rien à montrer et encombrerait la barre.
   const onglets: Onglet[] =
-    etat?.mode === 'combat' ? ['table', 'combat', 'journal', 'reglages'] : ['table', 'journal', 'reglages']
+    etat?.mode === 'combat'
+      ? ['table', 'combat', 'camp', 'journal', 'reglages']
+      : ['table', 'camp', 'journal', 'reglages']
 
   const ongletActif = onglets.includes(onglet) ? onglet : 'table'
 
@@ -124,6 +129,10 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
           <PanneauCombat etat={etat} personnages={personnages} adversaires={adversaires} />
         )}
 
+        {ongletActif === 'camp' && etat && (
+          <PanneauCampfire etat={etat} personnages={personnages} catalog={catalog} />
+        )}
+
         {ongletActif === 'table' && (
           <div className="mj-grille">
             <section className="pile pile--serree">
@@ -153,7 +162,7 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
         )}
 
         {ongletActif === 'journal' && <Journal />}
-        {ongletActif === 'reglages' && <Reglages />}
+        {ongletActif === 'reglages' && <Reglages catalog={catalog} />}
       </div>
     </>
   )
@@ -565,9 +574,10 @@ function Journal() {
 
 // ---------------------------------------------------------------------------
 
-function Reglages() {
+function Reglages({ catalog }: { catalog: Catalog }) {
   return (
     <div className="pile">
+      <EditeurCatalogue catalog={catalog} />
       <Bestiaire />
       <ReglagesCatalogue />
     </div>

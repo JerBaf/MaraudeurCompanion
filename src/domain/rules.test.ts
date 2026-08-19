@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
 import { SEED } from '../content/seed.ts'
-import { resoudreCampPourPersonnage, TAILLE_GRIMOIRE } from './campfire.ts'
+import {
+  acheter,
+  entreesAchetables,
+  grimoireValide,
+  jetonsSessionVierges,
+  peutAcheter,
+  peutInvestir,
+  peutPrendreFardeau,
+  peutPrendreFardeauDesavantage,
+  peutPrendreInvestissement,
+  peutPrononcerSerment,
+  peutRecueillir,
+  prixDe,
+  resoudreCampPourPersonnage,
+  resoudreInvestissements,
+  resoudrePriseInvestissement,
+  TAILLE_GRIMOIRE,
+  tirerOffres,
+} from './campfire.ts'
 import { createCatalog } from './catalog.ts'
 import {
   appliquerProfil,
@@ -62,11 +80,14 @@ import {
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import type {
   Character,
+  EntreeCatalogue,
   EtatCombat,
+  Investissement,
   ModeleAdversaire,
   Sort,
   VieSoulshifter,
 } from './types.ts'
+import type { Rng } from './random.ts'
 import type { SousGroupe } from './combat.ts'
 
 const catalog = createCatalog(SEED)
@@ -876,6 +897,209 @@ describe('effets actifs', () => {
     const effet = effetsActifs(porte, catalog).find((e) => e.nom === 'Cuirasse usée')
     expect(effet?.origine).toBe('equipement')
     expect(effet?.resume).toContain('Évasion : +1')
+  })
+})
+
+describe('investissements', () => {
+  const chambre = catalog.investissement('location-chambre') as Investissement
+  const transport = catalog.investissement('transport-materiel') as Investissement
+  const loto = catalog.investissement('loto') as Investissement
+
+  /** Un dé pipé, pour décider si le mauvais dénouement survient. */
+  const des = (malchance: boolean): Rng => ({
+    int: (min) => min,
+    pick: (items) => items[0] as never,
+    chance: () => malchance,
+    roll: (n) => Array.from({ length: n }, () => 1),
+  })
+
+  function avecInvestissements(pris: { investissementId: string; sessionNumero: number }[]) {
+    return nouveauPerso('trickster', { investissements: pris })
+  }
+
+  it('ne verse rien pendant la session de l’achat', () => {
+    const char = avecInvestissements([{ investissementId: 'location-chambre', sessionNumero: 3 }])
+    expect(resoudreInvestissements(char, catalog, 3, des(false)).total).toBe(0)
+  })
+
+  it('verse le revenu de la chambre à partir de la session suivante', () => {
+    const char = avecInvestissements([{ investissementId: 'location-chambre', sessionNumero: 3 }])
+    expect(resoudreInvestissements(char, catalog, 4, des(false)).total).toBe(chambre.gainRecurrent)
+    expect(resoudreInvestissements(char, catalog, 9, des(false)).total).toBe(chambre.gainRecurrent)
+  })
+
+  it('tire la rénovation pour chaque chambre, indépendamment', () => {
+    const trois = avecInvestissements([
+      { investissementId: 'location-chambre', sessionNumero: 1 },
+      { investissementId: 'location-chambre', sessionNumero: 1 },
+      { investissementId: 'location-chambre', sessionNumero: 1 },
+    ])
+
+    const sereine = resoudreInvestissements(trois, catalog, 2, des(false))
+    expect(sereine.total).toBe(3 * (chambre.gainRecurrent as number))
+
+    // Toutes en rénovation : trois revenus, trois coûts.
+    const ruine = resoudreInvestissements(trois, catalog, 2, des(true))
+    expect(ruine.total).toBe(3 * ((chambre.gainRecurrent as number) - (chambre.coutRisque as number)))
+    expect(ruine.lignes.filter((l) => l.lumens < 0)).toHaveLength(3)
+  })
+
+  it('ne verse le transport qu’une seule fois, et rien s’il se perd', () => {
+    const char = avecInvestissements([{ investissementId: 'transport-materiel', sessionNumero: 2 }])
+
+    expect(resoudreInvestissements(char, catalog, 3, des(false)).total).toBe(
+      transport.gainProchainSession,
+    )
+    // Perdu en route.
+    expect(resoudreInvestissements(char, catalog, 3, des(true)).total).toBe(0)
+    // Et jamais deux fois.
+    expect(resoudreInvestissements(char, catalog, 4, des(false)).total).toBe(0)
+  })
+
+  it('résout le loto immédiatement, à l’achat', () => {
+    const gagne = resoudrePriseInvestissement(loto, des(false))
+    expect(gagne.lumens).toBe((loto.gainImmediat as number) - loto.cout)
+
+    const perdu = resoudrePriseInvestissement(loto, des(true))
+    expect(perdu.lumens).toBe(-loto.cout)
+  })
+
+  it('refuse une 4ᵉ chambre toutes sessions confondues', () => {
+    const riche = { ...avecInvestissements([]), lumens: 1000 }
+    expect(peutPrendreInvestissement(riche, chambre, 1).possible).toBe(true)
+
+    const trois = {
+      ...avecInvestissements([1, 2, 3].map((s) => ({ investissementId: 'location-chambre', sessionNumero: s }))),
+      lumens: 1000,
+    }
+    const refus = peutPrendreInvestissement(trois, chambre, 4)
+    expect(refus.possible).toBe(false)
+    expect(refus.raison).toContain('3')
+  })
+
+  it('refuse un second transport dans la même session, et le crédit', () => {
+    const dejaPris = {
+      ...avecInvestissements([{ investissementId: 'transport-materiel', sessionNumero: 5 }]),
+      lumens: 1000,
+    }
+    expect(peutPrendreInvestissement(dejaPris, transport, 5).possible).toBe(false)
+    expect(peutPrendreInvestissement(dejaPris, transport, 6).possible).toBe(true)
+
+    const fauche = { ...avecInvestissements([]), lumens: 0 }
+    expect(peutPrendreInvestissement(fauche, chambre, 1).raison).toContain('insuffisants')
+  })
+})
+
+describe('boutique', () => {
+  const pauvre = () => nouveauPerso('trickster', { lumens: 0 })
+  const riche = () => nouveauPerso('trickster', { lumens: 500 })
+
+  it('ne propose que ce qui a un prix et n’est pas déjà possédé', () => {
+    const char = riche()
+    const achetables = entreesAchetables(char, catalog)
+
+    expect(achetables.every((e) => prixDe(e) !== null)).toBe(true)
+    // Les sorts de sa classe sont déjà à elle.
+    expect(achetables.map((e) => e.id)).not.toContain('polymorph')
+    // Le matériel de base ne se vend pas, les illusions non plus.
+    expect(achetables.map((e) => e.id)).not.toContain('catalyseur')
+    expect(achetables.map((e) => e.id)).not.toContain('mage-hand')
+  })
+
+  it('tire des offres distinctes', () => {
+    const offres = tirerOffres(riche(), catalog, seededRng(4), 3)
+    expect(offres).toHaveLength(3)
+    expect(new Set(offres).size).toBe(3)
+  })
+
+  it('rend moins d’offres qu’attendu plutôt que d’inventer', () => {
+    const maigre = createCatalog(SEED.filter((e) => e.kind !== 'equipement' && e.kind !== 'sort'))
+    expect(tirerOffres(riche(), maigre, seededRng(1), 3).length).toBeLessThan(3)
+  })
+
+  it('débite les Lumens et range l’acquisition', () => {
+    const cuirasse = catalog.equipement('cuirasse-usee') as EntreeCatalogue
+    const apres = acheter(riche(), cuirasse)
+
+    expect(apres.lumens).toBe(500 - 40)
+    expect(apres.possede.equipements).toContain('cuirasse-usee')
+  })
+
+  it('refuse le crédit', () => {
+    const cuirasse = catalog.equipement('cuirasse-usee') as EntreeCatalogue
+    expect(() => acheter(pauvre(), cuirasse)).toThrow(/crédit/)
+    expect(peutAcheter({ ...ctxCamp, jetons: jetonsSessionVierges() }, pauvre(), 40)).toBe(false)
+  })
+
+  it('refuse un second achat dans le même feu de camp', () => {
+    const jetons = { ...jetonsSessionVierges(), achatFaitCeCamp: true }
+    expect(peutAcheter({ ...ctxCamp, jetons }, riche(), 40)).toBe(false)
+  })
+})
+
+const ctxCamp = {
+  jetons: jetonsSessionVierges(),
+  premierCampDuJour: true,
+  debutDeSession: true,
+}
+
+describe('ordonnancement du Feu de Camp', () => {
+  /**
+   * Le piège central du lot : la résolution du camp a lieu à son **ouverture**.
+   * Un Serment prononcé ensuite, à la phase Grimoire, vaut pour la journée qui
+   * commence — le résoudre à la fermeture l'effacerait aussitôt.
+   */
+  it('un Serment pris pendant le camp survit à la fermeture du camp', () => {
+    // Ouverture : la journée écoulée se clôt, les anciens effets tombent.
+    const arrivee = nouveauPerso('trickster', {
+      modifiers: [modificateurSerment('esprit')],
+      fatigue: { max: 4, coches: 3 },
+    })
+    const ouvert = resoudreCampPourPersonnage(arrivee, { finDeJournee: true })
+    expect(ouvert.char.modifiers).toHaveLength(0)
+    expect(ouvert.char.fatigue.coches).toBe(0)
+
+    // Phase Grimoire : elle engage un nouveau Serment pour la journée à venir.
+    const engagee = {
+      ...ouvert.char,
+      modifiers: [...ouvert.char.modifiers, modificateurSerment('physique')],
+    }
+    expect(computeCompetence(engagee, catalog, 'esprit').bonus).toBe(-4)
+    expect(computeCompetence(engagee, catalog, 'physique').bonus).toBe(0)
+
+    // Il doit encore être là au camp suivant, et ne tomber qu'à sa fin de journée.
+    const repos = resoudreCampPourPersonnage(engagee, { finDeJournee: false })
+    expect(repos.char.modifiers).toHaveLength(1)
+    expect(resoudreCampPourPersonnage(engagee, { finDeJournee: true }).char.modifiers).toHaveLength(0)
+  })
+
+  it('verrouille les gains de Foi selon la session et la journée', () => {
+    expect(peutRecueillir(ctxCamp)).toBe(true)
+    expect(peutPrononcerSerment(ctxCamp)).toBe(true)
+
+    const plusTard = { ...ctxCamp, premierCampDuJour: false }
+    expect(peutRecueillir(plusTard)).toBe(false)
+    expect(peutPrononcerSerment(plusTard)).toBe(false)
+    // Le Fardeau « à la place d'une autre PJ » reste ouvert hors premier camp.
+    expect(peutPrendreFardeau(plusTard)).toBe(true)
+    expect(peutPrendreFardeauDesavantage(plusTard)).toBe(false)
+
+    const deja = { ...ctxCamp, jetons: { ...jetonsSessionVierges(), sermentUtilise: true } }
+    expect(peutPrononcerSerment(deja)).toBe(false)
+  })
+
+  it('n’ouvre la Banque qu’au premier camp de la session', () => {
+    expect(peutInvestir(ctxCamp)).toBe(true)
+    expect(peutInvestir({ ...ctxCamp, debutDeSession: false })).toBe(false)
+
+    const deja = { ...ctxCamp, jetons: { ...jetonsSessionVierges(), investissementPris: 'loto' } }
+    expect(peutInvestir(deja)).toBe(false)
+  })
+
+  it('refuse un Grimoire à 4 sorts ou avec doublons', () => {
+    expect(grimoireValide(['a', 'b', 'c'])).toBe(true)
+    expect(grimoireValide(['a', 'b', 'c', 'd'])).toBe(false)
+    expect(grimoireValide(['a', 'a', 'b'])).toBe(false)
   })
 })
 

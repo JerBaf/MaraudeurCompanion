@@ -312,6 +312,15 @@ export interface Character {
     ameliorations: string[]
   }
 
+  /**
+   * Registre des investissements acquis, toutes sessions confondues.
+   *
+   * C'est lui qui porte les limites du type « 3 chambres toutes sessions
+   * confondues » : on compte les entrées plutôt que de tenir un compteur
+   * séparé, qui finirait par diverger.
+   */
+  investissements: InvestissementPris[]
+
   /** Sorts Arcane dont le cristal est épuisé (d6 à 1 ou 2), jusqu'au prochain camp. */
   sortsEpuises: string[]
 
@@ -416,6 +425,65 @@ export const LIBELLE_PHASE: Record<PhaseCampfire, string> = {
   boutique: 'Boutique',
   grimoire: 'Grimoire',
   armurerie: 'Armurerie',
+}
+
+// ---------------------------------------------------------------------------
+// Sessions et Feux de Camp
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce qui a déjà été consommé pendant la session en cours, par personnage.
+ *
+ * Vit ici plutôt que dans `campfire.ts` parce que le document de session le
+ * transporte : le placer à côté de la logique créerait un cycle d'imports.
+ */
+export interface JetonsSession {
+  recueillirUtilise: boolean
+  fardeauUtilise: boolean
+  sermentUtilise: boolean
+  /** Un investissement au maximum par session. */
+  investissementPris: string | null
+  /** Une acquisition en boutique au maximum par feu de camp. */
+  achatFaitCeCamp: boolean
+}
+
+export interface Session {
+  id: string
+  numero: number
+  ouverteLe: number
+  /** Jetons par identifiant de personnage. */
+  jetons: Record<string, JetonsSession>
+}
+
+/** Un investissement acquis, et la session où il l'a été. */
+export interface InvestissementPris {
+  investissementId: string
+  sessionNumero: number
+}
+
+/**
+ * Un Feu de Camp.
+ *
+ * Le même type sert au brouillon que la MJ prépare (rangé dans la collection
+ * qui lui est réservée) et au camp publié que les joueuses lisent. Lancer un
+ * camp, c'est recopier le brouillon dans la collection publique — le brief et
+ * les offres ne peuvent donc pas fuiter avant l'annonce.
+ */
+export interface Campfire {
+  id: string
+  sessionNumero: number
+  /** Repos court ou fin de journée : seul le second rend le 6th Sens. */
+  finDeJournee: boolean
+  /** Premier camp de la session : ouvre la Banque. */
+  debutDeSession: boolean
+  /** Phase pilotée par la MJ ; l'écran des joueuses suit. */
+  phase: PhaseCampfire
+  brief: string
+  /** Trois entrées de catalogue proposées, par identifiant de personnage. */
+  offres: Record<string, string[]>
+  /** Investissements ouverts à la Banque. */
+  investissementsProposes: string[]
+  lanceLe: number | null
 }
 
 export interface EtatTable {
