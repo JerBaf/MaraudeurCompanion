@@ -4,8 +4,8 @@ Companion app de table pour le jeu de rôle **Entre-Monde**.
 La MJ pilote depuis un ordinateur, les joueuses depuis leur téléphone, et tout
 se synchronise en temps réel.
 
-État : **lot 1 livré** — socle technique et phase Standard. Le mode Combat
-(lot 2) et le Feu de Camp (lot 3) suivront.
+État : **lots 1 et 2 livrés** — socle technique, phase Standard et mode Combat.
+Le Feu de Camp (lot 3) suivra.
 
 ---
 
@@ -66,6 +66,10 @@ qui permet d'être MJ dans l'un et joueuse dans l'autre en même temps.
 
 Copiez le contenu de [`firebase/firestore.rules`](firebase/firestore.rules)
 dans **Firestore → Règles**, puis **Publier**.
+
+> ⚠️ **À republier après le lot 2** : le bestiaire a besoin de sa règle, et la
+> règle du combat a été resserrée pour qu'une joueuse ne puisse plus faire
+> avancer le tour.
 
 ⚠️ **Ne sautez pas cette étape.** C'est le seul mécanisme qui empêche une
 joueuse de lire son nombre de cycles restants — et donc de savoir combien de vies
@@ -168,7 +172,9 @@ Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
 | Feu de camp | qualifié **repos court** ou **fin de journée** — seul le second rend le 6th Sens et lève Fardeaux, Serments et Marques journalières |
 | Dés | physiques à table ; l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
 | Cycles (1d4+2) | **saisis à la main par la MJ** depuis son écran, modifiables à tout moment. Jamais tirés par l'app : la valeur ne doit à aucun moment transiter par l'appareil d'une joueuse |
-
+| Bestiaire | écrit par la MJ, **hors du catalogue** : celui-ci est lisible par les joueuses, y ranger les Évasions et les seuils aurait tout révélé |
+| Seuil de Fatigue d'un adversaire | 🔒 jamais dans le document que lisent les joueuses ; elles ne voient que les dégâts cumulés |
+| Fin de combat | efface adversaires, initiatives et effets de tour, après confirmation |
 | Voie de la Flamme | paliers **cumulatifs** : à 7 brûlures on conserve le 6th Sens du seuil 4 et on gagne l'avantage en Physique |
 | Illusions du Trickster | disponibles en permanence, **hors des 3 emplacements** du Grimoire ; toute illusion acquise plus tard l'est aussi |
 

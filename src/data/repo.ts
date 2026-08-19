@@ -1,8 +1,10 @@
 import { TABLE_ID } from '../config.ts'
 import { SEED } from '../content/seed.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
+import { etatCombatInitial, sousGroupeSuivant } from '../domain/combat.ts'
 import { creerPersonnage, type DemandeCreation } from '../domain/character.ts'
 import { effectuerDetachement, type ElementDetachable } from '../domain/fatigue.ts'
+import { expireModifiers, type EvenementExpiration } from '../domain/modifiers.ts'
 import { cryptoRng } from '../domain/random.ts'
 import type {
   Adversaire,
@@ -11,7 +13,9 @@ import type {
   EntreeCatalogue,
   EtatTable,
   EvenementJournal,
+  ModeleAdversaire,
   ModeTable,
+  SeuilsAdversaires,
 } from '../domain/types.ts'
 import { store } from '../store/index.ts'
 
@@ -29,6 +33,11 @@ export const chemins = {
   secret: (id: string) => `${racine}/secrets/${id}`,
   adversaires: `${racine}/adversaries`,
   adversaire: (id: string) => `${racine}/adversaries/${id}`,
+  /** 🔒 Bestiaire de la MJ : Évasions et seuils, refusés aux joueuses. */
+  bestiaire: `${racine}/bestiary`,
+  modele: (id: string) => `${racine}/bestiary/${id}`,
+  /** 🔒 Seuils de Fatigue des adversaires en jeu, en un seul document. */
+  seuilsAdversaires: `${racine}/secrets/adversaires`,
   catalogue: `${racine}/catalog`,
   entreeCatalogue: (id: string) => `${racine}/catalog/${id}`,
   journal: `${racine}/log`,
@@ -85,6 +94,16 @@ export const surAdversaires = (cb: (a: Adversaire[]) => void) =>
   store.subscribeCollection<Adversaire>(chemins.adversaires, cb)
 export const surCatalogue = (cb: (c: Catalog) => void) =>
   store.subscribeCollection<EntreeCatalogue>(chemins.catalogue, (entrees) => cb(createCatalog(entrees)))
+/** 🔒 Réservé à la MJ par les règles Firestore. */
+export const surBestiaire = (cb: (m: ModeleAdversaire[]) => void) =>
+  store.subscribeCollection<ModeleAdversaire>(chemins.bestiaire, (modeles) =>
+    cb([...modeles].sort((a, b) => a.nom.localeCompare(b.nom, 'fr'))),
+  )
+
+/** 🔒 Réservé à la MJ par les règles Firestore. */
+export const surSeuilsAdversaires = (cb: (s: SeuilsAdversaires) => void) =>
+  store.subscribeDoc<SeuilsAdversaires>(chemins.seuilsAdversaires, (s) => cb(s ?? {}))
+
 export const surJournal = (cb: (e: EvenementJournal[]) => void) =>
   store.subscribeCollection<EvenementJournal>(chemins.journal, (evts) =>
     cb([...evts].sort((a, b) => b.ts - a.ts)),
@@ -205,6 +224,138 @@ export async function detacher(
 export async function definirMode(etat: EtatTable, mode: ModeTable): Promise<void> {
   await store.setDoc(chemins.etat, { ...etat, mode })
   await journaliser('MJ', 'mode', `Passage en mode ${mode}.`)
+}
+
+// ---------------------------------------------------------------------------
+// Bestiaire — 🔒 écriture MJ
+// ---------------------------------------------------------------------------
+
+export async function enregistrerModele(modele: ModeleAdversaire): Promise<void> {
+  await store.setDoc(chemins.modele(modele.id), modele)
+}
+
+export async function supprimerModele(id: string): Promise<void> {
+  await store.deleteDoc(chemins.modele(id))
+}
+
+export function nouveauModele(): ModeleAdversaire {
+  return { id: nouvelIdentifiant(), nom: '', evasion: 1, fatigueMax: 0, icone: 'spectre' }
+}
+
+// ---------------------------------------------------------------------------
+// Adversaires en jeu
+// ---------------------------------------------------------------------------
+
+/**
+ * Dépose un exemplaire dans le combat.
+ *
+ * Le seuil de Fatigue part dans le document réservé à la MJ, jamais dans la
+ * fiche d'adversaire que les joueuses lisent.
+ */
+export async function ajouterAdversaire(
+  adv: Adversaire,
+  seuil: number,
+  seuilsActuels: SeuilsAdversaires,
+): Promise<void> {
+  await store.setDoc(chemins.adversaire(adv.id), adv)
+  if (seuil > 0) {
+    await store.setDoc(chemins.seuilsAdversaires, { ...seuilsActuels, [adv.id]: seuil })
+  }
+  await journaliser('MJ', 'adversaire', `${adv.nom} entre en jeu (Évasion ${adv.evasion}).`)
+}
+
+export async function enregistrerAdversaire(adv: Adversaire): Promise<void> {
+  await store.setDoc(chemins.adversaire(adv.id), adv)
+}
+
+export async function supprimerAdversaire(
+  adv: Adversaire,
+  seuilsActuels: SeuilsAdversaires,
+): Promise<void> {
+  await store.deleteDoc(chemins.adversaire(adv.id))
+  if (adv.id in seuilsActuels) {
+    const { [adv.id]: _retire, ...reste } = seuilsActuels
+    await store.setDoc(chemins.seuilsAdversaires, reste)
+  }
+  await journaliser('MJ', 'adversaire', `${adv.nom} quitte le combat (${adv.degatsSubis} dégâts).`)
+}
+
+// ---------------------------------------------------------------------------
+// Pilotage du combat
+// ---------------------------------------------------------------------------
+
+export async function demarrerCombat(etat: EtatTable): Promise<void> {
+  await store.setDoc(chemins.etat, { ...etat, mode: 'combat', combat: etatCombatInitial() })
+  await journaliser('MJ', 'combat', 'Début du combat.')
+}
+
+/**
+ * Une joueuse dépose son initiative.
+ *
+ * N'écrit que la carte `initiatives` : les règles Firestore refusent toute
+ * écriture qui modifierait le tour ou le sous-groupe actif.
+ */
+export async function definirInitiative(
+  etat: EtatTable,
+  characterId: string,
+  d6: number,
+): Promise<void> {
+  const combat = etat.combat ?? etatCombatInitial()
+  await store.updateDoc(chemins.etat, {
+    combat: { ...combat, initiatives: { ...combat.initiatives, [characterId]: d6 } },
+  })
+}
+
+/**
+ * Passe au sous-groupe suivant, et au tour suivant après « Après la MJ ».
+ *
+ * ⚠️ C'est ici que tombent les Esquives et les Diversions : `expireModifiers`
+ * est appliqué à **tous** les personnages, car une Diversion posée par une
+ * joueuse vit sur la fiche d'une autre.
+ */
+export async function avancerSousGroupe(
+  etat: EtatTable,
+  personnages: readonly Character[],
+): Promise<void> {
+  const combat = etat.combat ?? etatCombatInitial()
+  const { sousGroupe, nouveauTour } = sousGroupeSuivant(combat.sousGroupeActif)
+  const tour = nouveauTour ? combat.tour + 1 : combat.tour
+
+  await store.setDoc(chemins.etat, {
+    ...etat,
+    combat: { ...combat, sousGroupeActif: sousGroupe, tour },
+  })
+
+  if (nouveauTour) await expirerSurTousLesPersonnages(personnages, { kind: 'tour', tour })
+}
+
+/**
+ * Termine le combat : adversaires, initiatives et effets de tour disparaissent.
+ * Choix arrêté avec la MJ — l'écran repart propre au prochain affrontement.
+ */
+export async function terminerCombat(
+  etat: EtatTable,
+  personnages: readonly Character[],
+  adversaires: readonly Adversaire[],
+): Promise<void> {
+  for (const adv of adversaires) await store.deleteDoc(chemins.adversaire(adv.id))
+  await store.setDoc(chemins.seuilsAdversaires, {})
+  await store.setDoc(chemins.etat, { ...etat, mode: 'standard', combat: null })
+  await expirerSurTousLesPersonnages(personnages, { kind: 'fin-combat' })
+  await journaliser('MJ', 'combat', 'Fin du combat.')
+}
+
+/** N'écrit que les fiches réellement modifiées par l'expiration. */
+async function expirerSurTousLesPersonnages(
+  personnages: readonly Character[],
+  evenement: EvenementExpiration,
+): Promise<void> {
+  for (const char of personnages) {
+    const modifiers = expireModifiers(char.modifiers, evenement)
+    if (modifiers.length !== char.modifiers.length) {
+      await enregistrerPersonnage({ ...char, modifiers })
+    }
+  }
 }
 
 export async function enregistrerEtat(etat: EtatTable): Promise<void> {

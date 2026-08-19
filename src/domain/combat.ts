@@ -1,4 +1,4 @@
-import type { Adversaire, Character, EtatCombat } from './types.ts'
+import type { Adversaire, Character, EtatCombat, ModeleAdversaire } from './types.ts'
 
 /**
  * Résolution d'une attaque.
@@ -100,6 +100,61 @@ export function appliquerDegats(adv: Adversaire, degats: number): Adversaire {
 
 export function evasionAffichee(adv: Adversaire, estMJ: boolean): string {
   return estMJ || adv.evasionPublique ? String(adv.evasion) : '?'
+}
+
+/**
+ * Numérote un nom déjà présent dans le combat.
+ *
+ * Déposer trois Carcasses doit donner « Carcasse », « Carcasse 2 » et
+ * « Carcasse 3 » : sans quoi les joueuses ne peuvent pas désigner leur cible.
+ */
+export function nomNumerote(base: string, existants: readonly Adversaire[]): string {
+  const prisEnCompte = existants.filter(
+    (a) => a.nom === base || new RegExp(`^${echapper(base)} \\d+$`).test(a.nom),
+  )
+  if (prisEnCompte.length === 0) return base
+
+  // On repart du plus grand numéro utilisé, pour ne pas réattribuer le nom
+  // d'une créature retirée puis remplacée.
+  const numeros = prisEnCompte.map((a) => (a.nom === base ? 1 : Number(a.nom.split(' ').pop())))
+  return `${base} ${Math.max(...numeros) + 1}`
+}
+
+function echapper(texte: string): string {
+  return texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Crée un exemplaire à partir d'un modèle du bestiaire.
+ *
+ * ⚠️ Le `fatigueMax` du modèle n'est **jamais** recopié dans l'adversaire :
+ * ce document est lisible par les joueuses. Le seuil est enregistré à part,
+ * dans la collection réservée à la MJ.
+ */
+export function instancierAdversaire(
+  modele: ModeleAdversaire,
+  existants: readonly Adversaire[],
+  id: string,
+): Adversaire {
+  return {
+    id,
+    nom: nomNumerote(modele.nom, existants),
+    evasion: modele.evasion,
+    evasionPublique: false,
+    degatsSubis: 0,
+    icone: modele.icone,
+    ordre: existants.reduce((max, a) => Math.max(max, a.ordre), 0) + 1,
+  }
+}
+
+/**
+ * La créature a-t-elle encaissé son seuil ?
+ *
+ * `seuil` à 0 signifie « non renseigné » : la MJ décide alors elle-même quand
+ * la créature tombe, comme le prévoit le système.
+ */
+export function estTombe(adv: Adversaire, seuil: number | undefined): boolean {
+  return seuil !== undefined && seuil > 0 && adv.degatsSubis >= seuil
 }
 
 // ---------------------------------------------------------------------------

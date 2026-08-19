@@ -33,7 +33,7 @@ export function App() {
   const role = useRole()
   // Les abonnements Firestore n'ouvrent qu'une fois le rôle connu : sans
   // session authentifiée, les règles refusent tout, à juste titre.
-  const { etat, personnages, catalog, pret } = useTable(role)
+  const { etat, personnages, adversaires, catalog, pret } = useTable(role)
   const deviceId = useDeviceId()
   useAmorcage(role)
 
@@ -60,6 +60,7 @@ export function App() {
         <EcranMJ
           etat={etat}
           personnages={personnages}
+          adversaires={adversaires}
           catalog={catalog}
           onDeconnexion={() => void auth.deconnecter()}
         />
@@ -74,7 +75,14 @@ export function App() {
   if (selection) {
     return (
       <Cadre>
-        <Fiche char={selection} catalog={catalog} onQuitter={() => setCharId(null)} />
+        <Fiche
+          char={selection}
+          catalog={catalog}
+          etat={etat}
+          adversaires={adversaires}
+          personnages={personnages}
+          onQuitter={() => setCharId(null)}
+        />
       </Cadre>
     )
   }

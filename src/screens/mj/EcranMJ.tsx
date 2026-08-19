@@ -5,7 +5,9 @@ import { Effets } from '../../components/Effets.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
+import { Bestiaire } from './Bestiaire.tsx'
 import { Inventaire } from './Inventaire.tsx'
+import { PanneauCombat } from './PanneauCombat.tsx'
 import {
   amorcerSiNecessaire,
   definirMode,
@@ -28,6 +30,7 @@ import { cryptoRng } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
+  type Adversaire,
   type Character,
   type CharacterSecret,
   type Competence,
@@ -47,17 +50,32 @@ import {
 interface Props {
   etat: EtatTable | null
   personnages: Character[]
+  adversaires: Adversaire[]
   catalog: Catalog
   onDeconnexion: () => void
 }
 
-type Onglet = 'table' | 'journal' | 'reglages'
+type Onglet = 'table' | 'combat' | 'journal' | 'reglages'
 
-export function EcranMJ({ etat, personnages, catalog, onDeconnexion }: Props) {
+const LIBELLE_ONGLET: Record<Onglet, string> = {
+  table: 'Table',
+  combat: 'Combat',
+  journal: 'Journal',
+  reglages: 'Réglages',
+}
+
+export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion }: Props) {
   const [onglet, setOnglet] = useState<Onglet>('table')
   const [selectionId, setSelectionId] = useState<string | null>(null)
 
   const selection = personnages.find((c) => c.id === selectionId) ?? null
+
+  // L'onglet Combat n'apparaît qu'en mode Combat : hors affrontement, il n'a
+  // rien à montrer et encombrerait la barre.
+  const onglets: Onglet[] =
+    etat?.mode === 'combat' ? ['table', 'combat', 'journal', 'reglages'] : ['table', 'journal', 'reglages']
+
+  const ongletActif = onglets.includes(onglet) ? onglet : 'table'
 
   return (
     <>
@@ -88,21 +106,25 @@ export function EcranMJ({ etat, personnages, catalog, onDeconnexion }: Props) {
 
       <div className="contenu contenu--large pile">
         <div className="onglets" role="tablist">
-          {(['table', 'journal', 'reglages'] as const).map((cle) => (
+          {onglets.map((cle) => (
             <button
               key={cle}
               type="button"
               role="tab"
-              aria-selected={onglet === cle}
-              className={`onglet ${onglet === cle ? 'onglet--actif' : ''}`}
+              aria-selected={ongletActif === cle}
+              className={`onglet ${ongletActif === cle ? 'onglet--actif' : ''}`}
               onClick={() => setOnglet(cle)}
             >
-              {cle === 'table' ? 'Table' : cle === 'journal' ? 'Journal' : 'Réglages'}
+              {LIBELLE_ONGLET[cle]}
             </button>
           ))}
         </div>
 
-        {onglet === 'table' && (
+        {ongletActif === 'combat' && etat && (
+          <PanneauCombat etat={etat} personnages={personnages} adversaires={adversaires} />
+        )}
+
+        {ongletActif === 'table' && (
           <div className="mj-grille">
             <section className="pile pile--serree">
               <span className="etiquette">Personnages ({personnages.length})</span>
@@ -130,8 +152,8 @@ export function EcranMJ({ etat, personnages, catalog, onDeconnexion }: Props) {
           </div>
         )}
 
-        {onglet === 'journal' && <Journal />}
-        {onglet === 'reglages' && <Reglages />}
+        {ongletActif === 'journal' && <Journal />}
+        {ongletActif === 'reglages' && <Reglages />}
       </div>
     </>
   )
@@ -544,6 +566,15 @@ function Journal() {
 // ---------------------------------------------------------------------------
 
 function Reglages() {
+  return (
+    <div className="pile">
+      <Bestiaire />
+      <ReglagesCatalogue />
+    </div>
+  )
+}
+
+function ReglagesCatalogue() {
   const [message, setMessage] = useState<string | null>(null)
 
   async function amorcer() {

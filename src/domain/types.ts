@@ -343,6 +343,28 @@ export interface CharacterSecret {
 
 export type ModeTable = 'standard' | 'combat' | 'campfire'
 
+/**
+ * Fiche réutilisable d'une créature, écrite par la MJ.
+ *
+ * 🔒 Vit dans une collection refusée aux joueuses : y figurent l'Évasion et le
+ * seuil de Fatigue de chaque créature, y compris celles dont l'Évasion reste
+ * masquée en combat. Un modèle n'est pas un adversaire en jeu — voir `Adversaire`.
+ */
+export interface ModeleAdversaire {
+  id: string
+  nom: string
+  evasion: number
+  /** Points de Fatigue encaissés avant de tomber. 0 = non renseigné. */
+  fatigueMax: number
+  icone: string
+}
+
+/**
+ * Un exemplaire d'adversaire présent dans le combat en cours.
+ *
+ * Ce document est **lisible par les joueuses** : il ne contient donc que ce
+ * qu'elles ont le droit de voir. Le seuil de Fatigue est ailleurs.
+ */
 export interface Adversaire {
   id: string
   nom: string
@@ -354,6 +376,14 @@ export interface Adversaire {
   /** Ordre d'affichage. */
   ordre: number
 }
+
+/**
+ * Seuils de Fatigue des adversaires en jeu, indexés par identifiant d'adversaire.
+ *
+ * 🔒 Regroupés dans un seul document réservé à la MJ : une seule souscription,
+ * et surtout aucune chance qu'un seuil se retrouve dans le document public.
+ */
+export type SeuilsAdversaires = Record<string, number>
 
 export interface EtatCombat {
   /** Numéro du tour, incrémenté par la MJ. Sert d'ancre aux Actions Alternatives. */

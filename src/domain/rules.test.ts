@@ -12,7 +12,11 @@ import {
 } from './character.ts'
 import {
   ACTIONS_ALTERNATIVES,
+  appliquerDegats,
   estSonTour,
+  estTombe,
+  evasionAffichee,
+  instancierAdversaire,
   repartirParInitiative,
   resoudreAttaque,
   sousGroupeInitiative,
@@ -49,7 +53,7 @@ import {
   paliersFlammeAtteints,
 } from './modifiers.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
-import type { Character, Sort, VieSoulshifter } from './types.ts'
+import type { Character, ModeleAdversaire, Sort, VieSoulshifter } from './types.ts'
 
 const catalog = createCatalog(SEED)
 
@@ -428,6 +432,79 @@ describe('combat', () => {
 
   it('propose exactement les deux Actions Alternatives du PDF', () => {
     expect(ACTIONS_ALTERNATIVES.map((a) => a.id)).toEqual(['esquiver', 'diversion'])
+  })
+})
+
+describe('bestiaire et adversaires', () => {
+  const carcasse: ModeleAdversaire = {
+    id: 'carcasse',
+    nom: 'Carcasse',
+    evasion: 1,
+    fatigueMax: 6,
+    icone: 'spectre',
+  }
+
+  it('numérote les homonymes et laisse un nom unique intact', () => {
+    const a = instancierAdversaire(carcasse, [], 'a')
+    expect(a.nom).toBe('Carcasse')
+
+    const b = instancierAdversaire(carcasse, [a], 'b')
+    expect(b.nom).toBe('Carcasse 2')
+
+    const c = instancierAdversaire(carcasse, [a, b], 'c')
+    expect(c.nom).toBe('Carcasse 3')
+  })
+
+  it('ne réattribue pas le nom d’une créature retirée', () => {
+    const a = instancierAdversaire(carcasse, [], 'a')
+    const b = instancierAdversaire(carcasse, [a], 'b')
+    // « Carcasse » tombe, on en dépose une nouvelle : elle ne doit pas
+    // reprendre un nom qui vient d'être libéré, sous peine de confusion.
+    const c = instancierAdversaire(carcasse, [b], 'c')
+    expect(c.nom).toBe('Carcasse 3')
+  })
+
+  it('n’expose jamais le seuil de Fatigue dans le document public', () => {
+    const adv = instancierAdversaire(carcasse, [], 'a')
+    expect(JSON.stringify(adv)).not.toContain('fatigueMax')
+    expect(JSON.stringify(adv)).not.toContain('6')
+    expect(adv.evasionPublique).toBe(false)
+  })
+
+  it('incrémente l’ordre d’affichage', () => {
+    const a = instancierAdversaire(carcasse, [], 'a')
+    const b = instancierAdversaire(carcasse, [a], 'b')
+    expect(b.ordre).toBeGreaterThan(a.ordre)
+  })
+
+  it('cumule les dégâts et détecte la chute au seuil', () => {
+    let adv = instancierAdversaire(carcasse, [], 'a')
+    adv = appliquerDegats(adv, 4)
+    expect(adv.degatsSubis).toBe(4)
+    expect(estTombe(adv, 6)).toBe(false)
+
+    adv = appliquerDegats(adv, 2)
+    expect(estTombe(adv, 6)).toBe(true)
+  })
+
+  it('laisse la MJ juger quand le seuil n’est pas renseigné', () => {
+    const adv = appliquerDegats(instancierAdversaire(carcasse, [], 'a'), 99)
+    expect(estTombe(adv, 0)).toBe(false)
+    expect(estTombe(adv, undefined)).toBe(false)
+  })
+
+  it('masque l’Évasion aux joueuses tant qu’elle n’est pas publique', () => {
+    const adv = instancierAdversaire(carcasse, [], 'a')
+    expect(evasionAffichee(adv, false)).toBe('?')
+    expect(evasionAffichee(adv, true)).toBe('1')
+    expect(evasionAffichee({ ...adv, evasionPublique: true }, false)).toBe('1')
+  })
+
+  it('échappe les caractères spéciaux d’un nom de créature', () => {
+    const bizarre: ModeleAdversaire = { ...carcasse, nom: 'Chose (?)' }
+    const a = instancierAdversaire(bizarre, [], 'a')
+    const b = instancierAdversaire(bizarre, [a], 'b')
+    expect(b.nom).toBe('Chose (?) 2')
   })
 })
 

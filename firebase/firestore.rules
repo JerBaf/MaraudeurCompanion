@@ -47,13 +47,20 @@ service cloud.firestore {
       allow write: if estMJ();
 
       // --- État de la table : mode, tour, phase de combat -------------------
-      // La MJ pilote tout ; les joueuses ne touchent qu'à l'objet `combat`,
-      // pour y déposer leur initiative.
+      // Les joueuses ne touchent qu'à l'objet `combat`, et uniquement pour y
+      // déposer leur initiative : le tour en cours et le sous-groupe actif
+      // doivent rester inchangés. Sans ces deux dernières conditions, une
+      // joueuse pourrait faire avancer le combat, ce que les guidelines
+      // réservent à la MJ.
       match /state/{doc} {
         allow read: if deLaTable();
         allow create, delete: if estMJ();
         allow update: if estMJ()
-                      || (estJoueuse() && champsTouches().hasOnly(['combat']));
+                      || (estJoueuse()
+                          && champsTouches().hasOnly(['combat'])
+                          && request.resource.data.combat.tour == resource.data.combat.tour
+                          && request.resource.data.combat.sousGroupeActif
+                             == resource.data.combat.sousGroupeActif);
       }
 
       // --- Fiches de personnage --------------------------------------------
@@ -93,6 +100,16 @@ service cloud.firestore {
       match /catalog/{entryId} {
         allow read: if deLaTable();
         allow write: if estMJ();
+      }
+
+      // --- 🔒 BESTIAIRE -----------------------------------------------------
+      // Les fiches de créatures de la MJ. Refusé en lecture aux joueuses, et
+      // non pas rangé dans le catalogue, parce qu'il contient l'Évasion et le
+      // seuil de Fatigue de chaque créature — y compris celles dont l'Évasion
+      // est volontairement masquée pendant le combat. Le mettre à côté des
+      // sorts aurait tout révélé à qui ouvre la console.
+      match /bestiary/{modeleId} {
+        allow read, write: if estMJ();
       }
 
       // --- Sessions et feux de camp ----------------------------------------

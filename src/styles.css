@@ -726,6 +726,95 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Combat
+   -------------------------------------------------------------------------- */
+
+/* Bandeau « c'est ton tour » : doit se voir depuis l'autre bout de la table. */
+.tour-actif {
+  padding: 14px 16px;
+  border-radius: var(--rayon-l);
+  background: color-mix(in srgb, var(--ambre) 20%, var(--encre));
+  border: 1px solid var(--ambre);
+  color: var(--ambre-vif);
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  text-align: center;
+}
+
+/* Sur le pavé d'initiative, 4-6 fait jouer avant la MJ : la teinte le rappelle
+   au moment où on saisit son dé. */
+.pas--avant {
+  border-color: color-mix(in srgb, var(--ambre) 55%, var(--encre-4));
+  color: var(--ambre-vif);
+}
+
+.tour-attente {
+  padding: 10px 14px;
+  border-radius: var(--rayon-l);
+  background: var(--encre-2);
+  border: var(--bordure);
+  color: var(--parchemin-faible);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.etape {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: var(--rayon);
+  background: var(--encre-3);
+}
+
+.etape__numero {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ambre);
+  white-space: nowrap;
+  padding-top: 3px;
+}
+
+.etape__corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.etape__liste {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 0.84rem;
+  color: var(--parchemin-doux);
+}
+
+/* Les tableaux de règles défilent dans leur propre boîte : sur un téléphone,
+   la page elle-même ne doit jamais défiler horizontalement. */
+.table-defilante {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.table-regle {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.table-regle th,
+.table-regle td {
+  border: 1px solid var(--encre-4);
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table-regle th {
+  color: var(--ambre);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
    Onglets
    -------------------------------------------------------------------------- */
 

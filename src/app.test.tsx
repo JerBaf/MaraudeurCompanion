@@ -122,6 +122,110 @@ describe('aiguillage de l’application', () => {
   })
 })
 
+describe('mode Combat', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  afterEach(cleanup)
+
+  /** Amorce la table et y crée un personnage, puis rend la main. */
+  async function tablePreteAvecPersonnage() {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+    )
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: 'Ilma' } })
+    fireEvent.click(await screen.findByText('Dusk Hunter'))
+    fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+    fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+    cleanup()
+  }
+
+  it('n’affiche l’onglet Combat côté MJ qu’une fois le combat lancé', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+
+    // Hors combat, l'onglet n'encombre pas la barre.
+    expect(screen.queryByRole('tab', { name: 'Combat' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Combat' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Combat' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Combat' }))
+    await waitFor(() => expect(screen.getByText('Démarrer un combat')).toBeTruthy())
+  })
+
+  it('dépose un adversaire visible de la joueuse, sans lui livrer le seuil', async () => {
+    await tablePreteAvecPersonnage()
+
+    // --- La MJ démarre le combat et crée une Carcasse à la volée ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(screen.getByRole('button', { name: 'Combat' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+    fireEvent.click(await screen.findByText('Démarrer un combat'))
+
+    fireEvent.change(await screen.findByPlaceholderText('Carcasse'), {
+      target: { value: 'Carcasse' },
+    })
+    const champs = screen.getAllByRole('spinbutton')
+    fireEvent.change(champs[0] as HTMLElement, { target: { value: '1' } })
+    fireEvent.change(champs[1] as HTMLElement, { target: { value: '6' } })
+    fireEvent.click(screen.getByText('Ajouter au combat'))
+
+    await waitFor(() => expect(screen.getByText(/dégâts 0 \/ 6/)).toBeTruthy())
+    cleanup()
+
+    // --- La joueuse voit la créature, mais ni son Évasion ni son seuil ---
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+    await waitFor(() => expect(screen.getByText('Carcasse')).toBeTruthy())
+
+    // L'Évasion reste masquée tant que la MJ ne l'a pas rendue publique,
+    // et le seuil de Fatigue ne quitte jamais l'écran de la MJ.
+    expect(screen.getByText(/Évasion \? · 0 dégât/)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('/ 6')
+
+    // Le document public de l'adversaire ne contient pas le seuil.
+    const docAdversaire = clesStockage().find((k) => k.includes('/adversaries/'))
+    expect(docAdversaire).toBeDefined()
+    expect(localStorage.getItem(docAdversaire as string)).not.toContain('fatigueMax')
+  })
+
+  it('laisse la joueuse déposer son initiative et lui dit quand c’est son tour', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(screen.getByRole('button', { name: 'Combat' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+    fireEvent.click(await screen.findByText('Démarrer un combat'))
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
+
+    // Un 5 la place « avant la MJ », qui est le sous-groupe actif au premier tour.
+    fireEvent.click(await screen.findByRole('button', { name: '5' }))
+    await waitFor(() => expect(screen.getByText("C'est à vous de jouer.")).toBeTruthy())
+  })
+})
+
 describe('parcours de création', () => {
   beforeEach(() => {
     localStorage.clear()

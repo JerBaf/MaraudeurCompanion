@@ -4,12 +4,14 @@ import { Avatar } from '../../components/Avatar.tsx'
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
+import { OngletCombat } from './OngletCombat.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { journaliser, modifierPersonnage } from '../../data/repo.ts'
 import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { estSonTour } from '../../domain/combat.ts'
 import { precisionPersonnalite, vieActive } from '../../domain/effets.ts'
 import {
   actionsRapidesMax,
@@ -38,7 +40,9 @@ import {
   LIBELLE_COMPETENCE,
   LIBELLE_MAGIE,
   LIBELLE_SLOT,
+  type Adversaire,
   type Character,
+  type EtatTable,
   type Sort,
 } from '../../domain/types.ts'
 
@@ -57,14 +61,32 @@ import {
 interface Props {
   char: Character
   catalog: Catalog
+  etat: EtatTable | null
+  adversaires: Adversaire[]
+  personnages: Character[]
   onQuitter: () => void
 }
 
-type Onglet = 'fiche' | 'sorts' | 'sac'
+type Onglet = 'fiche' | 'combat' | 'sorts' | 'sac'
 
-export function Fiche({ char, catalog, onQuitter }: Props) {
+const LIBELLE_ONGLET: Record<Onglet, string> = {
+  fiche: 'Fiche',
+  combat: 'Combat',
+  sorts: 'Sorts',
+  sac: 'Sac à dos',
+}
+
+export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter }: Props) {
   const [onglet, setOnglet] = useState<Onglet>('fiche')
   const classe = catalog.classe(char.classeId)
+
+  const enCombat = etat?.mode === 'combat'
+  const monTour = enCombat && estSonTour(char, etat.combat)
+
+  // « La phase Combat voit certains éléments se rajouter » : l'onglet apparaît
+  // en plus des autres, il n'en remplace aucun.
+  const onglets: Onglet[] = enCombat ? ['fiche', 'combat', 'sorts', 'sac'] : ['fiche', 'sorts', 'sac']
+  const ongletActif = onglets.includes(onglet) ? onglet : 'fiche'
 
   const maj = (transformer: (c: Character) => Character) => {
     void modifierPersonnage(char, transformer)
@@ -80,27 +102,38 @@ export function Fiche({ char, catalog, onQuitter }: Props) {
           {char.nom}
           <span className="tres-discret"> · {classe?.nom ?? char.classeId}</span>
         </span>
+        {monTour && <span className="puce puce--ambre">À vous</span>}
       </header>
 
       <div className="contenu pile">
         <div className="onglets" role="tablist">
-          {(['fiche', 'sorts', 'sac'] as const).map((cle) => (
+          {onglets.map((cle) => (
             <button
               key={cle}
               type="button"
               role="tab"
-              aria-selected={onglet === cle}
-              className={`onglet ${onglet === cle ? 'onglet--actif' : ''}`}
+              aria-selected={ongletActif === cle}
+              className={`onglet ${ongletActif === cle ? 'onglet--actif' : ''}`}
               onClick={() => setOnglet(cle)}
             >
-              {cle === 'fiche' ? 'Fiche' : cle === 'sorts' ? 'Sorts' : 'Sac à dos'}
+              {LIBELLE_ONGLET[cle]}
+              {cle === 'combat' && monTour ? ' •' : ''}
             </button>
           ))}
         </div>
 
-        {onglet === 'fiche' && <OngletFiche char={char} catalog={catalog} maj={maj} />}
-        {onglet === 'sorts' && <OngletSorts char={char} catalog={catalog} />}
-        {onglet === 'sac' && <OngletSac char={char} catalog={catalog} />}
+        {ongletActif === 'fiche' && <OngletFiche char={char} catalog={catalog} maj={maj} />}
+        {ongletActif === 'combat' && etat && (
+          <OngletCombat
+            char={char}
+            catalog={catalog}
+            etat={etat}
+            adversaires={adversaires}
+            personnages={personnages}
+          />
+        )}
+        {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} />}
+        {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}
       </div>
     </>
   )
