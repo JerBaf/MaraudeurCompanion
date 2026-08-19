@@ -18,7 +18,14 @@ import type { FirebaseOptions } from 'firebase/app'
  * Renseignez ceci après avoir créé le projet sur console.firebase.google.com.
  * Laissez `null` pour travailler en mode local (voir plus bas).
  */
-export const FIREBASE_CONFIG: FirebaseOptions | null = null
+export const FIREBASE_CONFIG: FirebaseOptions | null = {
+  apiKey: "AIzaSyCrJ4z2lmdsrId5Hw0FdOtzr9VgG7EcafM",
+  authDomain: "maraudeurcompanion.firebaseapp.com",
+  projectId: "maraudeurcompanion",
+  storageBucket: "maraudeurcompanion.firebasestorage.app",
+  messagingSenderId: "977081855630",
+  appId: "1:977081855630:web:e9301981f4a556be7223df"
+};
 
 /**
  * Les deux comptes Firebase Auth (Email/Password) à créer dans la console.

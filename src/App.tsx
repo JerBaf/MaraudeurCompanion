@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { MODE_LOCAL } from './config.ts'
 import { creerEtEnregistrerPersonnage, reclamerPersonnage } from './data/repo.ts'
 import { useAmorcage, useDeviceId, useRole, useTable } from './hooks/useTable.ts'
 import { Connexion } from './screens/Connexion.tsx'
@@ -80,11 +81,24 @@ export function App() {
   if (catalog.classes().length === 0) {
     return (
       <div className="app">
-        <div className="contenu">
+        <div className="contenu pile">
           <p className="alerte alerte--info">
             La table n'est pas encore initialisée. Demandez à la MJ de se connecter une première
             fois : le contenu s'installera tout seul.
           </p>
+
+          {MODE_LOCAL && (
+            <div className="alerte alerte--erreur">
+              <strong>Vous êtes en mode local.</strong> Les données sont enregistrées dans{' '}
+              <em>ce navigateur uniquement</em> : un onglet Firefox et un onglet Chrome ne voient
+              pas la même table, même sur la même adresse.
+              <br />
+              <br />
+              Pour tester à deux écrans, ouvrez <strong>deux onglets du même navigateur</strong> —
+              l'un en MJ, l'autre en joueuse. Pour faire dialoguer deux vrais appareils, il faut
+              configurer Firebase (étape 1 du README).
+            </div>
+          )}
         </div>
       </div>
     )

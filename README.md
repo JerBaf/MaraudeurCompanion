@@ -16,17 +16,27 @@ npm install
 npm run dev
 ```
 
-Ouvrez deux onglets sur l'adresse affichée :
+Ouvrez **deux onglets du même navigateur** sur l'adresse affichée :
 
 | Onglet | Connexion | Ce que vous voyez |
 |---|---|---|
 | 1 | onglet **MJ**, PIN `1234` | l'écran de supervision |
 | 2 | onglet **Joueuse**, code `ENTREMONDE` | la création puis la fiche |
 
-Les données vivent dans le `localStorage` du navigateur et se synchronisent
-entre onglets : modifiez une compétence côté MJ, l'écran joueuse bouge
-immédiatement. C'est le même code que la version en ligne, seul le stockage
-change.
+Connectez-vous **en MJ d'abord** : le catalogue s'installe à ce moment-là.
+Modifiez ensuite une compétence côté MJ, l'écran joueuse bouge immédiatement.
+
+> ⚠️ **Deux navigateurs différents ne partagent rien.**
+> En mode local, les données vivent dans le `localStorage`, qui est cloisonné
+> par navigateur : un onglet Firefox et un onglet Chrome sont deux tables
+> distinctes, même sur la même adresse. Le catalogue amorcé dans l'un reste
+> invisible dans l'autre.
+>
+> Pour faire dialoguer deux **appareils** (votre ordinateur et le téléphone
+> d'une joueuse), il n'y a pas de raccourci : il faut configurer Firebase.
+
+Le rôle est stocké dans le `sessionStorage`, propre à chaque onglet — c'est ce
+qui permet d'être MJ dans l'un et joueuse dans l'autre en même temps.
 
 > Le mode local n'offre **aucune sécurité réelle** : il sert à découvrir et à
 > développer, jamais à une vraie session.

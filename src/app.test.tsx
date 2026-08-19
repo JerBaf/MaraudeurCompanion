@@ -30,6 +30,7 @@ function clesStockage(): string[] {
 describe('aiguillage de l’application', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   afterEach(cleanup)
@@ -41,7 +42,7 @@ describe('aiguillage de l’application', () => {
   })
 
   it('ouvre l’écran MJ et amorce le catalogue', async () => {
-    localStorage.setItem('maraudeur:role', 'mj')
+    sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
 
     expect(screen.getByText('Écran MJ')).toBeTruthy()
@@ -57,7 +58,7 @@ describe('aiguillage de l’application', () => {
 
   it('propose de créer un personnage à une joueuse une fois la table amorcée', async () => {
     // La MJ passe d'abord pour installer le contenu…
-    localStorage.setItem('maraudeur:role', 'mj')
+    sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     await waitFor(() =>
       expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
@@ -65,7 +66,7 @@ describe('aiguillage de l’application', () => {
     cleanup()
 
     // … puis la joueuse arrive sur le roster.
-    localStorage.setItem('maraudeur:role', 'joueuse')
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
 
     await waitFor(() => expect(screen.getByText('Créer un personnage')).toBeTruthy())
@@ -73,7 +74,7 @@ describe('aiguillage de l’application', () => {
   })
 
   it('prévient la joueuse quand la table n’est pas encore initialisée', async () => {
-    localStorage.setItem('maraudeur:role', 'joueuse')
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
 
     await waitFor(() =>
@@ -83,12 +84,15 @@ describe('aiguillage de l’application', () => {
 })
 
 describe('parcours de création', () => {
-  beforeEach(() => localStorage.clear())
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
   afterEach(cleanup)
 
   /** Installe le catalogue en passant une première fois par l'écran MJ. */
   async function amorcerLaTable() {
-    localStorage.setItem('maraudeur:role', 'mj')
+    sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     await waitFor(() =>
       expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
@@ -99,7 +103,7 @@ describe('parcours de création', () => {
   it('crée un Dusk Hunter et ouvre sa fiche avec les bonnes valeurs', async () => {
     await amorcerLaTable()
 
-    localStorage.setItem('maraudeur:role', 'joueuse')
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
 
     fireEvent.click(await screen.findByText('Créer un personnage'))

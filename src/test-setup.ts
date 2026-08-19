@@ -46,12 +46,12 @@ class StorageMemoire implements Storage {
 }
 
 if (typeof window !== 'undefined') {
-  const storage = new StorageMemoire()
-  for (const cible of [globalThis, window]) {
-    Object.defineProperty(cible, 'localStorage', {
-      value: storage,
-      configurable: true,
-      writable: true,
-    })
+  // Deux stockages distincts : l'app range les données de la table dans
+  // `localStorage` et le rôle de l'onglet dans `sessionStorage`.
+  for (const nom of ['localStorage', 'sessionStorage'] as const) {
+    const storage = new StorageMemoire()
+    for (const cible of [globalThis, window]) {
+      Object.defineProperty(cible, nom, { value: storage, configurable: true, writable: true })
+    }
   }
 }

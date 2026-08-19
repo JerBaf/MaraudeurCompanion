@@ -131,17 +131,33 @@ export const localStore: Store = {
 const CLE_ROLE = `${PREFIXE}role`
 
 /**
+ * Le rôle vit dans `sessionStorage`, pas dans `localStorage`.
+ *
+ * C'est ce qui permet d'ouvrir deux onglets du même navigateur, l'un en MJ et
+ * l'autre en joueuse : `sessionStorage` est propre à chaque onglet, alors que
+ * les données de la table restent partagées via `localStorage`. Avec un rôle en
+ * `localStorage`, le second onglet volerait le rôle du premier.
+ *
+ * ⚠️ Rappel : `localStorage` est cloisonné **par navigateur**. Un onglet Firefox
+ * et un onglet Chrome ne voient pas la même table. Pour faire dialoguer deux
+ * appareils ou deux navigateurs, il faut configurer Firebase (voir README).
+ */
+function stockageRole(): Storage {
+  return typeof sessionStorage !== 'undefined' ? sessionStorage : localStorage
+}
+
+/**
  * En mode local, le code de table et le PIN sont ceux du fichier de config.
  * Aucune vérification côté serveur : c'est un mode de développement.
  */
 export function createLocalAuth(codeTable: string, pinMJ: string): Auth {
   const ecouteurs = new Set<(r: Role | null) => void>()
-  let role: Role | null = (localStorage.getItem(CLE_ROLE) as Role | null) ?? null
+  let role: Role | null = (stockageRole().getItem(CLE_ROLE) as Role | null) ?? null
 
   const definir = (r: Role | null) => {
     role = r
-    if (r) localStorage.setItem(CLE_ROLE, r)
-    else localStorage.removeItem(CLE_ROLE)
+    if (r) stockageRole().setItem(CLE_ROLE, r)
+    else stockageRole().removeItem(CLE_ROLE)
     for (const cb of ecouteurs) cb(r)
   }
 
