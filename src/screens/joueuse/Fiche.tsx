@@ -2,14 +2,18 @@ import { useState } from 'react'
 
 import { Avatar } from '../../components/Avatar.tsx'
 import { Compteur } from '../../components/Compteur.tsx'
-import { Icone } from '../../components/Icone.tsx'
+import { Effets } from '../../components/Effets.tsx'
+import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
+import { Passifs } from '../../components/Passifs.tsx'
+import { Vignette } from '../../components/Vignette.tsx'
+import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { journaliser, modifierPersonnage } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import {
+  actionsRapidesMax,
   computeEvasion,
   computeSixthSens,
   computeToutesCompetences,
-  actionsRapidesRestantes,
 } from '../../domain/competences.ts'
 import { fatigueRestante } from '../../domain/fatigue.ts'
 import {
@@ -18,12 +22,19 @@ import {
   coutFoiEffectif,
   disponibiliteSort,
 } from '../../domain/magie.ts'
-import { allModifiers, MAX_FOI, palierVoieDeLaFlamme, SEUIL_COMBUSTION } from '../../domain/modifiers.ts'
+import {
+  EVASION_DE_BASE,
+  MAX_FOI,
+  MAX_MARQUES,
+  palierVoieDeLaFlamme,
+  SEUIL_COMBUSTION,
+} from '../../domain/modifiers.ts'
 import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
   LIBELLE_MAGIE,
+  LIBELLE_SLOT,
   type Character,
   type Sort,
 } from '../../domain/types.ts'
@@ -31,12 +42,13 @@ import {
 /**
  * Fiche de personnage — la phase Standard.
  *
- * Tout ce que le PDF impose de garder visible en permanence est sur le premier
- * onglet : compétences, Fatigue, Foi, Brûlures, Marques, 6th Sens, Lumens.
- * Les sorts et le sac à dos passent en onglets pour rester lisibles à une main.
+ * Ordre de lecture voulu par la MJ : d'abord ce qu'on consulte en permanence
+ * (Lumens, Évasion, Fatigue), puis l'équipement porté, puis les compétences et
+ * ce qui les influence, et enfin les ressources qu'on dépense.
  *
- * Aucune valeur affichée ici n'est lue telle quelle dans la base : compétences,
- * Évasion et 6th Sens repassent tous par le moteur de modificateurs.
+ * Aucune valeur affichée ici n'est lue telle quelle en base : compétences,
+ * Évasion, 6th Sens et Actions Rapides repassent tous par le moteur de
+ * modificateurs.
  */
 
 interface Props {
@@ -105,9 +117,9 @@ function OngletFiche({
   const competences = computeToutesCompetences(char, catalog)
   const evasion = computeEvasion(char, catalog)
   const sens = computeSixthSens(char, catalog)
+  const rapidesMax = actionsRapidesMax(char, catalog)
   const palier = palierVoieDeLaFlamme(char.brulures)
   const restante = fatigueRestante(char)
-  const modificateurs = allModifiers(char, catalog)
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
 
@@ -136,6 +148,13 @@ function OngletFiche({
       fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + r.fatigueAjoutee) },
     }))
   }
+
+  const detailEvasion =
+    evasion.bonus > 0
+      ? `base ${EVASION_DE_BASE} + ${evasion.bonus}`
+      : evasion.bonus < 0
+        ? `base ${EVASION_DE_BASE} − ${Math.abs(evasion.bonus)}`
+        : 'aucun bonus'
 
   return (
     <div className="pile">
@@ -170,23 +189,37 @@ function OngletFiche({
         </div>
       </section>
 
+      {/* --- Évasion et Fatigue, les deux chiffres qu'on consulte le plus --- */}
+      <section className="carte">
+        <div className="duo">
+          <Vignette
+            libelle="Évasion"
+            valeur={evasion.total}
+            note={detailEvasion}
+            teinte="var(--foi)"
+          />
+          <Compteur
+            libelle="Points de Fatigue"
+            variante="fatigue"
+            valeur={char.fatigue.coches}
+            max={char.fatigue.max}
+            onChange={(v) => maj((c) => ({ ...c, fatigue: { ...c.fatigue, coches: v } }))}
+            note={`${restante} restant(s)`}
+          />
+        </div>
+      </section>
+
       {/* --- Avatar et équipement --- */}
       <section className="carte">
-        <div className="carte__titre">
-          <span className="etiquette">Équipement</span>
-          <span className="tres-discret">modifiable au feu de camp</span>
+        <span className="etiquette">Équipement</span>
+        <div style={{ marginTop: 10 }}>
+          <Avatar char={char} catalog={catalog} />
         </div>
-        <Avatar char={char} catalog={catalog} />
       </section>
 
       {/* --- Compétences --- */}
       <section className="carte pile pile--serree">
-        <div className="carte__titre">
-          <span className="etiquette">Compétences</span>
-          <span className="tres-discret">
-            Évasion {evasion.total} · {actionsRapidesRestantes(char, catalog)} action(s) rapide(s)
-          </span>
-        </div>
+        <span className="etiquette">Compétences</span>
 
         {COMPETENCES.map((c) => {
           const v = competences[c]
@@ -208,35 +241,40 @@ function OngletFiche({
             </div>
           )
         })}
-
-        {modificateurs.length > 0 && (
-          <>
-            <hr className="separateur" />
-            <span className="etiquette">Effets en cours</span>
-            <div className="rangee">
-              {modificateurs.map((m) => (
-                <span key={m.id} className="puce puce--ambre" title={decrireModificateur(m.target, m.op)}>
-                  {m.source.label}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
       </section>
+
+      {/* --- 6th Sens et Actions Rapides, deux réserves qu'on dépense --- */}
+      <section className="carte">
+        <div className="paire">
+          <Compteur
+            libelle="6th Sens"
+            variante="sens"
+            valeur={sens.restants}
+            max={sens.max}
+            onChange={(v) => maj((c) => ({ ...c, sixthSensUtilises: Math.max(0, sens.max - v) }))}
+            note={sens.bonus > 0 ? `dont ${sens.bonus} temporaire(s)` : 'récupéré en fin de journée'}
+          />
+          <Compteur
+            libelle="Actions Rapides"
+            variante="rapides"
+            valeur={Math.max(0, rapidesMax - char.actionsRapidesUtilisees)}
+            max={rapidesMax}
+            onChange={(v) =>
+              maj((c) => ({ ...c, actionsRapidesUtilisees: Math.max(0, rapidesMax - v) }))
+            }
+            note={`d'après votre Physique · par jour`}
+          />
+        </div>
+      </section>
+
+      {/* --- Effets en cours, passifs compris --- */}
+      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} />
+
+      {/* --- Passif de classe --- */}
+      <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} />
 
       {/* --- Ressources --- */}
       <section className="carte pile">
-        <Compteur
-          libelle="Points de Fatigue"
-          variante="fatigue"
-          valeur={char.fatigue.coches}
-          max={char.fatigue.max}
-          onChange={(v) => maj((c) => ({ ...c, fatigue: { ...c.fatigue, coches: v } }))}
-          note={`${restante} restant(s)`}
-        />
-
-        <hr className="separateur" />
-
         <Compteur
           libelle="Brûlures"
           variante="brulures"
@@ -278,21 +316,14 @@ function OngletFiche({
         <Compteur
           libelle="Marques"
           variante="marques"
-          valeur={char.marques}
-          max={MAX_FOI}
+          valeur={Math.min(char.marques, MAX_MARQUES)}
+          max={MAX_MARQUES}
           onChange={(v) => maj((c) => ({ ...c, marques: v }))}
-          note={char.marques >= 3 ? 'La MJ peut prendre le contrôle de votre personnage.' : undefined}
-        />
-
-        <hr className="separateur" />
-
-        <Compteur
-          libelle="6th Sens"
-          variante="sens"
-          valeur={sens.restants}
-          max={sens.max}
-          onChange={(v) => maj((c) => ({ ...c, sixthSensUtilises: Math.max(0, sens.max - v) }))}
-          note={sens.bonus > 0 ? `dont ${sens.bonus} temporaire(s)` : undefined}
+          note={
+            char.marques >= MAX_MARQUES
+              ? 'Seuil atteint — la MJ peut prendre le contrôle de votre personnage.'
+              : undefined
+          }
         />
       </section>
 
@@ -312,13 +343,44 @@ function OngletFiche({
 
 // ---------------------------------------------------------------------------
 
+export function decrireCoutSort(sort: Sort, coutFoi: number | null): string {
+  switch (sort.cout.kind) {
+    case 'aucun':
+      return 'sans coût'
+    case 'foi':
+    case 'foi-plus-variable':
+      return `${coutFoi ?? '?'} Foi${sort.cout.kind === 'foi-plus-variable' ? ' + X' : ''}`
+    case 'brulures':
+      return `${sort.cout.valeur} brûlure(s)`
+    case 'brulures-variable':
+      return 'X brûlures'
+    case 'marques-variable':
+      return `X Marques (max ${sort.cout.max})`
+  }
+}
+
+function LigneSort({ sort, char, catalog }: { sort: Sort; char: Character; catalog: Catalog }) {
+  const dispo = disponibiliteSort(sort, char, catalog)
+  const coutFoi = coutFoiEffectif(sort, char, catalog)
+  const epuise = char.sortsEpuises.includes(sort.id)
+
+  return (
+    <ObjetDetaillable
+      icone={sort.icone}
+      nom={sort.nom}
+      meta={`${LIBELLE_MAGIE[sort.magie]} · ${decrireCoutSort(sort, coutFoi)}${sort.de ? ` · ${sort.de}` : ''} · ${sort.duree}`}
+      detail={sort.effet}
+      indisponible={!dispo.disponible}
+      {...(epuise ? { puce: <span className="puce puce--desavantage">Épuisé</span> } : {})}
+    />
+  )
+}
+
 function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
   const grimoire = char.grimoire.map((id) => catalog.sort(id)).filter((s): s is Sort => Boolean(s))
   const illusions =
     char.passifs.voieTrickster === 'illusionniste'
-      ? char.possede.sorts
-          .map((id) => catalog.sort(id))
-          .filter((s): s is Sort => Boolean(s?.illusion))
+      ? char.possede.sorts.map((id) => catalog.sort(id)).filter((s): s is Sort => Boolean(s?.illusion))
       : []
 
   return (
@@ -349,55 +411,6 @@ function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
   )
 }
 
-function LigneSort({ sort, char, catalog }: { sort: Sort; char: Character; catalog: Catalog }) {
-  const [ouvert, setOuvert] = useState(false)
-  const dispo = disponibiliteSort(sort, char, catalog)
-  const coutFoi = coutFoiEffectif(sort, char, catalog)
-
-  return (
-    <div>
-      <button
-        type="button"
-        className={`objet ${dispo.disponible ? '' : 'objet--indisponible'}`}
-        onClick={() => setOuvert((o) => !o)}
-        aria-expanded={ouvert}
-      >
-        <Icone nom={sort.icone} taille={32} />
-        <span className="objet__corps">
-          <span className="objet__nom">{sort.nom}</span>
-          <span className="objet__meta">
-            {LIBELLE_MAGIE[sort.magie]} · {decrireCout(sort, coutFoi)}
-            {sort.de ? ` · ${sort.de}` : ''} · {sort.duree}
-          </span>
-        </span>
-        {char.sortsEpuises.includes(sort.id) && <span className="puce puce--desavantage">Épuisé</span>}
-      </button>
-
-      {ouvert && (
-        <p className="discret" style={{ margin: '6px 4px 0' }}>
-          {sort.effet}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function decrireCout(sort: Sort, coutFoi: number | null): string {
-  switch (sort.cout.kind) {
-    case 'aucun':
-      return 'sans coût'
-    case 'foi':
-    case 'foi-plus-variable':
-      return `${coutFoi ?? '?'} Foi${sort.cout.kind === 'foi-plus-variable' ? ' + X' : ''}`
-    case 'brulures':
-      return `${sort.cout.valeur} brûlure(s)`
-    case 'brulures-variable':
-      return 'X brûlures'
-    case 'marques-variable':
-      return `X Marques (max ${sort.cout.max})`
-  }
-}
-
 // ---------------------------------------------------------------------------
 
 function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
@@ -410,9 +423,11 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
   const equipementsEnReserve = char.possede.equipements
     .filter((id) => !equipes.has(id))
     .map((id) => catalog.equipement(id))
-    .filter(Boolean)
+    .filter((e): e is NonNullable<typeof e> => Boolean(e))
 
-  const ameliorations = char.possede.ameliorations.map((id) => catalog.amelioration(id)).filter(Boolean)
+  const ameliorations = char.possede.ameliorations
+    .map((id) => catalog.amelioration(id))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
   return (
     <div className="pile">
@@ -424,13 +439,13 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
         <span className="etiquette">Sorts en réserve</span>
         {sortsEnReserve.length === 0 && <p className="vide">Rien en réserve.</p>}
         {sortsEnReserve.map((sort) => (
-          <div key={sort.id} className="objet">
-            <Icone nom={sort.icone} taille={30} />
-            <span className="objet__corps">
-              <span className="objet__nom">{sort.nom}</span>
-              <span className="objet__meta">{LIBELLE_MAGIE[sort.magie]}</span>
-            </span>
-          </div>
+          <ObjetDetaillable
+            key={sort.id}
+            icone={sort.icone}
+            nom={sort.nom}
+            meta={`${LIBELLE_MAGIE[sort.magie]} · ${sort.duree}`}
+            detail={sort.effet}
+          />
         ))}
       </section>
 
@@ -438,17 +453,17 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
         <span className="etiquette">Équipement en réserve</span>
         {equipementsEnReserve.length === 0 && <p className="vide">Rien en réserve.</p>}
         {equipementsEnReserve.map((eq) => (
-          <div key={eq!.id} className="objet">
-            <Icone nom={eq!.icone} taille={30} />
-            <span className="objet__corps">
-              <span className="objet__nom">{eq!.nom}</span>
-              <span className="objet__meta">
-                {eq!.slot}
-                {eq!.materielDeBase ? ' · matériel de base' : ''}
-                {eq!.bonusEvasion ? ` · Évasion +${eq!.bonusEvasion}` : ''}
-              </span>
-            </span>
-          </div>
+          <ObjetDetaillable
+            key={eq.id}
+            icone={eq.icone}
+            nom={eq.nom}
+            meta={
+              `${LIBELLE_SLOT[eq.slot]}` +
+              (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
+              (eq.materielDeBase ? ' · matériel de base' : '')
+            }
+            detail={eq.description ?? 'Aucune description pour cet objet.'}
+          />
         ))}
       </section>
 
@@ -456,43 +471,16 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
         <section className="carte pile pile--serree">
           <span className="etiquette">Améliorations</span>
           {ameliorations.map((am) => (
-            <div key={am!.id} className="objet">
-              <Icone nom={am!.icone} taille={30} />
-              <span className="objet__corps">
-                <span className="objet__nom">{am!.nom}</span>
-                <span className="objet__meta">{am!.effetTexte}</span>
-              </span>
-            </div>
+            <ObjetDetaillable
+              key={am.id}
+              icone={am.icone}
+              nom={am.nom}
+              meta={am.effetTexte}
+              detail={am.description ?? am.effetTexte}
+            />
           ))}
         </section>
       )}
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-
-function decrireModificateur(
-  target: import('../../domain/types.ts').ModifierTarget,
-  op: import('../../domain/types.ts').ModifierOp,
-): string {
-  const quoi =
-    target.kind === 'competence'
-      ? LIBELLE_COMPETENCE[target.competence]
-      : target.kind === 'competence-sauf'
-        ? `toutes sauf ${LIBELLE_COMPETENCE[target.except]}`
-        : target.kind === 'competence-toutes'
-          ? 'toutes les compétences'
-          : target.kind === 'evasion'
-            ? 'Évasion'
-            : target.kind === 'sixth-sens'
-              ? '6th Sens'
-              : target.kind === 'energie-attaque'
-                ? "Points d'Énergie"
-                : 'coût des sorts'
-
-  const effet =
-    op.kind === 'add' ? `${op.value > 0 ? '+' : ''}${op.value}` : op.kind === 'avantage' ? 'avantage' : 'désavantage'
-
-  return `${quoi} : ${effet}`
 }

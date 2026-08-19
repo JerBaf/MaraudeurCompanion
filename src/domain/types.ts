@@ -255,6 +255,22 @@ export interface EtatPassifs {
   vieActive?: number | null
 }
 
+/**
+ * Vie passée du Soulshifter.
+ *
+ * La personnalité incarnée recolore les quatre sorts de la classe et porte ses
+ * propres effets. Le type vit dans le domaine, les données dans le catalogue.
+ */
+export interface VieSoulshifter {
+  /** Face du dé qui la désigne. */
+  face: number
+  nom: string
+  companion: string
+  element: string
+  tribue: string
+  sens: string
+}
+
 export interface Character {
   id: string
   nom: string

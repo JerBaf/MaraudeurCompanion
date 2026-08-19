@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { Compteur } from '../../components/Compteur.tsx'
+import { Effets } from '../../components/Effets.tsx'
 import { Icone } from '../../components/Icone.tsx'
+import { Passifs } from '../../components/Passifs.tsx'
+import { VIES_SOULSHIFTER } from '../../content/seed.ts'
+import { Inventaire } from './Inventaire.tsx'
 import {
   amorcerSiNecessaire,
   definirMode,
@@ -19,7 +23,7 @@ import type { Catalog } from '../../domain/catalog.ts'
 import { cyclesNonRenseignes, secretVierge } from '../../domain/character.ts'
 import { computeEvasion, computeSixthSens, computeToutesCompetences } from '../../domain/competences.ts'
 import { cyclesRestants, fatigueRestante, resoudreGrillePleine } from '../../domain/fatigue.ts'
-import { MAX_FOI, SEUIL_COMBUSTION, modificateurMJ } from '../../domain/modifiers.ts'
+import { MAX_FOI, MAX_MARQUES, SEUIL_COMBUSTION, modificateurMJ } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   COMPETENCES,
@@ -321,9 +325,14 @@ function DetailPersonnage({
       <Compteur
         libelle="Marques"
         variante="marques"
-        valeur={char.marques}
-        max={MAX_FOI}
+        valeur={Math.min(char.marques, MAX_MARQUES)}
+        max={MAX_MARQUES}
         onChange={(v) => maj((c) => ({ ...c, marques: v }))}
+        note={
+          char.marques >= MAX_MARQUES
+            ? 'Seuil atteint — vous pouvez prendre le contrôle du personnage.'
+            : undefined
+        }
       />
       <Compteur
         libelle="6th Sens"
@@ -342,6 +351,18 @@ function DetailPersonnage({
           onChange={(e) => maj((c) => ({ ...c, lumens: Math.max(0, Number(e.target.value) || 0) }))}
         />
       </label>
+
+      <hr className="separateur" />
+
+      {/* Ce que la joueuse porte et prépare — consultable et modifiable. */}
+      <Inventaire char={char} catalog={catalog} maj={maj} />
+
+      <hr className="separateur" />
+
+      {/* La MJ n'est pas soumise au verrou du feu de camp sur la voie du Trickster. */}
+      <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} autoriserToutChanger />
+
+      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} />
 
       <hr className="separateur" />
 

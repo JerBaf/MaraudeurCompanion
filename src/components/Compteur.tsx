@@ -1,4 +1,4 @@
-export type VarianteCompteur = 'fatigue' | 'brulures' | 'foi' | 'marques' | 'sens'
+export type VarianteCompteur = 'fatigue' | 'brulures' | 'foi' | 'marques' | 'sens' | 'rapides'
 
 interface Props {
   libelle: string

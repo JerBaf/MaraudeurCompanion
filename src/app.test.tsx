@@ -165,9 +165,21 @@ describe('parcours de création', () => {
     expect(screen.getByText('0 / 5')).toBeTruthy()
     expect(screen.getByText('5 restant(s)')).toBeTruthy()
 
-    // Les Points de Foi démarrent à 2, l'Évasion de base vaut 1.
+    // Les Points de Foi démarrent à 2.
     expect(screen.getByText('2 / 9')).toBeTruthy()
-    expect(screen.getByText(/Évasion 1/)).toBeTruthy()
+
+    // L'Évasion a sa vignette dédiée, à 1 sans armure équipée.
+    const vignetteEvasion = screen.getByText('Évasion').closest('.vignette')
+    expect(vignetteEvasion?.textContent).toContain('1')
+    expect(vignetteEvasion?.textContent).toContain('aucun bonus')
+
+    // Actions Rapides : 2 pour un Physique à +2.
+    expect(screen.getByText('Actions Rapides')).toBeTruthy()
+    expect(screen.getByText('2 / 2')).toBeTruthy()
+
+    // Les Marques plafonnent à 3.
+    const marques = screen.getByText('Marques').closest('.compteur')
+    expect(marques?.textContent).toContain('/ 3')
 
     // Le Grimoire ne retient que les 3 premiers sorts de la classe ; le
     // quatrième reste en réserve dans le sac à dos.

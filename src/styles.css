@@ -385,6 +385,9 @@ textarea {
 .compteur--sens {
   --teinte: var(--vert);
 }
+.compteur--rapides {
+  --teinte: var(--ambre);
+}
 
 .compteur__rangee {
   display: flex;
@@ -394,6 +397,65 @@ textarea {
 
 .compteur__rangee .pastilles {
   flex: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Vignettes de valeur mise en avant (Évasion…)
+   -------------------------------------------------------------------------- */
+
+.vignette {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 16px;
+  min-width: 96px;
+  border-radius: var(--rayon);
+  background: var(--encre-3);
+  border: 1px solid color-mix(in srgb, var(--teinte, var(--ambre)) 35%, transparent);
+}
+
+.vignette__valeur {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
+  line-height: 1.05;
+  color: var(--teinte, var(--ambre-vif));
+}
+
+.vignette__note {
+  font-size: 0.7rem;
+  color: var(--parchemin-faible);
+  text-align: center;
+}
+
+/* Ligne « une vignette + un compteur » : la vignette garde sa largeur, le
+   compteur prend le reste. En dessous de 420px, on empile. */
+.duo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+@media (max-width: 420px) {
+  .duo {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Deux compteurs côte à côte (6th Sens et Actions Rapides). */
+.paire {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 420px) {
+  .paire {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -605,6 +667,53 @@ textarea {
   font-size: 0.76rem;
   color: var(--parchemin-faible);
   line-height: 1.3;
+}
+
+/* --------------------------------------------------------------------------
+   Effets en cours
+   -------------------------------------------------------------------------- */
+
+/* Un liseré à gauche code l'origine de l'effet : d'un coup d'œil on sait si on
+   peut le changer soi-même, s'il vient de la MJ ou s'il découle d'un état. */
+.objet--effet {
+  border-left: 3px solid var(--teinte-effet, var(--encre-4));
+}
+
+.effet--choisi {
+  --teinte-effet: var(--ambre);
+}
+.effet--feu-de-camp {
+  --teinte-effet: #b9793f;
+}
+.effet--derive {
+  --teinte-effet: var(--vert);
+}
+.effet--equipement {
+  --teinte-effet: var(--parchemin-faible);
+}
+.effet--mj {
+  --teinte-effet: var(--oblivion);
+}
+.effet--temporaire {
+  --teinte-effet: var(--sang);
+}
+
+.effet__detail {
+  padding: 10px 12px;
+  margin-top: 4px;
+  border-radius: var(--rayon);
+  background: var(--encre);
+  border: 1px solid var(--encre-4);
+  font-size: 0.86rem;
+  color: var(--parchemin-doux);
+}
+
+.effet__liste {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ambre);
 }
 
 /* --------------------------------------------------------------------------

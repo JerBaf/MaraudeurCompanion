@@ -1,4 +1,11 @@
-import type { Classe, EntreeCatalogue, Equipement, Investissement, Sort } from '../domain/types.ts'
+import type {
+  Classe,
+  EntreeCatalogue,
+  Equipement,
+  Investissement,
+  Sort,
+  VieSoulshifter,
+} from '../domain/types.ts'
 
 /**
  * Contenu livré avec l'app.
@@ -168,19 +175,10 @@ const SORTS_SOULSHIFTER: Sort[] = [
 /**
  * Vies passées du Soulshifter.
  *
- * La personnalité active reskin les quatre sorts et porte ses propres effets
+ * La personnalité active recolore les quatre sorts et porte ses propres effets
  * mécaniques. Le passif tire un dé dont le nombre de faces est égal au nombre
  * de vies connues, une fois par heure.
  */
-export interface VieSoulshifter {
-  face: number
-  nom: string
-  companion: string
-  element: string
-  tribue: string
-  sens: string
-}
-
 export const VIES_SOULSHIFTER: VieSoulshifter[] = [
   {
     face: 1,

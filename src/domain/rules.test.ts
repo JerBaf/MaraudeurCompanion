@@ -23,6 +23,7 @@ import {
   computeEvasion,
   computeSixthSens,
 } from './competences.ts'
+import { effetsActifs, facesDuDeDeVies } from './effets.ts'
 import {
   cyclesRestants,
   effectuerDetachement,
@@ -482,6 +483,76 @@ describe('Feu de Camp', () => {
 })
 
 // ---------------------------------------------------------------------------
+
+describe('effets actifs', () => {
+  const vies = [
+    { face: 2, nom: 'T-rexcité', companion: 'Un dinosaure', element: 'Une liane', tribue: '+1 Évasion', sens: '+4 intimidation' },
+  ]
+
+  it('regroupe les modificateurs par source et nomme leur origine', () => {
+    const char = nouveauPerso('trickster', { modifiers: [modificateurSerment('esprit')] })
+    const serment = effetsActifs(char, catalog).find((e) => e.nom === 'Serment')
+
+    expect(serment).toBeDefined()
+    expect(serment?.origine).toBe('temporaire')
+    expect(serment?.resume).toContain('-4')
+    expect(serment?.detail).toContain('feu de camp')
+  })
+
+  it('expose Overheat alors qu’il ne produit aucun modificateur', () => {
+    // Overheat transforme le *gain* de brûlures : il n'existe aucune
+    // statistique à modifier, mais la joueuse doit tout de même le voir.
+    const char = nouveauPerso('dusk-hunter', { passifs: { hexcore: 'overheat' } })
+    const effet = effetsActifs(char, catalog).find((e) => e.nom === 'Overheat')
+
+    expect(effet).toBeDefined()
+    expect(effet?.origine).toBe('choisi')
+    expect(effet?.modificateurs).toHaveLength(0)
+  })
+
+  it('marque la voie du Trickster comme engagée jusqu’au feu de camp', () => {
+    const char = nouveauPerso('trickster', { passifs: { voieTrickster: 'illusionniste' } })
+    const effet = effetsActifs(char, catalog).find((e) => e.nom === 'Illusionniste')
+    expect(effet?.origine).toBe('feu-de-camp')
+  })
+
+  it('attribue la Voie de la Flamme à l’état, pas à un choix', () => {
+    const char = nouveauPerso('dusk-hunter', { brulures: 5 })
+    const effet = effetsActifs(char, catalog).find((e) => e.nom.startsWith('Voie de la Flamme'))
+
+    expect(effet?.origine).toBe('derive')
+    expect(effet?.detail).toContain('5 brûlures')
+  })
+
+  it('décrit la personnalité incarnée par le Soulshifter', () => {
+    const char = nouveauPerso('soulshifter', {
+      passifs: { viesConnues: [1, 2], vieActive: 2 },
+    })
+    const effet = effetsActifs(char, catalog, vies).find((e) => e.nom === 'T-rexcité')
+
+    expect(effet?.origine).toBe('choisi')
+    expect(effet?.detail).toContain('liane')
+  })
+
+  it('donne au dé de vies autant de faces que de vies connues', () => {
+    expect(facesDuDeDeVies(nouveauPerso('soulshifter'))).toBe(2)
+    expect(facesDuDeDeVies(nouveauPerso('trickster'))).toBe(0)
+  })
+
+  it('n’affiche que l’armure portée, pas celle du sac à dos', () => {
+    const range = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: ['cuirasse-usee'], ameliorations: [] },
+    })
+    expect(effetsActifs(range, catalog).some((e) => e.nom === 'Cuirasse usée')).toBe(false)
+
+    const porte = nouveauPerso('trickster', {
+      equipe: { arme: null, armure: 'cuirasse-usee', bibelot: null },
+    })
+    const effet = effetsActifs(porte, catalog).find((e) => e.nom === 'Cuirasse usée')
+    expect(effet?.origine).toBe('equipement')
+    expect(effet?.resume).toContain('Évasion : +1')
+  })
+})
 
 describe('tirages', () => {
   it('les osselets ne comptent que les faces marquées', () => {

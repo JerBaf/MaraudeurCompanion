@@ -42,6 +42,16 @@ export const SEUIL_COMBUSTION = 9
 export const MAX_FOI = 9
 export const EVASION_DE_BASE = 1
 
+/**
+ * Plafond des Marques.
+ *
+ * Le PDF ne fixe pas de maximum ; il donne des coûts (1 Marque pour un
+ * désavantage, 3 pour une prise de contrôle). La table plafonne à 3 : c'est le
+ * seuil au-delà duquel la MJ peut prendre le personnage en main. Rien n'est
+ * automatique — les Marques sont une monnaie que la MJ dépense à la main.
+ */
+export const MAX_MARQUES = 3
+
 // ---------------------------------------------------------------------------
 // Ciblage
 // ---------------------------------------------------------------------------
