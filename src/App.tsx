@@ -31,7 +31,9 @@ function Cadre({ children }: { children: ReactNode }) {
 
 export function App() {
   const role = useRole()
-  const { etat, personnages, catalog, pret } = useTable()
+  // Les abonnements Firestore n'ouvrent qu'une fois le rôle connu : sans
+  // session authentifiée, les règles refusent tout, à juste titre.
+  const { etat, personnages, catalog, pret } = useTable(role)
   const deviceId = useDeviceId()
   useAmorcage(role)
 

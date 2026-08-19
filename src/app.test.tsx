@@ -41,6 +41,45 @@ describe('aiguillage de l’application', () => {
     expect(screen.getByText('Code de table')).toBeTruthy()
   })
 
+  /**
+   * Régression : l'app s'abonnait à Firestore dès son chargement, avant toute
+   * connexion. Les règles refusaient — à juste titre — et l'écran affichait une
+   * volée de « permission-denied » à quelqu'un qui n'avait pas encore eu
+   * l'occasion de saisir un identifiant.
+   */
+  it('n’ouvre aucun abonnement tant que personne n’est connecté', async () => {
+    vi.resetModules()
+    const { store } = await import('./store/index.ts')
+    const surCollection = vi.spyOn(store, 'subscribeCollection')
+    const surDocument = vi.spyOn(store, 'subscribeDoc')
+
+    const { App } = await import('./App.tsx')
+    render(<App />)
+
+    expect(screen.getByText('Code de table')).toBeTruthy()
+    expect(surCollection).not.toHaveBeenCalled()
+    expect(surDocument).not.toHaveBeenCalled()
+
+    surCollection.mockRestore()
+    surDocument.mockRestore()
+  })
+
+  it('ouvre les abonnements une fois le rôle connu', async () => {
+    // Le rôle doit être posé AVANT d'importer le store : `createLocalAuth` lit
+    // sessionStorage au chargement du module, une seule fois.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+
+    vi.resetModules()
+    const { store } = await import('./store/index.ts')
+    const surCollection = vi.spyOn(store, 'subscribeCollection')
+
+    const { App } = await import('./App.tsx')
+    render(<App />)
+
+    await waitFor(() => expect(surCollection).toHaveBeenCalled())
+    surCollection.mockRestore()
+  })
+
   it('ouvre l’écran MJ et amorce le catalogue', async () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
