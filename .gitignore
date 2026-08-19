@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.vite/
+
+# Config Firebase réelle (voir src/firebase/config.ts pour l'explication)
+src/firebase/config.local.ts
