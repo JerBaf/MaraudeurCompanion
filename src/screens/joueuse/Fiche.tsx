@@ -75,7 +75,9 @@ const LIBELLE_ONGLET: Record<Onglet, string> = {
   combat: 'Combat',
   camp: 'Feu de camp',
   sorts: 'Sorts',
-  sac: 'Sac à dos',
+  // L'onglet montre désormais tout l'équipement, porté compris : « Sac à dos »
+  // ne décrivait plus que la moitié de son contenu.
+  sac: 'Équipement',
 }
 
 export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter }: Props) {
@@ -152,7 +154,7 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
         {ongletActif === 'camp' && etat && (
           <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />
         )}
-        {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} />}
+        {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} maj={maj} />}
         {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}
       </div>
     </>
@@ -426,11 +428,16 @@ function LigneSort({
   char,
   catalog,
   horsEmplacement,
+  prepare,
+  maj,
 }: {
   sort: Sort
   char: Character
   catalog: Catalog
   horsEmplacement?: boolean
+  prepare?: boolean
+  /** Absent en lecture seule ; présent, il autorise la bascule du cristal. */
+  maj?: (t: (c: Character) => Character) => void
 }) {
   const dispo = disponibiliteSort(sort, char, catalog)
   const epuise = char.sortsEpuises.includes(sort.id)
@@ -440,6 +447,25 @@ function LigneSort({
   const precision = precisionPersonnalite(sort.id, char, VIES_SOULSHIFTER)
   const vie = vieActive(char, VIES_SOULSHIFTER)
 
+  // Seule l'Arcane consomme un cristal : c'est le d6 à 1 ou 2 qui l'épuise, et
+  // la joueuse le lance à table — l'app ne peut que l'enregistrer.
+  function basculerEpuise() {
+    maj?.((c) => ({
+      ...c,
+      sortsEpuises: epuise
+        ? c.sortsEpuises.filter((id) => id !== sort.id)
+        : [...c.sortsEpuises, sort.id],
+    }))
+  }
+
+  const puce = epuise ? (
+    <span className="puce puce--desavantage">Épuisé</span>
+  ) : horsEmplacement ? (
+    <span className="puce puce--ambre">Hors emplacement</span>
+  ) : prepare ? (
+    <span className="puce puce--ambre">Préparé</span>
+  ) : undefined
+
   return (
     <ObjetDetaillable
       icone={sort.icone}
@@ -448,31 +474,59 @@ function LigneSort({
       detail={sort.effet}
       indisponible={!dispo.disponible}
       {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
-      {...(epuise
-        ? { puce: <span className="puce puce--desavantage">Épuisé</span> }
-        : horsEmplacement
-          ? { puce: <span className="puce puce--ambre">Hors emplacement</span> }
-          : {})}
+      {...(puce ? { puce } : {})}
+      {...(maj && sort.magie === 'arcane'
+        ? {
+            action: (
+              <button type="button" className="btn btn--fantome" onClick={basculerEpuise}>
+                {epuise ? 'Cristal réétudié' : 'Cristal épuisé (1 ou 2 au dé)'}
+              </button>
+            ),
+          }
+        : {})}
     />
   )
 }
 
-function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
+/**
+ * Tous les sorts possédés, pas seulement les préparés.
+ *
+ * Comparer un sort du Grimoire à un sort en réserve obligeait auparavant à
+ * passer d'un onglet à l'autre ; ils sont désormais dans la même liste, ce qui
+ * est préparé portant sa puce.
+ */
+function OngletSorts({
+  char,
+  catalog,
+  maj,
+}: {
+  char: Character
+  catalog: Catalog
+  maj: (t: (c: Character) => Character) => void
+}) {
   const grimoire = grimoireEffectif(char, catalog)
   const prepares = grimoire.filter((e) => !e.horsEmplacement).length
   const permanents = grimoire.length - prepares
+
+  const enJeu = new Set(grimoire.map((e) => e.sort.id))
+  const enReserve = char.possede.sorts
+    .filter((id) => !enJeu.has(id))
+    .map((id) => catalog.sort(id))
+    .filter((s): s is Sort => Boolean(s))
 
   return (
     <div className="pile">
       <section className="carte pile pile--serree">
         <div className="carte__titre">
-          <span className="etiquette">Grimoire</span>
+          <span className="etiquette">Sorts</span>
           <span className="tres-discret">
             {prepares}/{TAILLE_GRIMOIRE} préparé(s)
             {permanents > 0 ? ` + ${permanents} en permanence` : ''}
           </span>
         </div>
-        {grimoire.length === 0 && <p className="vide">Aucun sort préparé.</p>}
+
+        {grimoire.length === 0 && enReserve.length === 0 && <p className="vide">Aucun sort connu.</p>}
+
         {grimoire.map(({ sort, horsEmplacement }) => (
           <LigneSort
             key={sort.id}
@@ -480,8 +534,23 @@ function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
             char={char}
             catalog={catalog}
             horsEmplacement={horsEmplacement}
+            prepare
+            maj={maj}
           />
         ))}
+
+        {enReserve.length > 0 && (
+          <>
+            <hr className="separateur" />
+            <span className="tres-discret">
+              En réserve — préparables au prochain feu de camp
+            </span>
+            {enReserve.map((sort) => (
+              <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
+            ))}
+          </>
+        )}
+
         {permanents > 0 && (
           <p className="tres-discret" style={{ margin: 0 }}>
             Les sorts « hors emplacement » sont disponibles en permanence et ne comptent pas dans
@@ -495,15 +564,17 @@ function OngletSorts({ char, catalog }: { char: Character; catalog: Catalog }) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Tout l'équipement possédé, porté ou non — le porté marqué de son emplacement.
+ *
+ * N'afficher que la réserve obligeait à regarder à deux endroits pour comparer
+ * ce qu'on porte à ce qu'on pourrait porter.
+ */
 function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
-  const sortsEnReserve = char.possede.sorts
-    .filter((id) => !char.grimoire.includes(id))
-    .map((id) => catalog.sort(id))
-    .filter((s): s is Sort => Boolean(s))
+  const equipes = Object.entries(char.equipe).filter(([, id]) => id) as [SlotEquipement, string][]
+  const parObjetPorte = new Map(equipes.map(([slot, id]) => [id, slot]))
 
-  const equipes = new Set(Object.values(char.equipe).filter(Boolean) as string[])
-  const equipementsEnReserve = char.possede.equipements
-    .filter((id) => !equipes.has(id))
+  const equipements = char.possede.equipements
     .map((id) => catalog.equipement(id))
     .filter((e): e is NonNullable<typeof e> => Boolean(e))
 
@@ -514,39 +585,31 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
   return (
     <div className="pile">
       <p className="alerte alerte--info">
-        Ce que vous transportez sans l'avoir préparé. Les échanges se font au prochain feu de camp.
+        Tout ce que vous transportez. Les échanges se font au prochain feu de camp.
       </p>
 
       <section className="carte pile pile--serree">
-        <span className="etiquette">Sorts en réserve</span>
-        {sortsEnReserve.length === 0 && <p className="vide">Rien en réserve.</p>}
-        {sortsEnReserve.map((sort) => (
-          <ObjetDetaillable
-            key={sort.id}
-            icone={sort.icone}
-            nom={sort.nom}
-            meta={resumeSort(sort, char, catalog)}
-            detail={sort.effet}
-          />
-        ))}
-      </section>
-
-      <section className="carte pile pile--serree">
-        <span className="etiquette">Équipement en réserve</span>
-        {equipementsEnReserve.length === 0 && <p className="vide">Rien en réserve.</p>}
-        {equipementsEnReserve.map((eq) => (
-          <ObjetDetaillable
-            key={eq.id}
-            icone={eq.icone}
-            nom={eq.nom}
-            meta={
-              `${LIBELLE_SLOT[eq.slot]}` +
-              (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
-              (eq.materielDeBase ? ' · matériel de base' : '')
-            }
-            detail={eq.description ?? 'Aucune description pour cet objet.'}
-          />
-        ))}
+        <span className="etiquette">Équipement</span>
+        {equipements.length === 0 && <p className="vide">Vous ne possédez aucun objet.</p>}
+        {equipements.map((eq) => {
+          const porteEn = parObjetPorte.get(eq.id)
+          return (
+            <ObjetDetaillable
+              key={eq.id}
+              icone={eq.icone}
+              nom={eq.nom}
+              meta={
+                `${LIBELLE_SLOT[eq.slot]}` +
+                (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
+                (eq.materielDeBase ? ' · matériel de base' : '')
+              }
+              detail={eq.description ?? 'Aucune description pour cet objet.'}
+              {...(porteEn
+                ? { puce: <span className="puce puce--ambre">{LIBELLE_SLOT[porteEn]}</span> }
+                : {})}
+            />
+          )
+        })}
       </section>
 
       {ameliorations.length > 0 && (

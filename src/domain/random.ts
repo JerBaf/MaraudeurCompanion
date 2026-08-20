@@ -78,12 +78,22 @@ export function tirerInitiative(rng: Rng): number {
 }
 
 /**
+ * La seule face d'osselet qui ne porte pas de point rouge est le 4 : un 1, un 2
+ * et un 3 brûlent chacun. Ne compter que les 1, comme on le faisait, divisait
+ * le gain de brûlures par trois.
+ */
+const FACE_VIERGE = 4
+
+/**
  * Jeu d'osselets de la Magie du Sang (≈ 4d4).
- * Chaque face marquée d'un point rouge apporte une brûlure : on retient les 1.
+ * Chaque face marquée d'un point rouge apporte une brûlure.
+ *
+ * Le gain renvoyé est **brut** : les passifs qui le transforment — Overheat, qui
+ * ajoute 1 au total — s'appliquent dans `appliquerGainBrulures` (`magie.ts`).
  */
 export function tirerOsselets(rng: Rng): { des: number[]; brulures: number } {
   const des = rng.roll(4, 4)
-  return { des, brulures: des.filter((d) => d === 1).length }
+  return { des, brulures: des.filter((d) => d < FACE_VIERGE).length }
 }
 
 /**

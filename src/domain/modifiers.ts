@@ -365,7 +365,7 @@ export function modificateurMJ(
   target: ModifierTarget,
   op: Modifier['op'],
   label: string,
-  expires: Modifier['expires'] = { kind: 'fin-de-journee' },
+  expires: Modifier['expires'] = { kind: 'fin-de-session' },
 ): Modifier {
   return { id: nouvelId('mj'), source: { kind: 'mj', label }, target, op, expires }
 }

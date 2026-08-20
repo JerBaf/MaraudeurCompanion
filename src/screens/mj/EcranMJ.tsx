@@ -36,6 +36,7 @@ import {
   type Character,
   type CharacterSecret,
   type Competence,
+  type Modifier,
   type EtatTable,
   type EvenementJournal,
 } from '../../domain/types.ts'
@@ -250,6 +251,45 @@ function DetailPersonnage({
     })
   }
 
+  /**
+   * Le d4 vert et le d4 rouge sont un **second axe**, distinct de l'ajustement
+   * chiffré : la MJ peut poser un +2 et un désavantage sur la même compétence.
+   * Un clic fait tourner les trois états, pour ne pas doubler les boutons.
+   */
+  function basculerNet(competence: Competence) {
+    maj((c) => {
+      const estNet = (m: Modifier) =>
+        m.source.kind === 'mj' &&
+        m.target.kind === 'competence' &&
+        m.target.competence === competence &&
+        (m.op.kind === 'avantage' || m.op.kind === 'desavantage')
+
+      const existant = c.modifiers.find(estNet)
+      const autres = c.modifiers.filter((m) => !estNet(m))
+
+      const suivant =
+        existant?.op.kind === 'avantage'
+          ? ({ kind: 'desavantage' } as const)
+          : existant?.op.kind === 'desavantage'
+            ? null
+            : ({ kind: 'avantage' } as const)
+
+      if (!suivant) return { ...c, modifiers: autres }
+
+      return {
+        ...c,
+        modifiers: [
+          ...autres,
+          modificateurMJ(
+            { kind: 'competence', competence },
+            suivant,
+            `MJ — ${LIBELLE_COMPETENCE[competence]}`,
+          ),
+        ],
+      }
+    })
+  }
+
   async function lancerDetachement() {
     if (!confirm(`Effectuer un Détachement sur ${char.nom} ? La perte est définitive.`)) return
     const { perdu, pool } = await detacher(char, catalog)
@@ -324,10 +364,23 @@ function DetailPersonnage({
               <button type="button" className="pas" onClick={() => ajusterCompetence(c, +1)}>
                 +
               </button>
+              <button
+                type="button"
+                className={`puce puce--${v.net === 'neutre' ? 'info' : v.net}`}
+                onClick={() => basculerNet(c)}
+                title="Avantage, désavantage, ou aucun"
+                aria-label={`${LIBELLE_COMPETENCE[c]} : ${v.net}`}
+              >
+                {v.net === 'avantage' ? '+d4' : v.net === 'desavantage' ? '−d4' : 'd4'}
+              </button>
             </div>
           )
         })}
       </section>
+      <p className="tres-discret" style={{ margin: 0 }}>
+        Le d4 fait tourner avantage, désavantage et neutre. Il se cumule avec l'ajustement
+        chiffré, et s'annule contre un avantage déjà accordé par un passif.
+      </p>
 
       <hr className="separateur" />
 

@@ -284,6 +284,23 @@ describe('Combustion', () => {
     const overdrive = nouveauPerso('dusk-hunter', { brulures: 0, passifs: { hexcore: 'overdrive' } })
     expect(appliquerGainBrulures(overdrive, 2).gainEffectif).toBe(2)
   })
+
+  /**
+   * Overheat ajoute 1 au **total** d'un jet d'osselets, pas 1 par dé marqué :
+   * « à chaque fois qu'une source devrait générer X brûlures, elle en génère
+   * X+1 ». Un jet est une source, pas quatre.
+   */
+  it('n’ajoute qu’une brûlure au total d’un jet d’osselets, pas une par dé', () => {
+    const dusk = nouveauPerso('dusk-hunter', { brulures: 0, passifs: { hexcore: 'overheat' } })
+    // Un jet 1·2·3·4 vaut 3 brûlures brutes.
+    expect(appliquerGainBrulures(dusk, 3).gainEffectif).toBe(4)
+  })
+
+  it('ne transforme pas un gain nul', () => {
+    const dusk = nouveauPerso('dusk-hunter', { brulures: 0, passifs: { hexcore: 'overheat' } })
+    // Quatre 4 : aucune source de brûlure, donc rien à majorer.
+    expect(appliquerGainBrulures(dusk, 0).gainEffectif).toBe(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1305,11 +1322,29 @@ describe('ordonnancement du Feu de Camp', () => {
 })
 
 describe('tirages', () => {
-  it('les osselets ne comptent que les faces marquées', () => {
+  /**
+   * Régression : on ne comptait que les 1, ce qui divisait le gain par trois.
+   * Seule la face 4 est vierge — un 1, un 2 et un 3 portent chacun leur point
+   * rouge.
+   */
+  it('les osselets comptent toutes les faces sauf le 4', () => {
     const { des, brulures } = tirerOsselets(seededRng(11))
     expect(des).toHaveLength(4)
-    expect(brulures).toBe(des.filter((d) => d === 1).length)
+    expect(brulures).toBe(des.filter((d) => d !== 4).length)
     expect(brulures).toBeLessThanOrEqual(4)
+  })
+
+  it('ne brûle pas sur un jet de quatre 4', () => {
+    // `roll` est déterministe pour une graine : on cherche celle qui donne 4444.
+    let toutQuatre: number[] | null = null
+    for (let graine = 0; graine < 5000 && !toutQuatre; graine += 1) {
+      const { des, brulures } = tirerOsselets(seededRng(graine))
+      if (des.every((d) => d === 4)) {
+        expect(brulures).toBe(0)
+        toutQuatre = des
+      }
+    }
+    expect(toutQuatre).not.toBeNull()
   })
 
   it('la même graine produit la même suite', () => {

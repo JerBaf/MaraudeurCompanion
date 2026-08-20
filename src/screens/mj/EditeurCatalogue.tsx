@@ -41,8 +41,29 @@ const LIBELLE_ONGLET: Record<Onglet, string> = {
 export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
   const [onglet, setOnglet] = useState<Onglet>('equipement')
   const [edition, setEdition] = useState<EntreeCatalogue | null>(null)
+  // Un filtre par axe, remis à zéro en changeant d'onglet : un filtre « armure »
+  // laissé actif ferait croire à un catalogue de sorts vide.
+  const [filtreSlot, setFiltreSlot] = useState('')
+  const [filtreMagie, setFiltreMagie] = useState('')
+  const [filtreClasse, setFiltreClasse] = useState('')
+  const [triPrix, setTriPrix] = useState(false)
 
-  const entrees = catalog.toutes().filter((e) => e.kind === onglet)
+  function changerOnglet(cle: Onglet) {
+    setOnglet(cle)
+    setEdition(null)
+    setFiltreSlot('')
+    setFiltreMagie('')
+    setFiltreClasse('')
+    setTriPrix(false)
+  }
+
+  const entrees = catalog
+    .toutes()
+    .filter((e) => e.kind === onglet)
+    .filter((e) => !(filtreSlot && e.kind === 'equipement' && e.slot !== filtreSlot))
+    .filter((e) => !(filtreMagie && e.kind === 'sort' && e.magie !== filtreMagie))
+    .filter((e) => !(filtreClasse && e.kind === 'sort' && e.classeId !== filtreClasse))
+    .sort((a, b) => (triPrix ? (prixDe(a) ?? Infinity) - (prixDe(b) ?? Infinity) : 0))
 
   return (
     <section className="carte pile pile--serree">
@@ -59,15 +80,55 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
             role="tab"
             aria-selected={onglet === cle}
             className={`onglet ${onglet === cle ? 'onglet--actif' : ''}`}
-            onClick={() => {
-              setOnglet(cle)
-              setEdition(null)
-            }}
+            onClick={() => changerOnglet(cle)}
           >
             {LIBELLE_ONGLET[cle]}
           </button>
         ))}
       </div>
+
+      {/* Un catalogue de table devient vite long : sans filtres, retrouver une
+          armure parmi trente entrées se fait à l'œil. */}
+      {onglet === 'equipement' && (
+        <div className="rangee">
+          <select value={filtreSlot} onChange={(e) => setFiltreSlot(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Tous les emplacements</option>
+            {SLOTS_EQUIPEMENT.map((s) => (
+              <option key={s} value={s}>
+                {LIBELLE_SLOT[s]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`btn ${triPrix ? 'btn--principal' : ''}`}
+            onClick={() => setTriPrix((t) => !t)}
+          >
+            Trier par prix
+          </button>
+        </div>
+      )}
+
+      {onglet === 'sort' && (
+        <div className="rangee">
+          <select value={filtreMagie} onChange={(e) => setFiltreMagie(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Toutes les magies</option>
+            {MAGIES.map((m) => (
+              <option key={m} value={m}>
+                {LIBELLE_MAGIE[m]}
+              </option>
+            ))}
+          </select>
+          <select value={filtreClasse} onChange={(e) => setFiltreClasse(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Toutes les classes</option>
+            {catalog.classes().map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nom}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {entrees.length === 0 && !edition && <p className="vide">Rien pour l'instant.</p>}
 

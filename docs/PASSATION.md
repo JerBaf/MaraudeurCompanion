@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 131 tests — 113 de domaine, 18 de rendu |
+| `npm test` | 138 tests — 116 de domaine, 22 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -44,6 +44,13 @@ catalogue.
   **N'écrivez pas ce contenu en dur** — voir le piège n° 1.
 - **Les icônes.** 28 icônes `game-icons.net` (CC-BY). La MJ veut à terme des dessins
   style Moebius/Ghibli ; déposer un fichier de même nom dans `public/icons/` suffit.
+- **Le lot B**, demandé par la MJ et non commencé : modèle d'objet complet (table
+  d'effets actifs en d4/d6/d8, charges rechargées à la main par la MJ, objets
+  consommables), sorts réservés à une ou plusieurs classes, et **édition des
+  `modificateurs` depuis le catalogue**. Ce dernier point est le plus important : le
+  moteur est déjà générique, seule l'interface d'édition manque — voir § 2 ci-dessous.
+  `Equipement.attaqueSpeciale` est le point de départ prévu ; elle est déjà déclarée
+  dans les types et n'est lue nulle part.
 - **Les upgrades annoncées** dans `Guidelines.pdf`, non commencées : nouvelles classes,
   QTE (mini-jeux poussés sur l'écran d'une joueuse), combat rapide type
   pierre-feuille-ciseau. Le champ `EtatTable.overlay` existe pour les accueillir.
@@ -102,6 +109,14 @@ valeur affichée = base + Σ(modificateurs explicites) + Σ(modificateurs dériv
 C'est cette séparation qui rend l'exigence « les modificateurs doivent être dynamiques »
 tenable : si les brûlures passent de 3 à 5, le point de 6ᵉ Sens supplémentaire apparaît
 sans qu'aucun écran n'ait eu à y penser, et rien ne peut se désynchroniser.
+
+> **Les passifs ne sont pas câblés en dur, contrairement à ce que l'écran laisse croire.**
+> `Equipement.modificateurs` et `Amelioration.modificateurs` sont déjà appliqués par
+> `derivedModifiers` : un talisman qui donne « Évasion +2 » ou un passif qui accorde un
+> avantage en Social se décrivent entièrement en données. Ce qui manque, c'est le
+> **formulaire** : `EditeurCatalogue` ne laisse saisir que nom, description, prix et slot,
+> si bien que tout nouveau passif doit aujourd'hui passer par un développeur. L'ouvrir est
+> le point le plus rentable du lot B — il n'y a aucun moteur à écrire.
 
 `domain/effets.ts` en donne une vue unifiée pour l'affichage : chaque effet porte une
 **origine** parmi six — `choisi`, `feu-de-camp`, `derive`, `equipement`, `mj`,
@@ -225,6 +240,9 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Points de Foi | remis à **2** à chaque camp initial | contre le PDF, qui les conservait « de jour en jour » ; décision de la MJ |
 | Recueillir | l'app **tire la thématique**, la joueuse écrit dans son carnet | un seul tirage, sans relance ; rien de ce qu'elle rédige ne transite par l'app. Liste dans `src/content/questions-recueil.json` |
 | Fardeau / Fatigue | la case **change de fiche** | prendre un point « à la place » d'une autre PJ doit la soulager ; seules les alliées ayant une case cochée sont proposées |
+| Osselets | toutes les faces sauf le **4** brûlent | seule la face 4 est vierge ; Overheat ajoute 1 au **total** du jet, pas 1 par dé |
+| Cristal épuisé | signalé **par la joueuse**, sur un sort d'Arcane préparé | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser |
+| Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |

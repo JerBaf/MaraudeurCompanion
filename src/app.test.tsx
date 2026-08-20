@@ -263,6 +263,106 @@ describe('mode Combat', () => {
   })
 })
 
+describe('outillage de table', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  afterEach(cleanup)
+
+  /** Amorce la table et y crée un personnage de la classe demandée. */
+  async function tablePreteAvecPersonnage(classe = 'Dusk Hunter') {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+    )
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: 'Ilma' } })
+    fireEvent.click(await screen.findByText(classe))
+    fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+    fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+    cleanup()
+  }
+
+  /**
+   * Le cristal ne s'épuise que sur un sort d'Arcane préparé : c'est le seul qui
+   * puisse être lancé, et la joueuse tire son d6 à table — l'app ne fait
+   * qu'enregistrer le résultat.
+   */
+  it('la joueuse marque un cristal d’Arcane épuisé', async () => {
+    await tablePreteAvecPersonnage('Trickster')
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
+    await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
+
+    fireEvent.click(screen.getAllByText(/^Cristal épuisé/)[0] as HTMLElement)
+    await waitFor(() => expect(screen.getByText('Épuisé')).toBeTruthy())
+    expect(screen.getByText('Cristal réétudié')).toBeTruthy()
+  })
+
+  it('n’offre pas d’épuiser un cristal aux magies qui n’en ont pas', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
+
+    // Le Dusk Hunter ne prépare que du Sang et du Miracle.
+    await waitFor(() => expect(screen.getByText('Burst')).toBeTruthy())
+    expect(screen.queryByText(/Cristal épuisé/)).toBeNull()
+  })
+
+  it('la MJ accorde un sort, la joueuse le voit arriver', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    // « Polymorph » appartient au Trickster : la MJ peut l'accorder malgré tout.
+    const accorder = await screen.findByLabelText('Accorder un sort')
+    fireEvent.change(accorder, { target: { value: 'polymorph' } })
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
+    await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
+    // Accordé hors boutique, il arrive en réserve et non dans le Grimoire.
+    expect(screen.getByText(/En réserve/)).toBeTruthy()
+  })
+
+  it('la MJ pose un désavantage qui se cumule avec un ajustement chiffré', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    // Le d4 tourne : neutre → avantage → désavantage.
+    const d4Physique = await screen.findByLabelText(/^Physique : /)
+    fireEvent.click(d4Physique)
+    await waitFor(() => expect(screen.getByLabelText('Physique : avantage')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Physique : avantage'))
+    await waitFor(() => expect(screen.getByLabelText('Physique : desavantage')).toBeTruthy())
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('−d4')).toBeTruthy())
+  })
+})
+
 describe('Feu de Camp', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -550,15 +650,15 @@ describe('parcours de création', () => {
     const marques = screen.getByText('Marques').closest('.compteur')
     expect(marques?.textContent).toContain('/ 3')
 
-    // Le Grimoire ne retient que les 3 premiers sorts de la classe ; le
-    // quatrième reste en réserve dans le sac à dos.
+    // L'onglet Sorts montre tout ce que la joueuse connaît — le Grimoire ne
+    // retient que les 3 premiers, le quatrième attend en réserve juste en
+    // dessous, sans qu'il faille changer d'onglet pour le comparer.
     fireEvent.click(screen.getByRole('tab', { name: 'Sorts' }))
     await waitFor(() => expect(screen.getByText('Burst')).toBeTruthy())
     expect(screen.getByText('Heat track')).toBeTruthy()
     expect(screen.getByText('First Aid')).toBeTruthy()
-    expect(screen.queryByText('Prey Impulse')).toBeNull()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Sac à dos' }))
-    await waitFor(() => expect(screen.getByText('Prey Impulse')).toBeTruthy())
+    expect(screen.getByText('Prey Impulse')).toBeTruthy()
+    expect(screen.getAllByText('Préparé')).toHaveLength(3)
+    expect(screen.getByText(/En réserve/)).toBeTruthy()
   })
 })

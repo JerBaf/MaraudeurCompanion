@@ -18,6 +18,7 @@ export function ObjetDetaillable({
   puce,
   actif,
   indisponible,
+  action,
 }: {
   icone: string
   nom: string
@@ -28,6 +29,12 @@ export function ObjetDetaillable({
   puce?: ReactNode
   actif?: boolean
   indisponible?: boolean
+  /**
+   * Commande propre à cet objet, rendue sous la ligne : marquer un cristal
+   * épuisé, retirer un objet du sac. Vit hors du bouton de dépliage — un bouton
+   * dans un bouton n'est pas du HTML valide et ne se cliquerait pas.
+   */
+  action?: ReactNode
 }) {
   const [ouvert, setOuvert] = useState(false)
   const depliable = Boolean(detail)
@@ -68,6 +75,8 @@ export function ObjetDetaillable({
           )}
         </>
       )}
+
+      {action && <div style={{ marginTop: 6 }}>{action}</div>}
     </div>
   )
 }

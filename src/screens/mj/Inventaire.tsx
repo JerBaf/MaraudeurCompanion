@@ -31,10 +31,19 @@ export function Inventaire({
     .filter((s): s is Sort => Boolean(s))
 
   const equipes = new Set(Object.values(char.equipe).filter(Boolean) as string[])
-  const enReserve = char.possede.equipements
-    .filter((id) => !equipes.has(id))
+  const equipements = char.possede.equipements
     .map((id) => catalog.equipement(id))
     .filter((e): e is NonNullable<typeof e> => Boolean(e))
+
+  // Les illusions sont dérivées du passif Illusionniste, jamais possédées :
+  // les accorder à la main créerait un doublon avec `sortsHorsEmplacement`.
+  const sortsAccordables = catalog
+    .sorts()
+    .filter((s) => s.illusion !== true && !char.possede.sorts.includes(s.id))
+
+  const equipementsAccordables = catalog
+    .equipements()
+    .filter((e) => !char.possede.equipements.includes(e.id))
 
   function basculerSort(id: string) {
     maj((c) => {
@@ -42,6 +51,42 @@ export function Inventaire({
       if (c.grimoire.length >= TAILLE_GRIMOIRE) return c
       return { ...c, grimoire: [...c.grimoire, id] }
     })
+  }
+
+  function donnerSort(id: string) {
+    maj((c) => ({ ...c, possede: { ...c.possede, sorts: [...c.possede.sorts, id] } }))
+  }
+
+  function donnerEquipement(id: string) {
+    maj((c) => ({
+      ...c,
+      possede: { ...c.possede, equipements: [...c.possede.equipements, id] },
+    }))
+  }
+
+  function retirerSort(id: string, nom: string) {
+    if (!confirm(`Retirer « ${nom} » à ${char.nom} ? La perte est définitive.`)) return
+    // Retirer un sort doit aussi le sortir du Grimoire et de la liste des
+    // cristaux épuisés, sinon ces deux-là pointent dans le vide.
+    maj((c) => ({
+      ...c,
+      possede: { ...c.possede, sorts: c.possede.sorts.filter((s) => s !== id) },
+      grimoire: c.grimoire.filter((s) => s !== id),
+      sortsEpuises: c.sortsEpuises.filter((s) => s !== id),
+    }))
+  }
+
+  function retirerEquipement(id: string, nom: string) {
+    if (!confirm(`Retirer « ${nom} » à ${char.nom} ? La perte est définitive.`)) return
+    // Déséquiper au passage : un emplacement qui référence un objet absent
+    // ferait disparaître son bonus sans que rien ne l'explique.
+    maj((c) => ({
+      ...c,
+      possede: { ...c.possede, equipements: c.possede.equipements.filter((e) => e !== id) },
+      equipe: Object.fromEntries(
+        Object.entries(c.equipe).map(([slot, porte]) => [slot, porte === id ? null : porte]),
+      ) as Character['equipe'],
+    }))
   }
 
   return (
@@ -87,33 +132,54 @@ export function Inventaire({
         const actif = char.grimoire.includes(sort.id)
         const plein = char.grimoire.length >= TAILLE_GRIMOIRE
         return (
-          <button
-            key={sort.id}
-            type="button"
-            className={`objet ${actif ? 'objet--actif' : ''} ${!actif && plein ? 'objet--indisponible' : ''}`}
-            aria-pressed={actif}
-            disabled={!actif && plein}
-            onClick={() => basculerSort(sort.id)}
-            title={sort.effet}
-          >
-            <Icone nom={sort.icone} taille={28} />
-            <span className="objet__corps">
-              <span className="objet__nom">{sort.nom}</span>
-              <span className="objet__meta">
-                {resumeSort(sort, char, catalog)}
-                {char.sortsEpuises.includes(sort.id) ? ' · cristal épuisé' : ''}
+          <div key={sort.id} className="rangee">
+            <button
+              type="button"
+              className={`objet ${actif ? 'objet--actif' : ''} ${!actif && plein ? 'objet--indisponible' : ''}`}
+              style={{ flex: 1 }}
+              aria-pressed={actif}
+              disabled={!actif && plein}
+              onClick={() => basculerSort(sort.id)}
+              title={sort.effet}
+            >
+              <Icone nom={sort.icone} taille={28} />
+              <span className="objet__corps">
+                <span className="objet__nom">{sort.nom}</span>
+                <span className="objet__meta">
+                  {resumeSort(sort, char, catalog)}
+                  {char.sortsEpuises.includes(sort.id) ? ' · cristal épuisé' : ''}
+                </span>
               </span>
-            </span>
-            {actif && <span className="puce puce--ambre">Préparé</span>}
-          </button>
+              {actif && <span className="puce puce--ambre">Préparé</span>}
+            </button>
+            <button
+              type="button"
+              className="btn btn--fantome"
+              onClick={() => retirerSort(sort.id, sort.nom)}
+            >
+              Retirer
+            </button>
+          </div>
         )
       })}
 
+      <label className="champ">
+        <span className="etiquette">Accorder un sort</span>
+        <select value="" onChange={(e) => e.target.value && donnerSort(e.target.value)}>
+          <option value="">— choisir —</option>
+          {sortsAccordables.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.nom}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <hr className="separateur" />
 
-      <span className="etiquette">Sac à dos</span>
-      {enReserve.length === 0 && <p className="vide">Rien en réserve.</p>}
-      {enReserve.map((eq) => (
+      <span className="etiquette">Équipement possédé</span>
+      {equipements.length === 0 && <p className="vide">Aucun objet.</p>}
+      {equipements.map((eq) => (
         <div key={eq.id} className="objet">
           <Icone nom={eq.icone} taille={28} />
           <span className="objet__corps">
@@ -124,8 +190,28 @@ export function Inventaire({
               {eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : ''}
             </span>
           </span>
+          {equipes.has(eq.id) && <span className="puce puce--ambre">Porté</span>}
+          <button
+            type="button"
+            className="btn btn--fantome"
+            onClick={() => retirerEquipement(eq.id, eq.nom)}
+          >
+            Retirer
+          </button>
         </div>
       ))}
+
+      <label className="champ">
+        <span className="etiquette">Accorder un équipement</span>
+        <select value="" onChange={(e) => e.target.value && donnerEquipement(e.target.value)}>
+          <option value="">— choisir —</option>
+          {equipementsAccordables.map((eq) => (
+            <option key={eq.id} value={eq.id}>
+              {eq.nom} — {LIBELLE_SLOT[eq.slot]}
+            </option>
+          ))}
+        </select>
+      </label>
     </section>
   )
 }

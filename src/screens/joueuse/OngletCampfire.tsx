@@ -451,6 +451,27 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
             </button>
           )
         })}
+
+        {/* Les boutons ci-dessus basculent la préparation ; ils ne peuvent pas
+            en plus déplier une description. La consultation vit donc à part. */}
+        {sorts.length > 0 && (
+          <>
+            <hr className="separateur" />
+            <span className="tres-discret">Ce que font vos sorts</span>
+            {sorts.map((sort) => (
+              <ObjetDetaillable
+                key={sort.id}
+                icone={sort.icone}
+                nom={sort.nom}
+                meta={resumeSort(sort, char, catalog)}
+                detail={sort.effet}
+                {...(char.grimoire.includes(sort.id)
+                  ? { puce: <span className="puce puce--ambre">Préparé</span> }
+                  : {})}
+              />
+            ))}
+          </>
+        )}
       </section>
 
       <Passifs
@@ -717,6 +738,11 @@ function Armurerie({
   catalog: Catalog
   edition?: EditionCamp
 }) {
+  const porte = new Set(Object.values(char.equipe).filter(Boolean) as string[])
+  const equipements = char.possede.equipements
+    .map((id) => catalog.equipement(id))
+    .filter((e): e is NonNullable<typeof e> => Boolean(e))
+
   return (
     <section className="carte pile pile--serree">
       <div className="carte__titre">
@@ -756,6 +782,31 @@ function Armurerie({
           </label>
         )
       })}
+
+      {/* Choisir dans un menu déroulant suppose de se souvenir de ce que fait
+          chaque objet. La liste dépliable met les descriptions sous la main. */}
+      {equipements.length > 0 && (
+        <>
+          <hr className="separateur" />
+          <span className="tres-discret">Ce que vous transportez</span>
+          {equipements.map((eq) => (
+            <ObjetDetaillable
+              key={eq.id}
+              icone={eq.icone}
+              nom={eq.nom}
+              meta={
+                `${LIBELLE_SLOT[eq.slot]}` +
+                (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
+                (eq.materielDeBase ? ' · matériel de base' : '')
+              }
+              detail={eq.description ?? 'Aucune description pour cet objet.'}
+              {...(porte.has(eq.id)
+                ? { puce: <span className="puce puce--ambre">Porté</span> }
+                : {})}
+            />
+          ))}
+        </>
+      )}
     </section>
   )
 }
