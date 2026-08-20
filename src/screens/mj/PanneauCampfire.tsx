@@ -3,17 +3,16 @@ import { useEffect, useState } from 'react'
 import { Icone } from '../../components/Icone.tsx'
 import {
   abandonnerBrouillon,
-  creerBrouillonPourSession,
+  creerBrouillon,
   definirPhase,
   enregistrerBrouillon,
   enregistrerCampfire,
   lancerCampfire,
-  ouvrirSession,
   surBrouillonCampfire,
   surCampfire,
   surSession,
   terminerCampfire,
-  type BilanOuverture,
+  type LigneOuverture,
 } from '../../data/repo.ts'
 import {
   entreesAchetables,
@@ -37,9 +36,9 @@ import { OngletCampfire } from '../joueuse/OngletCampfire.tsx'
 /**
  * Pilotage du Feu de Camp, côté MJ.
  *
- * Trois temps successifs : ouvrir la session (les investissements rendent leurs
- * comptes), préparer le camp à l'abri des regards, puis le lancer et mener la
- * table de phase en phase.
+ * Deux temps : préparer le camp à l'abri des regards, puis le lancer et mener
+ * la table de phase en phase. Lancer un camp **initial** ouvre la session par
+ * la même occasion — les investissements y rendent leurs comptes.
  *
  * 🔒 La préparation vit dans la collection réservée à la MJ : tant que le camp
  * n'est pas lancé, ni le brief ni les offres n'existent côté joueuse.
@@ -56,123 +55,70 @@ export function PanneauCampfire({
   const [session, setSession] = useState<Session | null>(null)
   const [brouillon, setBrouillon] = useState<Campfire | null>(null)
   const [campfire, setCampfire] = useState<Campfire | null>(null)
-  const [bilan, setBilan] = useState<BilanOuverture | null>(null)
+  const [ouverture, setOuverture] = useState<LigneOuverture[] | null>(null)
 
-  useEffect(() => (etat.sessionId ? surSession(etat.sessionId, setSession) : undefined), [etat.sessionId])
+  useEffect(
+    () => (etat.sessionId ? surSession(etat.sessionId, setSession) : setSession(null) as void),
+    [etat.sessionId],
+  )
   useEffect(() => surBrouillonCampfire(setBrouillon), [])
   useEffect(() => (etat.campfireId ? surCampfire(etat.campfireId, setCampfire) : setCampfire(null) as void), [etat.campfireId])
 
   // --- Camp en cours : on pilote ---
   if (etat.campfireId && campfire) {
     return (
-      <PilotageCamp etat={etat} campfire={campfire} personnages={personnages} catalog={catalog} />
+      <PilotageCamp
+        etat={etat}
+        campfire={campfire}
+        personnages={personnages}
+        catalog={catalog}
+        ouverture={ouverture}
+      />
     )
   }
 
   return (
     <div className="pile">
-      <Ouverture etat={etat} personnages={personnages} session={session} bilan={bilan} onBilan={setBilan} />
-
-      {session && (
-        <Preparation
-          etat={etat}
-          session={session}
-          brouillon={brouillon}
-          personnages={personnages}
-          catalog={catalog}
-        />
-      )}
+      <Preparation
+        etat={etat}
+        session={session}
+        brouillon={brouillon}
+        personnages={personnages}
+        catalog={catalog}
+        onOuverture={setOuverture}
+      />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function Ouverture({
-  etat,
-  personnages,
-  session,
-  bilan,
-  onBilan,
-}: {
-  etat: EtatTable
-  personnages: Character[]
-  session: Session | null
-  bilan: BilanOuverture | null
-  onBilan: (b: BilanOuverture) => void
-}) {
-  const [enCours, setEnCours] = useState(false)
-
-  async function ouvrir() {
-    // Ouvrir une session verse les revenus et tire les risques : le faire deux
-    // fois paierait deux fois les loyers. On confirme dès qu'une session existe.
-    if (
-      session &&
-      !confirm(
-        `La session ${session.numero} est déjà ouverte. En ouvrir une nouvelle versera à nouveau les revenus d'investissement et retirera les risques. Continuer ?`,
-      )
-    ) {
-      return
-    }
-
-    setEnCours(true)
-    try {
-      onBilan(await ouvrirSession(etat, personnages))
-    } finally {
-      setEnCours(false)
-    }
-  }
-
+/** Ce que les investissements ont rendu à l'ouverture de la session. */
+function BilanOuverture({ ouverture }: { ouverture: LigneOuverture[] }) {
   return (
-    <section className="carte pile">
-      <div className="carte__titre">
-        <span className="etiquette">Session</span>
-        {session && <span className="tres-discret">n° {session.numero}</span>}
-      </div>
-
-      <p className="discret" style={{ margin: 0 }}>
-        Ouvrir une session résout les investissements en attente — loyers, cargaisons,
-        rénovations — et déverrouille la Banque pour le premier feu de camp.
-      </p>
-
-      <button
-        type="button"
-        className={`btn btn--large ${session ? '' : 'btn--principal'}`}
-        onClick={() => void ouvrir()}
-        disabled={enCours}
-      >
-        {enCours ? 'Résolution…' : session ? `Ouvrir la session ${session.numero + 1}` : 'Ouvrir une nouvelle session'}
-      </button>
-
-      {bilan && (
-        <div className="pile pile--serree">
-          <hr className="separateur" />
-          <span className="etiquette">Bilan des investissements</span>
-          {bilan.bilans.every((b) => b.bilan.lignes.length === 0) && (
-            <p className="tres-discret" style={{ margin: 0 }}>
-              Aucun investissement en cours.
-            </p>
-          )}
-          {bilan.bilans
-            .filter((b) => b.bilan.lignes.length > 0)
-            .map(({ char, bilan: b }) => (
-              <div key={char.id} className="objet">
-                <span className="objet__corps">
-                  <span className="objet__nom">
-                    {char.nom} — {b.total >= 0 ? '+' : ''}
-                    {b.total} ʟ
-                  </span>
-                  {b.lignes.map((l, i) => (
-                    <span key={i} className="objet__meta">
-                      {l.nom} : {l.recit}
-                    </span>
-                  ))}
-                </span>
-              </div>
-            ))}
-        </div>
+    <div className="pile pile--serree">
+      <span className="etiquette">Bilan des investissements</span>
+      {ouverture.length === 0 && (
+        <p className="tres-discret" style={{ margin: 0 }}>
+          Aucun investissement en cours.
+        </p>
       )}
-    </section>
+      {ouverture.map(({ char, bilan }) => (
+        <div key={char.id} className="objet">
+          <span className="objet__corps">
+            <span className="objet__nom">
+              {char.nom} — {bilan.total >= 0 ? '+' : ''}
+              {bilan.total} ʟ
+            </span>
+            {bilan.lignes.map((l, i) => (
+              <span key={i} className="objet__meta">
+                {l.nom} : {l.recit}
+              </span>
+            ))}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -184,27 +130,31 @@ function Preparation({
   brouillon,
   personnages,
   catalog,
+  onOuverture,
 }: {
   etat: EtatTable
-  session: Session
+  session: Session | null
   brouillon: Campfire | null
   personnages: Character[]
   catalog: Catalog
+  onOuverture: (o: LigneOuverture[]) => void
 }) {
   const investissements = catalog.investissements()
   const [lancement, setLancement] = useState(false)
 
   function creer() {
-    // Le camp « initial » est celui qui ouvre la session — c'est
-    // `creerBrouillonPourSession` qui le détermine, en regardant les camps déjà
-    // lancés pour ce numéro de session. La MJ peut corriger juste après.
-    void creerBrouillonPourSession(session.numero).then(enregistrerBrouillon)
+    void creerBrouillon(session).then(enregistrerBrouillon)
   }
 
   if (!brouillon) {
     return (
       <section className="carte pile">
-        <span className="etiquette">Feu de camp</span>
+        <div className="carte__titre">
+          <span className="etiquette">Feu de camp</span>
+          <span className="tres-discret">
+            {session ? `session ${session.numero} en cours` : 'aucune session ouverte'}
+          </span>
+        </div>
         <p className="discret" style={{ margin: 0 }}>
           Vous préparerez le brief, les investissements proposés et les offres de boutique avant de
           lancer. Rien n'apparaît sur l'écran des joueuses tant que vous n'avez pas lancé.
@@ -218,6 +168,12 @@ function Preparation({
 
   const maj = (patch: Partial<Campfire>) => void enregistrerBrouillon({ ...brouillon, ...patch })
 
+  // Le numéro annoncé se dérive du type choisi, et non du brouillon : celui-ci
+  // a été figé à sa création, et basculer sur « initial » aurait continué
+  // d'afficher la session en cours. C'est `lancerCampfire` qui tranche.
+  const numeroAnnonce =
+    brouillon.type === 'initial' ? (session?.numero ?? 0) + 1 : (session?.numero ?? 1)
+
   return (
     <section className="carte pile">
       <div className="carte__titre">
@@ -226,7 +182,7 @@ function Preparation({
       </div>
 
       {/* Le type du camp commande tout le reste : les phases ouvertes, la
-          Fatigue rendue, et si les gains de Foi sont accessibles. */}
+          Fatigue rendue, les gains de Foi, et l'ouverture d'une session. */}
       <div className="rangee">
         {(['initial', 'repos-court'] as TypeCamp[]).map((t) => (
           <button
@@ -241,9 +197,16 @@ function Preparation({
       </div>
       <p className="tres-discret" style={{ margin: 0 }}>
         {brouillon.type === 'initial'
-          ? 'Ouvre la session : rend 1 Point de Fatigue, le 6th Sens et les Actions Rapides, lève Fardeaux, Serments et Marques, et donne accès à la Banque, au Brief et aux gains de Foi.'
-          : 'Halte en cours de session : Boutique, Grimoire et Armurerie. Rend les cristaux épuisés, mais aucune Fatigue.'}
+          ? `Ouvrira la session ${numeroAnnonce} : investissements réglés, Fatigue rendue d'un point, 6th Sens et Actions Rapides restaurés, Fardeaux, Serments et Marques levés, Points de Foi remis à 2. Donne accès à la Banque, au Brief et aux gains de Foi.`
+          : `Halte au cours de la session ${numeroAnnonce} : Boutique, Grimoire et Armurerie. Rend les cristaux épuisés, mais aucune Fatigue.`}
       </p>
+
+      {brouillon.type === 'repos-court' && !session && (
+        <p className="alerte alerte--info">
+          Aucune session n'est ouverte. Un repos court n'en ouvre pas : lancez un feu de camp
+          initial pour commencer la session.
+        </p>
+      )}
 
       {brouillon.type === 'initial' && (
         <label className="champ">
@@ -309,10 +272,16 @@ function Preparation({
         disabled={lancement}
         onClick={() => {
           setLancement(true)
-          void lancerCampfire(etat, brouillon, personnages).finally(() => setLancement(false))
+          void lancerCampfire(etat, brouillon, personnages)
+            .then((r) => onOuverture(r.ouverture))
+            .finally(() => setLancement(false))
         }}
       >
-        {lancement ? 'Lancement…' : 'Lancer le feu de camp'}
+        {lancement
+          ? 'Lancement…'
+          : brouillon.type === 'initial'
+            ? `Lancer et ouvrir la session ${numeroAnnonce}`
+            : 'Lancer le repos court'}
       </button>
       <button
         type="button"
@@ -405,11 +374,14 @@ function PilotageCamp({
   campfire,
   personnages,
   catalog,
+  ouverture,
 }: {
   etat: EtatTable
   campfire: Campfire
   personnages: Character[]
   catalog: Catalog
+  /** Présent juste après le lancement d'un camp initial. */
+  ouverture: LigneOuverture[] | null
 }) {
   const [miroir, setMiroir] = useState('')
   const phases = phasesDuCamp(campfire.type)
@@ -422,8 +394,12 @@ function PilotageCamp({
       <section className="carte pile">
         <div className="carte__titre">
           <span className="etiquette">Feu de camp — {PROFILS_CAMP[campfire.type].libelle}</span>
-          <span className="tres-discret">{LIBELLE_PHASE[campfire.phase]}</span>
+          <span className="tres-discret">
+            session {campfire.sessionNumero} · {LIBELLE_PHASE[campfire.phase]}
+          </span>
         </div>
+
+        {ouverture && campfire.type === 'initial' && <BilanOuverture ouverture={ouverture} />}
 
         <div className="onglets" role="group" aria-label="Phase du feu de camp">
           {phases.map((p) => (

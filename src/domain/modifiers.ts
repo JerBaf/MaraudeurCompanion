@@ -62,6 +62,18 @@ export const MAX_FOI = 9
 export const EVASION_DE_BASE = 1
 
 /**
+ * Points de Foi de départ : « Les joueuses commencent toutes avec 2 Points de Foi ».
+ *
+ * Décision de la MJ : c'est aussi le solde auquel chacune revient à l'ouverture
+ * d'une session, contre le PDF qui les conservait de jour en jour.
+ *
+ * Vit ici plutôt que dans `character.ts` parce que la résolution du camp en a
+ * besoin, et que `character.ts` dépend déjà de `campfire.ts` : l'y laisser
+ * aurait fermé un cycle d'imports.
+ */
+export const FOI_DE_DEPART = 2
+
+/**
  * Plafond des Marques.
  *
  * Le PDF ne fixe pas de maximum ; il donne des coûts (1 Marque pour un

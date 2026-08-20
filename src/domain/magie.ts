@@ -1,6 +1,6 @@
 import type { Catalog } from './catalog.ts'
 import { agreger, allModifiers, cibleCoutSort, MAX_FOI, SEUIL_COMBUSTION } from './modifiers.ts'
-import type { Character, Portee, Sort } from './types.ts'
+import { LIBELLE_MAGIE, type Character, type Portee, type Sort } from './types.ts'
 
 // ---------------------------------------------------------------------------
 // Arcane
@@ -76,6 +76,41 @@ export function coutFoiEffectif(
 
   const { bonus } = agreger(allModifiers(char, catalog), (m) => cibleCoutSort(m.target, sort))
   return Math.max(0, base + bonus)
+}
+
+/**
+ * Le coût d'un sort en toutes lettres.
+ *
+ * Les coûts variables s'écrivent « X » : c'est la joueuse qui décide combien
+ * elle dépense au moment de lancer, et l'effet en dépend.
+ */
+export function decrireCoutSort(sort: Sort, coutFoi: number | null): string {
+  switch (sort.cout.kind) {
+    case 'aucun':
+      return 'sans coût'
+    case 'foi':
+    case 'foi-plus-variable':
+      return `${coutFoi ?? '?'} Foi${sort.cout.kind === 'foi-plus-variable' ? ' + X' : ''}`
+    case 'brulures':
+      return `${sort.cout.valeur} brûlure(s)`
+    case 'brulures-variable':
+      return 'X brûlures'
+    case 'marques-variable':
+      return `X Marques (max ${sort.cout.max})`
+  }
+}
+
+/**
+ * La mini-ligne qui résume un sort : « Sang · X brûlures · Instantané ».
+ *
+ * Un seul endroit pour les quatre écrans qui l'affichent — fiche, sac à dos,
+ * phase Grimoire du camp et inventaire de la MJ. Trois d'entre eux omettaient
+ * le coût, si bien qu'on ne pouvait pas choisir son Grimoire en connaissance
+ * de cause.
+ */
+export function resumeSort(sort: Sort, char: Character, catalog: Catalog): string {
+  const cout = decrireCoutSort(sort, coutFoiEffectif(sort, char, catalog))
+  return [LIBELLE_MAGIE[sort.magie], cout, sort.de, sort.duree].filter(Boolean).join(' · ')
 }
 
 export function peutPayerFoi(char: Character, cout: number): boolean {

@@ -291,14 +291,18 @@ describe('Feu de Camp', () => {
     cleanup()
   }
 
-  /** Ouvre une session puis prépare un camp, sans le lancer. */
+  /** Prépare un camp, sans le lancer. Le premier est proposé « initial ». */
   async function prepareUnCamp() {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Feu de camp' }))
-    fireEvent.click(await screen.findByText('Ouvrir une nouvelle session'))
     fireEvent.click(await screen.findByText('Préparer un feu de camp'))
     await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
+  }
+
+  /** Le libellé du bouton de lancement dépend de la nature du camp. */
+  function lancer() {
+    fireEvent.click(screen.getByRole('button', { name: /^Lancer / }))
   }
 
   /** Le brief n'est persisté qu'à la perte du focus, pas à chaque frappe. */
@@ -343,7 +347,7 @@ describe('Feu de Camp', () => {
     cleanup()
 
     await prepareUnCamp()
-    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    lancer()
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
     cleanup()
 
@@ -365,7 +369,7 @@ describe('Feu de Camp', () => {
     // Le Brief et la Banque disparaissent de la préparation…
     await waitFor(() => expect(screen.queryByPlaceholderText(/teaser de la session/i)).toBeNull())
 
-    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    lancer()
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
 
     // …comme des onglets de phase que la MJ peut piloter.
@@ -377,7 +381,7 @@ describe('Feu de Camp', () => {
     await tablePreteAvecPersonnage()
     await prepareUnCamp()
     ecrireBrief('Une infiltration au Bone-Fire.')
-    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    lancer()
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Brief de Mission' }))
@@ -408,11 +412,10 @@ describe('Feu de Camp', () => {
     fireEvent.change(lumens, { target: { value: '100' } })
 
     fireEvent.click(screen.getByRole('tab', { name: 'Feu de camp' }))
-    fireEvent.click(await screen.findByText('Ouvrir une nouvelle session'))
     fireEvent.click(await screen.findByText('Préparer un feu de camp'))
     await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
     fireEvent.click(screen.getByText('Tirer les offres'))
-    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    lancer()
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Boutique' }))
     cleanup()
@@ -432,11 +435,44 @@ describe('Feu de Camp', () => {
     expect(screen.queryAllByRole('button', { name: /^Acquérir — / })).toHaveLength(0)
   })
 
+  /**
+   * Le blocage rencontré à table : deux camps initiaux d'affilée ne changeaient
+   * pas de session, et la Banque répondait « vous avez déjà investi cette
+   * session ». Lancer un camp initial ouvre désormais la session.
+   */
+  it('ouvre une nouvelle session à chaque camp initial', async () => {
+    await tablePreteAvecPersonnage()
+
+    await prepareUnCamp()
+    expect(screen.getByRole('button', { name: /ouvrir la session 1$/i })).toBeTruthy()
+    lancer()
+    await waitFor(() => expect(screen.getByText(/session 1 ·/)).toBeTruthy())
+
+    // Fermer le camp passe par une confirmation, absente de jsdom.
+    const confirmer = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(screen.getByText('Terminer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Préparer un feu de camp')).toBeTruthy())
+    confirmer.mockRestore()
+
+    // Le camp suivant est proposé en repos court, au sein de la session 1…
+    fireEvent.click(screen.getByText('Préparer un feu de camp'))
+    await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Lancer le repos court' })).toBeTruthy()
+
+    // …et le basculer sur « initial » annonce bien la session 2.
+    fireEvent.click(screen.getByRole('button', { name: 'Feu de camp initial' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /ouvrir la session 2$/i })).toBeTruthy(),
+    )
+    lancer()
+    await waitFor(() => expect(screen.getByText(/session 2 ·/)).toBeTruthy())
+  })
+
   it('montre à la MJ l’écran de la joueuse, et lui laisse retoucher le brief', async () => {
     await tablePreteAvecPersonnage()
     await prepareUnCamp()
     ecrireBrief('Une infiltration au Bone-Fire.')
-    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    lancer()
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
 
     // Le miroir affiche la phase en cours pour la joueuse observée.

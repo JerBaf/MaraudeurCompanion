@@ -414,52 +414,16 @@ export async function enregistrerEtat(etat: EtatTable): Promise<void> {
 // Sessions
 // ---------------------------------------------------------------------------
 
-export interface BilanOuverture {
-  session: Session
-  /** Bilan des investissements, par personnage. */
-  bilans: { char: Character; bilan: BilanInvestissements }[]
+/** Ce qu'un investissement a rapporté ou coûté à une joueuse, à l'ouverture. */
+export interface LigneOuverture {
+  char: Character
+  bilan: BilanInvestissements
 }
 
-/**
- * Ouvre une nouvelle session.
- *
- * C'est le moment où les investissements rendent leurs comptes : loyers versés,
- * cargaisons arrivées ou perdues, rénovations à payer. Les tirages sont faits
- * ici, une fois, et le résultat est persisté — relancer l'écran ne rejoue pas
- * la chance.
- */
-export async function ouvrirSession(etat: EtatTable, personnages: readonly Character[]): Promise<BilanOuverture> {
+/** Numéro qu'aurait la prochaine session — pour l'annoncer avant de lancer. */
+export async function prochainNumeroDeSession(): Promise<number> {
   const anterieures = await store.getCollection<Session>(chemins.sessions)
-  const numero = anterieures.reduce((max, s) => Math.max(max, s.numero), 0) + 1
-
-  const catalog = createCatalog(await store.getCollection<EntreeCatalogue>(chemins.catalogue))
-
-  const bilans: BilanOuverture['bilans'] = []
-  for (const char of personnages) {
-    const bilan = resoudreInvestissements(char, catalog, numero, cryptoRng)
-    if (bilan.total !== 0) {
-      await enregistrerPersonnage({ ...char, lumens: Math.max(0, char.lumens + bilan.total) })
-    }
-    bilans.push({ char, bilan })
-  }
-
-  const session: Session = {
-    id: nouvelIdentifiant(),
-    numero,
-    ouverteLe: Date.now(),
-  }
-
-  await store.setDoc(chemins.session(session.id), session)
-  await store.setDoc(chemins.etat, { ...etat, sessionId: session.id })
-  await journaliser('MJ', 'session', `Ouverture de la session ${numero}.`)
-
-  for (const { char, bilan } of bilans) {
-    for (const ligne of bilan.lignes) {
-      await journaliser('MJ', 'investissement', `${char.nom} — ${ligne.nom} : ${ligne.recit}`)
-    }
-  }
-
-  return { session, bilans }
+  return anterieures.reduce((max, s) => Math.max(max, s.numero), 0) + 1
 }
 
 // Les jetons de Feu de Camp vivaient ici, dans le document de session, et
@@ -473,16 +437,15 @@ export async function ouvrirSession(etat: EtatTable, personnages: readonly Chara
 // ---------------------------------------------------------------------------
 
 /**
- * Prépare un brouillon pour la session en cours.
+ * Prépare un brouillon.
  *
- * Le camp **initial** est celui qui ouvre la session, ce qui se lit en regardant
- * si un camp a déjà été lancé pour ce numéro de session. La MJ peut toujours
- * corriger la nature du camp depuis son écran ; ce n'est qu'une proposition.
+ * Propose un camp **initial** tant qu'aucune session n'est ouverte, un repos
+ * court ensuite. Ce n'est qu'une proposition : la MJ choisit la nature du camp
+ * sur son écran, et c'est ce choix qui décide si une session s'ouvre.
  */
-export async function creerBrouillonPourSession(sessionNumero: number): Promise<Campfire> {
-  const camps = await store.getCollection<Campfire>(chemins.campfires)
-  const dejaLance = camps.some((c) => c.sessionNumero === sessionNumero && c.lanceLe !== null)
-  return nouveauBrouillon(sessionNumero, dejaLance ? 'repos-court' : 'initial')
+export async function creerBrouillon(sessionEnCours: Session | null): Promise<Campfire> {
+  const numero = sessionEnCours?.numero ?? (await prochainNumeroDeSession())
+  return nouveauBrouillon(numero, sessionEnCours ? 'repos-court' : 'initial')
 }
 
 export function nouveauBrouillon(sessionNumero: number, type: TypeCamp): Campfire {
@@ -509,8 +472,21 @@ export async function abandonnerBrouillon(): Promise<void> {
   await store.deleteDoc(chemins.brouillonCampfire)
 }
 
+export interface ResultatLancement {
+  campfire: Campfire
+  /** Renseigné pour un camp initial : ce que les investissements ont rendu. */
+  session: Session | null
+  ouverture: LigneOuverture[]
+}
+
 /**
  * Publie le brouillon : le camp devient visible et la table y bascule.
+ *
+ * **Un camp initial ouvre la session dans le même geste** — nouveau numéro,
+ * investissements réglés, Foi remise à 2. Les deux étaient séparées, et rien
+ * n'obligeait à les enchaîner : on pouvait lancer deux camps initiaux de suite
+ * sans changer de session, et les joueuses restaient bloquées à la Banque avec
+ * « vous avez déjà investi cette session ».
  *
  * ⚠️ C'est **ici** que le camp est résolu pour chaque personnage — Fatigue
  * rendue, cristaux étudiés, effets de la session écoulée levés. Le faire à la
@@ -521,23 +497,61 @@ export async function lancerCampfire(
   etat: EtatTable,
   brouillon: Campfire,
   personnages: readonly Character[],
-): Promise<Campfire> {
-  const campfire: Campfire = { ...brouillon, lanceLe: Date.now() }
-  await store.setDoc(chemins.campfire(campfire.id), campfire)
+): Promise<ResultatLancement> {
+  const ouvreUneSession = brouillon.type === 'initial'
 
+  const sessionNumero = ouvreUneSession
+    ? await prochainNumeroDeSession()
+    : brouillon.sessionNumero
+
+  const session: Session | null = ouvreUneSession
+    ? { id: nouvelIdentifiant(), numero: sessionNumero, ouverteLe: Date.now() }
+    : null
+
+  const campfire: Campfire = { ...brouillon, sessionNumero, lanceLe: Date.now() }
+  await store.setDoc(chemins.campfire(campfire.id), campfire)
+  if (session) await store.setDoc(chemins.session(session.id), session)
+
+  const catalog = ouvreUneSession
+    ? createCatalog(await store.getCollection<EntreeCatalogue>(chemins.catalogue))
+    : null
+
+  const ouverture: LigneOuverture[] = []
   for (const char of personnages) {
-    const { char: resolu, effets } = resoudreCampPourPersonnage(char, campfire.type)
+    let fiche = char
+
+    // Les investissements rendent leurs comptes avant que le camp ne soit
+    // résolu, pour que tout parte en une seule écriture par fiche.
+    if (catalog) {
+      const bilan = resoudreInvestissements(fiche, catalog, sessionNumero, cryptoRng)
+      if (bilan.lignes.length > 0) ouverture.push({ char, bilan })
+      fiche = { ...fiche, lumens: Math.max(0, fiche.lumens + bilan.total) }
+    }
+
+    const { char: resolu, effets } = resoudreCampPourPersonnage(fiche, campfire.type)
     await enregistrerPersonnage(resolu)
     if (effets.length > 0) {
       await journaliser('MJ', 'camp', `${char.nom} — ${effets.join(' · ')}`)
     }
   }
 
-  await store.setDoc(chemins.etat, { ...etat, mode: 'campfire', campfireId: campfire.id })
+  await store.setDoc(chemins.etat, {
+    ...etat,
+    mode: 'campfire',
+    campfireId: campfire.id,
+    ...(session ? { sessionId: session.id } : {}),
+  })
   await abandonnerBrouillon()
-  await journaliser('MJ', 'camp', `Feu de camp — ${PROFILS_CAMP[campfire.type].libelle}.`)
 
-  return campfire
+  await journaliser('MJ', 'camp', `Feu de camp — ${PROFILS_CAMP[campfire.type].libelle}.`)
+  if (session) await journaliser('MJ', 'session', `Ouverture de la session ${sessionNumero}.`)
+  for (const { char, bilan } of ouverture) {
+    for (const ligne of bilan.lignes) {
+      await journaliser('MJ', 'investissement', `${char.nom} — ${ligne.nom} : ${ligne.recit}`)
+    }
+  }
+
+  return { campfire, session, ouverture }
 }
 
 export async function definirPhase(campfire: Campfire, phase: PhaseCampfire): Promise<void> {

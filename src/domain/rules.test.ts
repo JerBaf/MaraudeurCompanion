@@ -8,6 +8,7 @@ import {
   jetonsCampVierges,
   normaliserCampfire,
   peutAcheter,
+  peutCouvrirLeFardeau,
   peutInvestir,
   peutPrendreFardeau,
   peutPrendreInvestissement,
@@ -16,6 +17,7 @@ import {
   phasesDuCamp,
   prixDe,
   resoudreCampPourPersonnage,
+  resoudreFardeauFatigue,
   resoudreInvestissements,
   resoudrePriseInvestissement,
   TAILLE_GRIMOIRE,
@@ -74,6 +76,7 @@ import {
 import {
   derivedModifiers,
   expireModifiers,
+  FOI_DE_DEPART,
   modificateurDiversion,
   modificateurEsquive,
   modificateurFardeau,
@@ -830,6 +833,21 @@ describe('Feu de Camp', () => {
     expect(r.char.modifiers).toHaveLength(0)
   })
 
+  /**
+   * Décision de la MJ, contre le PDF qui conservait la Foi « de jour en jour » :
+   * chaque session repart de 2. Le camp étant résolu à son ouverture, les gains
+   * de la phase Grimoire viennent bien s'ajouter après la remise à zéro.
+   */
+  it('ramène les Points de Foi à 2 au camp initial, jamais au repos court', () => {
+    const genereuse = nouveauPerso('dusk-hunter', { foi: 7 })
+    expect(resoudreCampPourPersonnage(genereuse, 'initial').char.foi).toBe(FOI_DE_DEPART)
+    expect(resoudreCampPourPersonnage(genereuse, 'repos-court').char.foi).toBe(7)
+
+    // Et le solde remonte aussi bien qu'il ne descend.
+    const demunie = nouveauPerso('dusk-hunter', { foi: 0 })
+    expect(resoudreCampPourPersonnage(demunie, 'initial').char.foi).toBe(FOI_DE_DEPART)
+  })
+
   it('ne descend jamais la Fatigue sous zéro', () => {
     const repose = nouveauPerso('dusk-hunter', { fatigue: { max: 5, coches: 0 } })
     const r = resoudreCampPourPersonnage(repose, 'initial')
@@ -1248,6 +1266,35 @@ describe('ordonnancement du Feu de Camp', () => {
     expect(ancienneHalte.type).toBe('repos-court')
     expect(ancienneHalte.phase).toBe('boutique')
     expect(ancienneHalte.offres).toEqual({})
+  })
+
+  /**
+   * Le Fardeau déplace une case de Fatigue ; il n'en crée pas. La cible était
+   * nommée dans le journal mais sa fiche n'était jamais touchée : la porteuse
+   * payait sans que personne ne soit soulagé.
+   */
+  it('déplace la case de Fatigue de la couverte vers la porteuse', () => {
+    const porteuse = nouveauPerso('dusk-hunter', { fatigue: { max: 5, coches: 1 } })
+    const cible = nouveauPerso('trickster', { fatigue: { max: 4, coches: 3 } })
+
+    const r = resoudreFardeauFatigue(porteuse, cible)
+    expect(r.porteuse.fatigue.coches).toBe(2)
+    expect(r.couverte.fatigue.coches).toBe(2)
+  })
+
+  it('n’offre de couvrir que les alliées qui ont une case à céder', () => {
+    expect(peutCouvrirLeFardeau(nouveauPerso('trickster', { fatigue: { max: 4, coches: 2 } }))).toBe(
+      true,
+    )
+    expect(peutCouvrirLeFardeau(nouveauPerso('trickster', { fatigue: { max: 4, coches: 0 } }))).toBe(
+      false,
+    )
+  })
+
+  it('ne dépasse pas la grille de la porteuse', () => {
+    const pleine = nouveauPerso('trickster', { fatigue: { max: 4, coches: 4 } })
+    const cible = nouveauPerso('trickster', { fatigue: { max: 4, coches: 1 } })
+    expect(resoudreFardeauFatigue(pleine, cible).porteuse.fatigue.coches).toBe(4)
   })
 
   it('refuse un Grimoire à 4 sorts ou avec doublons', () => {

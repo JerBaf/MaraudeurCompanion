@@ -24,9 +24,9 @@ import { fatigueRestante } from '../../domain/fatigue.ts'
 import {
   appliquerGainBrulures,
   combustionVolontaire,
-  coutFoiEffectif,
   disponibiliteSort,
   grimoireEffectif,
+  resumeSort,
 } from '../../domain/magie.ts'
 import {
   EVASION_DE_BASE,
@@ -39,11 +39,11 @@ import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
-  LIBELLE_MAGIE,
   LIBELLE_SLOT,
   type Adversaire,
   type Character,
   type EtatTable,
+  type SlotEquipement,
   type Sort,
 } from '../../domain/types.ts'
 
@@ -178,6 +178,10 @@ function OngletFiche({
   const restante = fatigueRestante(char)
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
+  const [slotOuvert, setSlotOuvert] = useState<SlotEquipement | null>(null)
+
+  const idOuvert = slotOuvert ? char.equipe[slotOuvert] : null
+  const objetOuvert = idOuvert ? catalog.equipement(idOuvert) : undefined
 
   function lancerOsselets() {
     const { des, brulures } = tirerOsselets(cryptoRng)
@@ -266,11 +270,34 @@ function OngletFiche({
       </section>
 
       {/* --- Avatar et équipement --- */}
-      <section className="carte">
+      <section className="carte pile pile--serree">
         <span className="etiquette">Équipement</span>
         <div style={{ marginTop: 10 }}>
-          <Avatar char={char} catalog={catalog} />
+          <Avatar
+            char={char}
+            catalog={catalog}
+            onSlot={(s) => setSlotOuvert((actuel) => (actuel === s ? null : s))}
+          />
         </div>
+
+        {/* Toucher un emplacement en révèle la description, comme pour un sort :
+            la joueuse doit pouvoir relire ce qu'elle porte sans demander. */}
+        {objetOuvert ? (
+          <ObjetDetaillable
+            key={objetOuvert.id}
+            icone={objetOuvert.icone}
+            nom={objetOuvert.nom}
+            meta={
+              `${LIBELLE_SLOT[objetOuvert.slot]}` +
+              (objetOuvert.bonusEvasion ? ` · Évasion +${objetOuvert.bonusEvasion}` : '')
+            }
+            detail={objetOuvert.description ?? 'Aucune description pour cet objet.'}
+          />
+        ) : (
+          <p className="tres-discret" style={{ margin: 0 }}>
+            Touchez un emplacement pour en relire la description.
+          </p>
+        )}
       </section>
 
       {/* --- Compétences --- */}
@@ -394,22 +421,6 @@ function OngletFiche({
 
 // ---------------------------------------------------------------------------
 
-export function decrireCoutSort(sort: Sort, coutFoi: number | null): string {
-  switch (sort.cout.kind) {
-    case 'aucun':
-      return 'sans coût'
-    case 'foi':
-    case 'foi-plus-variable':
-      return `${coutFoi ?? '?'} Foi${sort.cout.kind === 'foi-plus-variable' ? ' + X' : ''}`
-    case 'brulures':
-      return `${sort.cout.valeur} brûlure(s)`
-    case 'brulures-variable':
-      return 'X brûlures'
-    case 'marques-variable':
-      return `X Marques (max ${sort.cout.max})`
-  }
-}
-
 function LigneSort({
   sort,
   char,
@@ -422,7 +433,6 @@ function LigneSort({
   horsEmplacement?: boolean
 }) {
   const dispo = disponibiliteSort(sort, char, catalog)
-  const coutFoi = coutFoiEffectif(sort, char, catalog)
   const epuise = char.sortsEpuises.includes(sort.id)
 
   // La personnalité incarnée par un Soulshifter ne remplace pas l'effet du
@@ -434,7 +444,7 @@ function LigneSort({
     <ObjetDetaillable
       icone={sort.icone}
       nom={sort.nom}
-      meta={`${LIBELLE_MAGIE[sort.magie]} · ${decrireCoutSort(sort, coutFoi)}${sort.de ? ` · ${sort.de}` : ''} · ${sort.duree}`}
+      meta={resumeSort(sort, char, catalog)}
       detail={sort.effet}
       indisponible={!dispo.disponible}
       {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
@@ -515,7 +525,7 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
             key={sort.id}
             icone={sort.icone}
             nom={sort.nom}
-            meta={`${LIBELLE_MAGIE[sort.magie]} · ${sort.duree}`}
+            meta={resumeSort(sort, char, catalog)}
             detail={sort.effet}
           />
         ))}

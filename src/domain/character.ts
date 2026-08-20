@@ -1,5 +1,6 @@
 import type { Catalog } from './catalog.ts'
 import { jetonsCampVierges, TAILLE_GRIMOIRE } from './campfire.ts'
+import { FOI_DE_DEPART } from './modifiers.ts'
 import {
   COMPETENCES,
   type Character,
@@ -8,9 +9,6 @@ import {
   type EtatPassifs,
   type Maitrises,
 } from './types.ts'
-
-/** Points de Foi de départ : « Les joueuses commencent toutes avec 2 Points de Foi ». */
-export const FOI_DE_DEPART = 2
 
 /** Profil de maîtrise type : deux +2, un 0, un -2. */
 export const PROFIL_MAITRISE_TYPE = [2, 2, 0, -2] as const

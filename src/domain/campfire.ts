@@ -1,5 +1,5 @@
 import type { Catalog } from './catalog.ts'
-import { expireModifiers } from './modifiers.ts'
+import { expireModifiers, FOI_DE_DEPART } from './modifiers.ts'
 import type { Rng } from './random.ts'
 import {
   PHASES_CAMPFIRE,
@@ -99,7 +99,18 @@ export function resoudreCampPourPersonnage(char: Character, type: TypeCamp): Res
     const leves = char.modifiers.length - suivant.modifiers.length
     if (leves > 0) effets.push(`${leves} effet(s) levé(s) — Fardeau, Serment, Marque`)
 
-    suivant = { ...suivant, sixthSensUtilises: 0, actionsRapidesUtilisees: 0 }
+    // Décision de la MJ : la Foi ne se reporte pas d'une session à l'autre,
+    // contre le PDF qui la conservait « de jour en jour ». Le solde est remis
+    // à 2 — les gains de la phase Grimoire viendront s'y ajouter ensuite,
+    // puisque le camp se résout à son ouverture.
+    if (char.foi !== FOI_DE_DEPART) effets.push(`Points de Foi remis à ${FOI_DE_DEPART}`)
+
+    suivant = {
+      ...suivant,
+      sixthSensUtilises: 0,
+      actionsRapidesUtilisees: 0,
+      foi: FOI_DE_DEPART,
+    }
   }
 
   return { char: suivant, effets }
@@ -184,6 +195,42 @@ export function peutInvestir(ctx: ContexteCamp, char: Character): boolean {
     ctx.type === 'initial' &&
     !char.investissements.some((i) => i.sessionNumero === ctx.sessionNumero)
   )
+}
+
+/**
+ * Le Fardeau « prendre un Point de Fatigue à la place d'une autre PJ ».
+ *
+ * Encore faut-il qu'elle en ait un à céder : sans case cochée, le sacrifice n'a
+ * pas d'objet.
+ */
+export function peutCouvrirLeFardeau(cible: Character): boolean {
+  return cible.fatigue.coches > 0
+}
+
+/**
+ * Déplace une case de Fatigue de la couverte vers la porteuse.
+ *
+ * Renvoie les **deux** fiches : la case change de personnage, elle ne se
+ * duplique pas. N'oublier la seconde revenait à faire payer la porteuse sans
+ * soulager personne.
+ */
+export function resoudreFardeauFatigue(
+  porteuse: Character,
+  couverte: Character,
+): { porteuse: Character; couverte: Character } {
+  return {
+    porteuse: {
+      ...porteuse,
+      fatigue: {
+        ...porteuse.fatigue,
+        coches: Math.min(porteuse.fatigue.max, porteuse.fatigue.coches + 1),
+      },
+    },
+    couverte: {
+      ...couverte,
+      fatigue: { ...couverte.fatigue, coches: Math.max(0, couverte.fatigue.coches - 1) },
+    },
+  }
 }
 
 export function peutAcheter(ctx: ContexteCamp, char: Character, prix: number): boolean {

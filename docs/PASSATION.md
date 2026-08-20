@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 126 tests — 109 de domaine, 17 de rendu |
+| `npm test` | 131 tests — 113 de domaine, 18 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -221,8 +221,12 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Marques | plafond **3**, rien d'automatique | la MJ dépense à la main |
 | Feu de camp | qualifié **initial** ou **repos court** ; la notion de journée de fiction est abandonnée | un camp initial ouvre la session : il rend 1 Point de Fatigue, le 6ᵉ Sens et les Actions Rapides, lève Fardeaux/Serments/Marques et ouvre Banque, Brief et gains de Foi. Un repos court ne rend que les cristaux et n'ouvre que Boutique, Grimoire, Armurerie |
 | Jetons de camp | portés par la **fiche**, et datés (n° de session, id de camp) | voir piège n° 8 |
+| Ouverture de session | **le camp initial l'ouvre**, dans le même geste | deux boutons distincts pouvaient être joués dans le désordre : deux camps initiaux d'affilée laissaient les joueuses bloquées à la Banque |
+| Points de Foi | remis à **2** à chaque camp initial | contre le PDF, qui les conservait « de jour en jour » ; décision de la MJ |
+| Recueillir | l'app **tire la thématique**, la joueuse écrit dans son carnet | un seul tirage, sans relance ; rien de ce qu'elle rédige ne transite par l'app. Liste dans `src/content/questions-recueil.json` |
+| Fardeau / Fatigue | la case **change de fiche** | prendre un point « à la place » d'une autre PJ doit la soulager ; seules les alliées ayant une case cochée sont proposées |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
-| Session | ouverte explicitement par la MJ | c'est là que les investissements rendent leurs comptes |
+| Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |
 | Dés | physiques à table | l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
 | Combat | la joueuse saisit jet et cible, l'app applique | la MJ peut corriger |

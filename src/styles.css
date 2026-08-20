@@ -85,11 +85,40 @@ button {
   cursor: pointer;
 }
 
+/*
+ * Les champs de saisie se peignent ici, et non dans `.champ` : hors d'un label
+ * ils n'héritaient que de la couleur du texte, et le navigateur leur donnait un
+ * fond blanc. Du parchemin clair sur blanc — le texte devenait illisible.
+ */
 input,
 select,
 textarea {
   font: inherit;
-  color: inherit;
+  min-height: var(--touche);
+  padding: 10px 12px;
+  border-radius: var(--rayon);
+  border: 1px solid var(--encre-4);
+  background: var(--encre);
+  color: var(--parchemin);
+}
+
+/* Les listes déroulantes natives ne fabriquent pas leur fond sous Windows et
+   sous certains Linux : sans ça, l'option surlignée redevient illisible. */
+option {
+  background: var(--encre);
+  color: var(--parchemin);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--ambre-sourd);
+  outline-offset: 1px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
 }
 
 /* --------------------------------------------------------------------------
@@ -299,25 +328,14 @@ textarea {
   gap: 6px;
 }
 
+/* L'apparence des champs est posée plus haut, pour tous. Un label n'ajoute que
+   la largeur pleine. */
 .champ input[type='text'],
 .champ input[type='number'],
 .champ input[type='password'],
 .champ select,
 .champ textarea {
-  min-height: var(--touche);
-  padding: 10px 12px;
-  border-radius: var(--rayon);
-  border: 1px solid var(--encre-4);
-  background: var(--encre);
-  color: var(--parchemin);
   width: 100%;
-}
-
-.champ input:focus,
-.champ select:focus,
-.champ textarea:focus {
-  outline: 2px solid var(--ambre-sourd);
-  outline-offset: 1px;
 }
 
 .champ textarea {

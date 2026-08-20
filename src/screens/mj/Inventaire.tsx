@@ -1,8 +1,8 @@
 import { Icone } from '../../components/Icone.tsx'
 import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { resumeSort } from '../../domain/magie.ts'
 import {
-  LIBELLE_MAGIE,
   LIBELLE_SLOT,
   SLOTS_EQUIPEMENT,
   type Character,
@@ -100,7 +100,7 @@ export function Inventaire({
             <span className="objet__corps">
               <span className="objet__nom">{sort.nom}</span>
               <span className="objet__meta">
-                {LIBELLE_MAGIE[sort.magie]} · {sort.duree}
+                {resumeSort(sort, char, catalog)}
                 {char.sortsEpuises.includes(sort.id) ? ' · cristal épuisé' : ''}
               </span>
             </span>

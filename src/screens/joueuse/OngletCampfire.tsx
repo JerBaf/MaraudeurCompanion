@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Icone } from '../../components/Icone.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
+import { THEMATIQUES_RECUEIL } from '../../content/recueil.ts'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { enregistrerPersonnage, journaliser, modifierPersonnage, surCampfire } from '../../data/repo.ts'
 import {
@@ -10,6 +11,7 @@ import {
   entreesAchetables,
   grimoireValide,
   peutAcheter,
+  peutCouvrirLeFardeau,
   peutInvestir,
   peutPrendreFardeau,
   peutPrendreInvestissement,
@@ -17,17 +19,18 @@ import {
   peutRecueillir,
   prixDe,
   PROFILS_CAMP,
+  resoudreFardeauFatigue,
   resoudrePriseInvestissement,
   TAILLE_GRIMOIRE,
   type ContexteCamp,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { resumeSort } from '../../domain/magie.ts'
 import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
-  LIBELLE_MAGIE,
   LIBELLE_PHASE,
   LIBELLE_SLOT,
   SLOTS_EQUIPEMENT,
@@ -442,9 +445,7 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
               <Icone nom={sort.icone} taille={28} />
               <span className="objet__corps">
                 <span className="objet__nom">{sort.nom}</span>
-                <span className="objet__meta">
-                  {LIBELLE_MAGIE[sort.magie]} · {sort.duree}
-                </span>
+                <span className="objet__meta">{resumeSort(sort, char, catalog)}</span>
               </span>
               {actif && <span className="puce puce--ambre">Préparé</span>}
             </button>
@@ -503,7 +504,7 @@ function GainsDeFoi({
   ctx,
   personnages,
 }: Pick<ProprietesPhase, 'char' | 'ctx' | 'personnages'>) {
-  const [texte, setTexte] = useState('')
+  const [thematique, setThematique] = useState<string | null>(null)
   const [cibleFardeau, setCibleFardeau] = useState('')
   const [message, setMessage] = useState<string | null>(null)
 
@@ -513,15 +514,19 @@ function GainsDeFoi({
   // jeton retient le numéro de session, ce qui le rend caduc de lui-même à la
   // suivante — plus rien à réinitialiser.
   async function recueillir() {
-    if (!peutRecueillir(ctx) || texte.trim().length === 0) return
+    if (!peutRecueillir(ctx)) return
+    // La thématique est tirée par l'app et ne se relance pas : le hasard est
+    // subi, comme les dés à table. La joueuse écrit ensuite dans son carnet —
+    // rien de ce qu'elle rédige ne transite par l'application.
+    const tiree = cryptoRng.pick(THEMATIQUES_RECUEIL)
     await enregistrerPersonnage({
       ...char,
       foi: ajouterFoi(2),
       jetonsCamp: { ...char.jetonsCamp, recueillir: ctx.sessionNumero },
     })
-    await journaliser(char.nom, 'recueillir', `${char.nom} se recueille : « ${texte.trim()} »`)
-    setMessage('+2 Points de Foi. Votre texte est parvenu à la MJ.')
-    setTexte('')
+    await journaliser(char.nom, 'recueillir', `${char.nom} se recueille — « ${tiree} »`)
+    setThematique(tiree)
+    setMessage('+2 Points de Foi. Écrivez vos 2 à 3 phrases dans votre carnet.')
   }
 
   async function fardeauDesavantage(competence: (typeof COMPETENCES)[number]) {
@@ -537,20 +542,25 @@ function GainsDeFoi({
   }
 
   async function fardeauFatigue() {
-    if (!peutPrendreFardeau(ctx) || !cibleFardeau) return
-    const couverte = personnages.find((p) => p.id === cibleFardeau)
+    const cible = personnages.find((p) => p.id === cibleFardeau)
+    if (!peutPrendreFardeau(ctx) || !cible || !peutCouvrirLeFardeau(cible)) return
+
+    const { porteuse, couverte } = resoudreFardeauFatigue(char, cible)
     await enregistrerPersonnage({
-      ...char,
+      ...porteuse,
       foi: ajouterFoi(3),
-      fatigue: { ...char.fatigue, coches: Math.min(char.fatigue.max, char.fatigue.coches + 1) },
       jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
     })
+    // La case change de fiche : sans cette seconde écriture, le Fardeau coûtait
+    // un Point de Fatigue sans soulager personne.
+    await enregistrerPersonnage(couverte)
     await journaliser(
       char.nom,
       'fardeau',
-      `${char.nom} prend un Point de Fatigue à la place de ${couverte?.nom ?? 'une alliée'}.`,
+      `${char.nom} prend un Point de Fatigue à la place de ${cible.nom}.`,
     )
-    setMessage(`+3 Points de Foi, et un Point de Fatigue pris pour ${couverte?.nom ?? 'une alliée'}.`)
+    setMessage(`+3 Points de Foi, et un Point de Fatigue pris pour ${cible.nom}.`)
+    setCibleFardeau('')
   }
 
   async function serment() {
@@ -571,7 +581,8 @@ function GainsDeFoi({
     setMessage(`+4 Points de Foi. ${LIBELLE_COMPETENCE[epargnee]} est épargnée, les autres subissent −4.`)
   }
 
-  const allies = personnages.filter((p) => p.id !== char.id)
+  // Seules les alliées qui ont une case à céder peuvent être soulagées.
+  const allies = personnages.filter((p) => p.id !== char.id && peutCouvrirLeFardeau(p))
 
   return (
     <section className="carte pile pile--serree">
@@ -590,21 +601,21 @@ function GainsDeFoi({
         {peutRecueillir(ctx) ? (
           <>
             <p className="tres-discret" style={{ margin: 0 }}>
-              Écrivez 2 à 3 phrases sur la thématique annoncée par la MJ.
+              Une thématique vous sera tirée au sort. Écrivez-en 2 à 3 phrases dans votre carnet.
             </p>
-            <textarea value={texte} onChange={(e) => setTexte(e.target.value)} />
-            <button
-              type="button"
-              className="btn"
-              disabled={texte.trim().length === 0}
-              onClick={() => void recueillir()}
-            >
+            <button type="button" className="btn" onClick={() => void recueillir()}>
               Se recueillir
             </button>
           </>
         ) : (
           <p className="tres-discret" style={{ margin: 0 }}>
             Réservé au feu de camp initial, une fois par session.
+          </p>
+        )}
+
+        {thematique && (
+          <p className="alerte alerte--info" style={{ whiteSpace: 'pre-line' }}>
+            {thematique}
           </p>
         )}
       </div>
@@ -634,28 +645,34 @@ function GainsDeFoi({
             <p className="tres-discret" style={{ margin: 0 }}>
               Ou prendre un Point de Fatigue à la place d'une alliée :
             </p>
-            <div className="rangee">
-              <select
-                value={cibleFardeau}
-                onChange={(e) => setCibleFardeau(e.target.value)}
-                style={{ flex: 1, minHeight: 44 }}
-              >
-                <option value="">— pour qui ? —</option>
-                {allies.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nom}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn"
-                disabled={!cibleFardeau}
-                onClick={() => void fardeauFatigue()}
-              >
-                Se sacrifier
-              </button>
-            </div>
+            {allies.length === 0 ? (
+              <p className="tres-discret" style={{ margin: 0 }}>
+                Personne n'a de Point de Fatigue à céder.
+              </p>
+            ) : (
+              <div className="rangee">
+                <select
+                  value={cibleFardeau}
+                  onChange={(e) => setCibleFardeau(e.target.value)}
+                  style={{ flex: 1 }}
+                >
+                  <option value="">— pour qui ? —</option>
+                  {allies.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nom} — {p.fatigue.coches} coché(s)
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!cibleFardeau}
+                  onClick={() => void fardeauFatigue()}
+                >
+                  Se sacrifier
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <p className="tres-discret" style={{ margin: 0 }}>
