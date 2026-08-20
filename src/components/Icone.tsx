@@ -17,6 +17,13 @@ interface Props {
   taille?: number
   /** Texte alternatif. Vide par défaut : l'icône est presque toujours décorative. */
   libelle?: string
+  /**
+   * Couleur imposée — la rareté d'un objet.
+   *
+   * Les fichiers de game-icons sont des tracés monochromes : un masque CSS
+   * suffit à les recolorer, sans toucher aux SVG ni en dupliquer un par teinte.
+   */
+  teinte?: string
 }
 
 /** Teinte stable déduite du nom, pour que chaque objet garde la même couleur. */
@@ -33,7 +40,7 @@ function initialesDe(nom: string): string {
   return `${(mots[0] as string)[0]}${(mots[1] as string)[0]}`.toUpperCase()
 }
 
-export function Icone({ nom, taille = 28, libelle }: Props) {
+export function Icone({ nom, taille = 28, libelle, teinte }: Props) {
   const [introuvable, setIntrouvable] = useState(false)
 
   // Un changement d'icône doit redonner sa chance au fichier.
@@ -46,7 +53,7 @@ export function Icone({ nom, taille = 28, libelle }: Props) {
     return (
       <span
         className="icone icone--repli"
-        style={{ ...style, background: `hsl(${h} 42% 62%)` }}
+        style={{ ...style, background: teinte ?? `hsl(${h} 42% 62%)` }}
         title={libelle ?? nom}
         aria-hidden={libelle ? undefined : true}
         role={libelle ? 'img' : undefined}
@@ -57,11 +64,40 @@ export function Icone({ nom, taille = 28, libelle }: Props) {
     )
   }
 
+  const source = `${import.meta.env.BASE_URL}icons/${nom}.svg`
+
+  // Une icône teintée devient un masque : le SVG donne la forme, la couleur
+  // vient de la rareté. Sans teinte, on garde l'image telle quelle — c'est le
+  // seul moyen de laisser passer un dessin en couleurs déposé par la MJ.
+  if (teinte) {
+    return (
+      <span
+        className="icone"
+        style={{
+          ...style,
+          background: teinte,
+          maskImage: `url(${source})`,
+          WebkitMaskImage: `url(${source})`,
+          maskSize: 'contain',
+          WebkitMaskSize: 'contain',
+          maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat',
+          maskPosition: 'center',
+          WebkitMaskPosition: 'center',
+        }}
+        title={libelle ?? nom}
+        aria-hidden={libelle ? undefined : true}
+        role={libelle ? 'img' : undefined}
+        aria-label={libelle}
+      />
+    )
+  }
+
   return (
     <img
       className="icone"
       style={style}
-      src={`${import.meta.env.BASE_URL}icons/${nom}.svg`}
+      src={source}
       alt={libelle ?? ''}
       onError={() => setIntrouvable(true)}
     />

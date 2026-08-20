@@ -1,5 +1,11 @@
 import type { Catalog } from '../domain/catalog.ts'
-import { LIBELLE_SLOT, SLOTS_EQUIPEMENT, type Character, type SlotEquipement } from '../domain/types.ts'
+import {
+  LIBELLE_SLOT,
+  RARETES,
+  SLOTS_EQUIPEMENT,
+  type Character,
+  type SlotEquipement,
+} from '../domain/types.ts'
 import { Icone } from './Icone.tsx'
 
 /**
@@ -47,7 +53,7 @@ export function Avatar({ char, catalog, onSlot }: Props) {
               title={objet ? objet.nom : `${LIBELLE_SLOT[slot]} — vide`}
             >
               {objet ? (
-                <Icone nom={objet.icone} taille={30} />
+                <Icone nom={objet.icone} taille={30} teinte={RARETES[objet.rarete ?? 'commun'].teinte} />
               ) : (
                 <span aria-hidden="true" style={{ fontSize: '1.1rem', opacity: 0.5 }}>
                   +

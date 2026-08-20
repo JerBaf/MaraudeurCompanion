@@ -4,10 +4,18 @@ import {
   allModifiers,
   cibleCompetence,
   EVASION_DE_BASE,
+  MAX_FOI,
+  MAX_MARQUES,
   netAvantage,
+  SEUIL_COMBUSTION,
   type Agregat,
 } from './modifiers.ts'
-import { COMPETENCES, type Character, type Competence } from './types.ts'
+import {
+  COMPETENCES,
+  type Character,
+  type Competence,
+  type ModifierTarget,
+} from './types.ts'
 
 /** Valeur affichée d'une compétence, avec de quoi expliquer d'où elle vient. */
 export interface ValeurCompetence {
@@ -97,4 +105,49 @@ export function computeSixthSens(char: Character, catalog: Catalog) {
 export function computeBonusEnergieAttaque(char: Character, catalog: Catalog) {
   const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === 'energie-attaque')
   return { bonus: agregat.bonus, agregat }
+}
+
+// ---------------------------------------------------------------------------
+// Plafonds de ressource
+// ---------------------------------------------------------------------------
+
+/**
+ * Les quatre plafonds se calculent comme le 6th Sens : une base, plus ce que
+ * les objets et passifs en font. Rien n'est stocké — une dague qui coûte un
+ * Point de Fatigue rend la case dès qu'on la range.
+ *
+ * `char.fatigue.max` n'est donc plus la vérité mais la **base**, celle que la
+ * classe a fixée à la création.
+ */
+function plafond(
+  char: Character,
+  catalog: Catalog,
+  cible: ModifierTarget['kind'],
+  base: number,
+  plancher: number,
+) {
+  const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === cible)
+  return {
+    base,
+    bonus: agregat.bonus,
+    max: Math.max(plancher, base + agregat.bonus),
+    agregat,
+  }
+}
+
+/** Plancher à 1 : un personnage sans aucune case ne pourrait plus rien encaisser. */
+export function computeFatigueMax(char: Character, catalog: Catalog) {
+  return plafond(char, catalog, 'fatigue-max', char.fatigue.max, 1)
+}
+
+export function computeFoiMax(char: Character, catalog: Catalog) {
+  return plafond(char, catalog, 'foi-max', MAX_FOI, 0)
+}
+
+export function computeMarquesMax(char: Character, catalog: Catalog) {
+  return plafond(char, catalog, 'marques-max', MAX_MARQUES, 0)
+}
+
+export function computeBruluresMax(char: Character, catalog: Catalog) {
+  return plafond(char, catalog, 'brulures-max', SEUIL_COMBUSTION, 0)
 }

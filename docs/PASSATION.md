@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 158 tests — 133 de domaine, 25 de rendu |
+| `npm test` | 170 tests — 143 de domaine, 27 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -42,8 +42,10 @@ catalogue.
 - **Le contenu.** Le catalogue ne contient que quelques exemples. La MJ doit saisir ses
   vrais équipements, améliorations et investissements via l'éditeur (Réglages).
   **N'écrivez pas ce contenu en dur** — voir le piège n° 1.
-- **Les icônes.** 28 icônes `game-icons.net` (CC-BY). La MJ veut à terme des dessins
-  style Moebius/Ghibli ; déposer un fichier de même nom dans `public/icons/` suffit.
+- **Les icônes.** 66 icônes `game-icons.net` (CC-BY), dont une palette d'armes, armures,
+  bibelots et symboles proposée à la MJ (`PALETTE` dans `scripts/fetch-icons.mjs`). Elle
+  veut à terme des dessins style Moebius/Ghibli ; déposer un fichier de même nom dans
+  `public/icons/` suffit — le script n'écrase jamais un fichier existant.
 - **Les upgrades annoncées** dans `Guidelines.pdf`, non commencées : nouvelles classes,
   QTE (mini-jeux poussés sur l'écran d'une joueuse), combat rapide type
   pierre-feuille-ciseau. Le champ `EtatTable.overlay` existe pour les accueillir.
@@ -245,6 +247,11 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Recharge | **à la main par la MJ**, jamais au feu de camp | le PDF attache un rituel propre à chaque objet ; c'est la fiction qui décide |
 | Consommable | charges non rechargeables ; à zéro l'objet est **détruit et déséquipé** | cas dégénéré des charges, pas un second mécanisme |
 | Passifs de sorts | **non** : seuls équipements et améliorations en portent | un passif permanent se modélise par une amélioration ; évite un troisième régime d'activation |
+| Plafonds de ressource | **dérivés**, comme le 6ᵉ Sens | une dague qui coûte un Point de Fatigue rend la case dès qu'on la range |
+| Passifs réactifs | « quand telle jauge bouge, telle autre varie », **une seule passe** | voir l'encadré ci-dessous |
+| Usage d'un objet | depuis la **fiche**, sous l'avatar, donc seulement s'il est **porté** | le PDF limite la joueuse à ses trois emplacements pendant la session |
+| Rareté | palette nommée, `Equipement.rarete` ; absent = commun | la couleur veut dire quelque chose à table, et suit l'objet partout |
+| Entrées `seed` | **supprimables** | le drapeau ne sert plus qu'à les faire revenir à la réinitialisation |
 | Cristal épuisé | signalé **par la joueuse**, sur un sort d'Arcane préparé | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser |
 | Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
@@ -255,6 +262,26 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Offres de boutique | tirage assisté que la MJ ajuste | 3 offres × 5 joueuses = trop de choix manuels |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |
 | Écran MJ pendant le camp | **miroir** de l'écran d'une joueuse, actions neutralisées, contrôles d'édition à leur place | un seul rendu à maintenir ; permet de retoucher brief et offres camp lancé |
+
+### Les passifs réactifs passent par un point unique
+
+`resoudreDeclencheurs` (`domain/declencheurs.ts`) compare l'état d'avant à celui d'après et
+applique ce qui s'est armé. Elle est appelée depuis **`modifierPersonnage` et nulle part
+ailleurs** : c'est le seul endroit qui dispose des deux états. La brancher dans les écrans
+aurait produit des déclencheurs qui partent ou non selon qui a bougé la ressource — c'est
+d'ailleurs pourquoi l'écran MJ est passé de `enregistrerPersonnage` à `modifierPersonnage`.
+
+Trois bornes à ne pas lever :
+
+- **une seule passe** : un déclencheur ne peut pas en réveiller un autre. Sans cela,
+  « +1 Foi quand la Foi augmente » bouclerait à l'infini ;
+- **le résultat reste borné** par les plafonds dérivés — un déclencheur ne fait pas déborder
+  une jauge, et quand rien ne bouge il ne raconte rien ;
+- **même régime d'activation que les modificateurs** : objet porté, amélioration possédée.
+
+`modifierPersonnage` lit le catalogue dans `catalogueCourant`, un cache alimenté par
+`surCatalogue`. Tant qu'il est nul — avant la première réponse — aucun déclencheur ne part,
+ce qui est le bon comportement : rien ne doit s'appliquer sur un catalogue inconnu.
 
 ### Les brûlures se comptent deux fois
 

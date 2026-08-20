@@ -1,5 +1,6 @@
 import { Icone } from '../../components/Icone.tsx'
 import type { Catalog } from '../../domain/catalog.ts'
+import { computeFatigueMax } from '../../domain/competences.ts'
 import { fatigueRestante } from '../../domain/fatigue.ts'
 import type { Character } from '../../domain/types.ts'
 
@@ -72,7 +73,7 @@ function CartePersonnage({
   onClick: () => void
 }) {
   const classe = catalog.classe(char.classeId)
-  const restante = fatigueRestante(char)
+  const restante = fatigueRestante(char, catalog)
 
   return (
     <button type="button" className="objet" onClick={onClick}>
@@ -80,7 +81,7 @@ function CartePersonnage({
       <span className="objet__corps">
         <span className="objet__nom">{char.nom}</span>
         <span className="objet__meta">
-          {classe?.nom ?? char.classeId} · Fatigue {restante}/{char.fatigue.max} · {char.lumens} lumens
+          {classe?.nom ?? char.classeId} · Fatigue {restante}/{computeFatigueMax(char, catalog).max} · {char.lumens} lumens
         </span>
       </span>
       {char.marques > 0 && <span className="puce puce--info">{char.marques} marque(s)</span>}

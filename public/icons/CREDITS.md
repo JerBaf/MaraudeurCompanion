@@ -5,8 +5,13 @@ licence [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
 
 Auteurs des icônes utilisées dans cette application :
 
+- badges
+- carl-olsen
+- caro-asercion
 - delapouite
 - lorc
+- skoll
+- willdabeast
 
 Les icônes sont recolorées en CSS ; leur tracé est inchangé.
 

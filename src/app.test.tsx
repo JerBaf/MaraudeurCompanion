@@ -401,6 +401,57 @@ describe('outillage de table', () => {
     expect(social?.textContent).toContain('+d4')
   })
 
+  /**
+   * Le parcours complet du lot C : la MJ compose un passif réactif en données,
+   * et il s'arme tout seul quand la joueuse bouge la jauge surveillée.
+   */
+  it('un passif réactif saisi au catalogue s’arme sur la fiche', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), {
+      target: { value: 'Sceau du Martyr' },
+    })
+    fireEvent.change(screen.getByLabelText('Emplacement'), { target: { value: 'bibelot' } })
+
+    // « Quand les Marques augmentent, gagne un Point de Foi. »
+    fireEvent.click(screen.getByText('Ajouter un passif réactif'))
+    fireEvent.change(await screen.findByLabelText('Jauge surveillée'), {
+      target: { value: 'marques' },
+    })
+    fireEvent.change(screen.getByLabelText('Sens du déclencheur'), {
+      target: { value: 'augmente' },
+    })
+    fireEvent.change(screen.getByLabelText('Jauge affectée'), { target: { value: 'foi' } })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const accorder = await screen.findByLabelText('Accorder un équipement')
+    const option = within(accorder).getByRole('option', { name: /Sceau du Martyr/ })
+    fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+
+    const slot = await screen.findByLabelText('Bibelot')
+    await waitFor(() =>
+      expect(within(slot).queryByRole('option', { name: /Sceau du Martyr/ })).toBeTruthy(),
+    )
+    fireEvent.change(slot, { target: { value: (option as HTMLOptionElement).value } })
+    cleanup()
+
+    // Côté joueuse : la Foi part de 2 ; prendre une Marque doit la porter à 3.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('2 / 9')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Marques : 1' }))
+    await waitFor(() => expect(screen.getByText('3 / 9')).toBeTruthy())
+  })
+
   it('la joueuse utilise un consommable, qui se détruit', async () => {
     await tablePreteAvecPersonnage()
 
@@ -427,16 +478,34 @@ describe('outillage de table', () => {
     const accorder = await screen.findByLabelText('Accorder un équipement')
     const option = within(accorder).getByRole('option', { name: /Potion de brume/ })
     fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+
+    // Un objet ne s'utilise que porté : le PDF limite la joueuse à ses trois
+    // emplacements pendant la session.
+    const slot = await screen.findByLabelText('Bibelot')
+    await waitFor(() =>
+      expect(within(slot).queryByRole('option', { name: /Potion de brume/ })).toBeTruthy(),
+    )
+    fireEvent.change(slot, { target: { value: (option as HTMLOptionElement).value } })
     cleanup()
 
     sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
-    fireEvent.click(await screen.findByRole('tab', { name: 'Équipement' }))
-    await waitFor(() => expect(screen.getByText('Potion de brume')).toBeTruthy())
+    // L'usage se fait depuis la fiche : toucher l'emplacement de l'avatar,
+    // puis l'objet qui s'affiche dessous pour en déplier la description.
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+    // Le premier bouton portant ce nom est l'emplacement de l'avatar ; le
+    // second, l'objet qu'il révèle, dont le clic déplie la description.
+    fireEvent.click(screen.getAllByRole('button', { name: /Potion de brume/ })[0] as HTMLElement)
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /Potion de brume/ })).toHaveLength(2),
+    )
+    fireEvent.click(screen.getAllByRole('button', { name: /Potion de brume/ })[1] as HTMLElement)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Utiliser' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Utiliser' }))
     await waitFor(() => expect(screen.getByText(/brouillard vous dérobe/)).toBeTruthy())
+
     // Une seule charge, non rechargeable : l'objet quitte l'inventaire.
+    fireEvent.click(screen.getByRole('tab', { name: 'Équipement' }))
     await waitFor(() => expect(screen.queryByText('Potion de brume')).toBeNull())
   })
 

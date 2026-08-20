@@ -1,4 +1,5 @@
 import type { Catalog } from './catalog.ts'
+import { computeFatigueMax } from './competences.ts'
 import type { Rng } from './random.ts'
 import { SLOTS_EQUIPEMENT, type Character, type CharacterSecret, type SlotEquipement } from './types.ts'
 
@@ -12,17 +13,23 @@ export interface ResultatFatigue {
   grillePleine: boolean
 }
 
-/** Coche `nombre` Points de Fatigue (ou en décoche si `nombre` est négatif). */
-export function ajusterFatigue(char: Character, nombre: number): ResultatFatigue {
-  const coches = Math.max(0, Math.min(char.fatigue.max, char.fatigue.coches + nombre))
+/**
+ * Coche `nombre` Points de Fatigue (ou en décoche si `nombre` est négatif).
+ *
+ * Le plafond est **calculé**, pas lu sur la fiche : un objet peut retirer une
+ * case, et la grille doit s'y conformer aussitôt.
+ */
+export function ajusterFatigue(char: Character, catalog: Catalog, nombre: number): ResultatFatigue {
+  const max = computeFatigueMax(char, catalog).max
+  const coches = Math.max(0, Math.min(max, char.fatigue.coches + nombre))
   return {
     char: { ...char, fatigue: { ...char.fatigue, coches } },
-    grillePleine: coches >= char.fatigue.max,
+    grillePleine: coches >= max,
   }
 }
 
-export function fatigueRestante(char: Character): number {
-  return Math.max(0, char.fatigue.max - char.fatigue.coches)
+export function fatigueRestante(char: Character, catalog: Catalog): number {
+  return Math.max(0, computeFatigueMax(char, catalog).max - char.fatigue.coches)
 }
 
 // ---------------------------------------------------------------------------

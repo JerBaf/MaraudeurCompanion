@@ -70,6 +70,15 @@ export type ModifierTarget =
   | { kind: 'sixth-sens' }
   | { kind: 'energie-attaque' }
   | { kind: 'cout-sort'; filtre?: { magie?: Magie; prefixeNom?: string } }
+  /**
+   * Les plafonds de ressource. Une dague qui « retire un Point de Fatigue »
+   * abaisse la grille, elle ne coche pas une case : ranger l'objet doit rendre
+   * la case aussitôt, ce qu'un plafond dérivé fait tout seul.
+   */
+  | { kind: 'fatigue-max' }
+  | { kind: 'foi-max' }
+  | { kind: 'marques-max' }
+  | { kind: 'brulures-max' }
 
 export type ModifierOp =
   | { kind: 'add'; value: number }
@@ -207,6 +216,10 @@ export interface Equipement extends EntreeCatalogueBase {
   bonusEvasion?: number
   /** Modificateurs accordés tant que l'objet est équipé. */
   modificateurs?: Omit<Modifier, 'id' | 'expires'>[]
+  /** Passifs réactifs, armés tant que l'objet est porté. */
+  declencheurs?: Declencheur[]
+  /** Teinte de rareté, façon inventaire de jeu vidéo. Absent = commun. */
+  rarete?: Rarete
   prix?: number
   /**
    * Matériel de base (rations, catalyseur, paquetage) : hors des 3 slots
@@ -220,6 +233,22 @@ export interface Equipement extends EntreeCatalogueBase {
    * à une seule face rend simplement l'effet déterministe.
    */
   effetsActifs?: EffetsActifs
+}
+
+/** Les jauges d'un personnage qu'un déclencheur peut lire ou faire varier. */
+export type Ressource = 'fatigue' | 'marques' | 'foi' | 'brulures' | 'lumens'
+
+/**
+ * Passif réactif : « quand telle ressource bouge, telle autre varie ».
+ *
+ * S'arme au même régime que les modificateurs — équipement porté, amélioration
+ * possédée. La résolution vit dans `domain/declencheurs.ts`.
+ */
+export interface Declencheur {
+  quand: Ressource
+  sens: 'augmente' | 'diminue'
+  alors: Ressource
+  delta: number
 }
 
 /** Ce que coûte l'usage d'un objet à effets actifs. */
@@ -270,6 +299,25 @@ export interface Amelioration extends EntreeCatalogueBase {
   effetTexte: string
   /** Modificateurs permanents accordés par l'amélioration. */
   modificateurs?: Omit<Modifier, 'id' | 'expires'>[]
+  /** Passifs réactifs, armés dès que l'amélioration est possédée. */
+  declencheurs?: Declencheur[]
+}
+
+/**
+ * Rareté d'un objet, et sa teinte.
+ *
+ * La couleur veut dire quelque chose à table : un objet garde la sienne partout
+ * — avatar, inventaire, boutique, catalogue. Ajouter un niveau, c'est ajouter
+ * une ligne à `RARETES`.
+ */
+export type Rarete = 'commun' | 'rare' | 'epique' | 'legendaire' | 'unique'
+
+export const RARETES: Record<Rarete, { libelle: string; teinte: string }> = {
+  commun: { libelle: 'Commun', teinte: '#b9b2a4' },
+  rare: { libelle: 'Rare', teinte: '#5b9bd5' },
+  epique: { libelle: 'Épique', teinte: '#a06cd5' },
+  legendaire: { libelle: 'Légendaire', teinte: '#d97a2b' },
+  unique: { libelle: 'Unique', teinte: '#d4af37' },
 }
 
 export type EntreeCatalogue = Classe | Sort | Equipement | Investissement | Amelioration

@@ -16,7 +16,11 @@ import { estSonTour } from '../../domain/combat.ts'
 import { precisionPersonnalite, vieActive } from '../../domain/effets.ts'
 import {
   actionsRapidesMax,
+  computeBruluresMax,
   computeEvasion,
+  computeFatigueMax,
+  computeFoiMax,
+  computeMarquesMax,
   computeSixthSens,
   computeToutesCompetences,
 } from '../../domain/competences.ts'
@@ -37,13 +41,7 @@ import {
   peutUtiliser,
   utiliserObjet,
 } from '../../domain/objets.ts'
-import {
-  EVASION_DE_BASE,
-  MAX_FOI,
-  MAX_MARQUES,
-  paliersFlammeAtteints,
-  SEUIL_COMBUSTION,
-} from '../../domain/modifiers.ts'
+import { EVASION_DE_BASE, paliersFlammeAtteints } from '../../domain/modifiers.ts'
 import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
 import {
   COMPETENCES,
@@ -51,6 +49,7 @@ import {
   LIBELLE_MAGIE,
   LIBELLE_SLOT,
   MAGIES,
+  RARETES,
   type Adversaire,
   type Character,
   type Equipement,
@@ -167,7 +166,7 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
           <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />
         )}
         {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} maj={maj} />}
-        {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} maj={maj} />}
+        {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}
       </div>
     </>
   )
@@ -192,13 +191,36 @@ function OngletFiche({
   // la peau une fois dépensée, et c'est elle qui ouvre la Voie de la Flamme.
   const paliers = paliersFlammeAtteints(char.brulures)
   const disponibles = bruluresDisponibles(char)
-  const restante = fatigueRestante(char)
+  const restante = fatigueRestante(char, catalog)
+  // Les quatre plafonds sont dérivés : un objet peut les faire bouger.
+  const fatigueMax = computeFatigueMax(char, catalog).max
+  const foiMax = computeFoiMax(char, catalog).max
+  const marquesMax = computeMarquesMax(char, catalog).max
+  const bruluresMax = computeBruluresMax(char, catalog).max
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
   const [slotOuvert, setSlotOuvert] = useState<SlotEquipement | null>(null)
+  // Le récit d'usage vit hors de la ligne de l'objet : un consommable disparaît
+  // en même temps qu'il agit, et son effet partirait avec lui.
+  const [dernierUsage, setDernierUsage] = useState<string | null>(null)
 
   const idOuvert = slotOuvert ? char.equipe[slotOuvert] : null
   const objetOuvert = idOuvert ? catalog.equipement(idOuvert) : undefined
+
+  /** Le dé de la table est lancé ici ; l'écran en donne le résultat et l'effet. */
+  function utiliser(eq: Equipement) {
+    const r = utiliserObjet(char, eq, cryptoRng)
+    const faces = eq.effetsActifs?.faces ?? 1
+    setDernierUsage(
+      `${eq.nom} — ` +
+        // Une table à une seule entrée est déterministe : le dé n'a rien à dire.
+        (faces > 1 ? `1d${faces} → ${r.de} · ` : '') +
+        r.effet +
+        (r.detruit ? ' Il se consume et disparaît.' : ''),
+    )
+    void journaliser(char.nom, 'objet', `${char.nom} utilise ${eq.nom} : ${r.effet}`)
+    maj(() => r.char)
+  }
 
   function lancerOsselets() {
     const { des, brulures } = tirerOsselets(cryptoRng)
@@ -207,7 +229,7 @@ function OngletFiche({
     setDernierJet(
       `Osselets ${des.join(' · ')} → ${brulures} brûlure(s)` +
         (resultat.gainEffectif !== brulures ? ` (Overheat : ${resultat.gainEffectif})` : '') +
-        (perdu > 0 ? ` — ${perdu} perdue(s), vous êtes déjà marquée à ${SEUIL_COMBUSTION}` : ''),
+        (perdu > 0 ? ` — ${perdu} perdue(s), vous êtes déjà marquée à ${bruluresMax}` : ''),
     )
     maj((c) => ({ ...c, brulures: resultat.brulures }))
   }
@@ -223,7 +245,7 @@ function OngletFiche({
       ...c,
       brulures: r.brulures,
       bruluresConsommees: r.bruluresConsommees,
-      fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + r.fatigueAjoutee) },
+      fatigue: { ...c.fatigue, coches: Math.min(fatigueMax, c.fatigue.coches + r.fatigueAjoutee) },
     }))
   }
 
@@ -235,7 +257,7 @@ function OngletFiche({
       ...c,
       brulures: r.brulures,
       bruluresConsommees: r.bruluresConsommees,
-      fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + r.fatigueAjoutee) },
+      fatigue: { ...c.fatigue, coches: Math.min(fatigueMax, c.fatigue.coches + r.fatigueAjoutee) },
     }))
   }
 
@@ -292,7 +314,7 @@ function OngletFiche({
             libelle="Points de Fatigue"
             variante="fatigue"
             valeur={char.fatigue.coches}
-            max={char.fatigue.max}
+            max={fatigueMax}
             onChange={(v) => maj((c) => ({ ...c, fatigue: { ...c.fatigue, coches: v } }))}
             note={`${restante} restant(s)`}
           />
@@ -310,24 +332,48 @@ function OngletFiche({
           />
         </div>
 
-        {/* Toucher un emplacement en révèle la description, comme pour un sort :
-            la joueuse doit pouvoir relire ce qu'elle porte sans demander. */}
+        {/* Toucher un emplacement révèle l'objet ; le toucher à son tour déplie
+            sa description, et c'est là qu'on s'en sert. */}
         {objetOuvert ? (
           <ObjetDetaillable
             key={objetOuvert.id}
             icone={objetOuvert.icone}
             nom={objetOuvert.nom}
+            teinte={RARETES[objetOuvert.rarete ?? 'commun'].teinte}
             meta={
-              `${LIBELLE_SLOT[objetOuvert.slot]}` +
-              (objetOuvert.bonusEvasion ? ` · Évasion +${objetOuvert.bonusEvasion}` : '')
+              [
+                LIBELLE_SLOT[objetOuvert.slot],
+                objetOuvert.bonusEvasion ? `Évasion +${objetOuvert.bonusEvasion}` : null,
+                capaciteMax(objetOuvert) !== null
+                  ? `${chargesRestantes(char, objetOuvert)}/${capaciteMax(objetOuvert)} charge(s)`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')
             }
-            detail={objetOuvert.description ?? 'Aucune description pour cet objet.'}
+            detail={detailObjet(objetOuvert)}
+            {...(aDesEffetsActifs(objetOuvert)
+              ? {
+                  actionDetail: (
+                    <button
+                      type="button"
+                      className="btn btn--principal"
+                      disabled={!peutUtiliser(char, objetOuvert)}
+                      onClick={() => utiliser(objetOuvert)}
+                    >
+                      {peutUtiliser(char, objetOuvert) ? 'Utiliser' : 'Plus de charge'}
+                    </button>
+                  ),
+                }
+              : {})}
           />
         ) : (
           <p className="tres-discret" style={{ margin: 0 }}>
             Touchez un emplacement pour en relire la description.
           </p>
         )}
+
+        {dernierUsage && <p className="alerte alerte--info">{dernierUsage}</p>}
       </section>
 
       {/* --- Compétences --- */}
@@ -396,7 +442,7 @@ function OngletFiche({
           variante="brulures"
           valeur={char.brulures}
           consommee={char.bruluresConsommees}
-          max={SEUIL_COMBUSTION}
+          max={bruluresMax}
           onPastille={basculerCase}
           note={[
             `${disponibles} disponible(s)`,
@@ -421,7 +467,7 @@ function OngletFiche({
           libelle="Points de Foi"
           variante="foi"
           valeur={char.foi}
-          max={MAX_FOI}
+          max={foiMax}
           onChange={(v) => maj((c) => ({ ...c, foi: v }))}
         />
 
@@ -430,11 +476,11 @@ function OngletFiche({
         <Compteur
           libelle="Marques"
           variante="marques"
-          valeur={Math.min(char.marques, MAX_MARQUES)}
-          max={MAX_MARQUES}
+          valeur={Math.min(char.marques, marquesMax)}
+          max={marquesMax}
           onChange={(v) => maj((c) => ({ ...c, marques: v }))}
           note={
-            char.marques >= MAX_MARQUES
+            char.marques >= marquesMax
               ? 'Seuil atteint — la MJ peut prendre le contrôle de votre personnage.'
               : undefined
           }
@@ -626,20 +672,7 @@ function detailObjet(eq: Equipement): string {
  * N'afficher que la réserve obligeait à regarder à deux endroits pour comparer
  * ce qu'on porte à ce qu'on pourrait porter.
  */
-function OngletSac({
-  char,
-  catalog,
-  maj,
-}: {
-  char: Character
-  catalog: Catalog
-  maj: (t: (c: Character) => Character) => void
-}) {
-  // Le récit d'usage vit au-dessus de la liste, et non sur la ligne de l'objet :
-  // un consommable disparaît en même temps qu'il agit, et son effet serait parti
-  // avec lui.
-  const [dernierUsage, setDernierUsage] = useState<string | null>(null)
-
+function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
   const equipes = Object.entries(char.equipe).filter(([, id]) => id) as [SlotEquipement, string][]
   const parObjetPorte = new Map(equipes.map(([slot, id]) => [id, slot]))
 
@@ -651,19 +684,6 @@ function OngletSac({
     .map((id) => catalog.amelioration(id))
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
-  function utiliser(eq: Equipement) {
-    const r = utiliserObjet(char, eq, cryptoRng)
-    const faces = eq.effetsActifs?.faces ?? 1
-    setDernierUsage(
-      `${eq.nom} — ` +
-        (faces > 1 ? `1d${faces} → ${r.de} · ` : '') +
-        r.effet +
-        (r.detruit ? ' Il se consume et disparaît.' : ''),
-    )
-    void journaliser(char.nom, 'objet', `${char.nom} utilise ${eq.nom} : ${r.effet}`)
-    maj(() => r.char)
-  }
-
   return (
     <div className="pile">
       <p className="alerte alerte--info">
@@ -672,7 +692,6 @@ function OngletSac({
 
       <section className="carte pile pile--serree">
         <span className="etiquette">Équipement</span>
-        {dernierUsage && <p className="alerte alerte--info">{dernierUsage}</p>}
         {equipements.length === 0 && <p className="vide">Vous ne possédez aucun objet.</p>}
         {equipements.map((eq) => {
           const porteEn = parObjetPorte.get(eq.id)
@@ -698,20 +717,7 @@ function OngletSac({
               {...(porteEn
                 ? { puce: <span className="puce puce--ambre">{LIBELLE_SLOT[porteEn]}</span> }
                 : {})}
-              {...(aDesEffetsActifs(eq)
-                ? {
-                    action: (
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={!peutUtiliser(char, eq)}
-                        onClick={() => utiliser(eq)}
-                      >
-                        {peutUtiliser(char, eq) ? 'Utiliser' : 'Plus de charge'}
-                      </button>
-                    ),
-                  }
-                : {})}
+              teinte={RARETES[eq.rarete ?? 'commun'].teinte}
             />
           )
         })}

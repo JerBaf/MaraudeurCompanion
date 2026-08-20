@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { EditeurDeclencheurs } from '../../components/EditeurDeclencheurs.tsx'
 import { EditeurModificateurs } from '../../components/EditeurModificateurs.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { ICONES_DISPONIBLES } from '../../content/icones.ts'
@@ -10,6 +11,7 @@ import { classesDuSort, sortOuvertA } from '../../domain/magie.ts'
 import {
   FACES_TABLE,
   LIBELLE_MAGIE,
+  RARETES,
   LIBELLE_SLOT,
   MAGIES,
   SLOTS_EQUIPEMENT,
@@ -20,6 +22,7 @@ import {
   type EntreeCatalogue,
   type Equipement,
   type Investissement,
+  type Rarete,
   type Sort,
 } from '../../domain/types.ts'
 
@@ -31,8 +34,8 @@ import {
  * la seule voie fiable — le contenu que je livre en dur n'atteint jamais une
  * base déjà amorcée, puisque l'amorçage n'écrase jamais l'existant.
  *
- * Les entrées livrées avec l'app (`seed`) restent modifiables mais ne peuvent
- * pas être supprimées.
+ * Les entrées livrées avec l'app (`seed`) sont modifiables et supprimables ;
+ * le drapeau ne sert plus qu'à les faire revenir lors d'une réinitialisation.
  */
 
 type Onglet = 'equipement' | 'amelioration' | 'investissement' | 'sort'
@@ -140,7 +143,11 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
 
       {entrees.map((e) => (
         <div key={e.id} className="objet">
-          <Icone nom={e.icone} taille={28} />
+          <Icone
+            nom={e.icone}
+            taille={28}
+            {...(e.kind === 'equipement' ? { teinte: RARETES[e.rarete ?? 'commun'].teinte } : {})}
+          />
           <span className="objet__corps">
             <span className="objet__nom">{e.nom}</span>
             <span className="objet__meta">{resume(e)}</span>
@@ -148,20 +155,23 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
           <button type="button" className="btn" onClick={() => setEdition(e)}>
             Modifier
           </button>
-          {!e.seed && (
-            <button
-              type="button"
-              className="btn btn--danger"
-              onClick={() => {
-                if (confirm(`Supprimer « ${e.nom} » du catalogue ?`)) {
-                  void supprimerEntreeCatalogue(e)
-                }
-              }}
-              aria-label={`Supprimer ${e.nom}`}
-            >
-              ×
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={() => {
+              // Les entrées livrées se suppriment aussi : c'est le seul moyen de
+              // nettoyer le catalogue de mes exemples.
+              const avertissement = e.seed
+                ? ` Elle reviendra si vous réinitialisez le catalogue.`
+                : ''
+              if (confirm(`Supprimer « ${e.nom} » du catalogue ?${avertissement}`)) {
+                void supprimerEntreeCatalogue(e)
+              }
+            }}
+            aria-label={`Supprimer ${e.nom}`}
+          >
+            ×
+          </button>
         </div>
       ))}
 
@@ -329,11 +339,30 @@ function Formulaire({
             </span>
           </label>
 
+          <label className="champ">
+            <span className="tres-discret">Rareté — donne sa couleur à l'icône</span>
+            <select
+              value={brouillon.rarete ?? 'commun'}
+              onChange={(e) => maj({ rarete: e.target.value as Rarete })}
+            >
+              {(Object.keys(RARETES) as Rarete[]).map((r) => (
+                <option key={r} value={r}>
+                  {RARETES[r].libelle}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <EditeurModificateurs
             valeur={brouillon.modificateurs ?? []}
             label={brouillon.nom || 'Objet'}
             source="equipement"
             onChange={(modificateurs) => maj({ modificateurs })}
+          />
+
+          <EditeurDeclencheurs
+            valeur={brouillon.declencheurs ?? []}
+            onChange={(declencheurs) => maj({ declencheurs })}
           />
 
           <EditeurEffetsActifs
@@ -370,6 +399,11 @@ function Formulaire({
             label={brouillon.nom || 'Amélioration'}
             source="passif"
             onChange={(modificateurs) => maj({ modificateurs })}
+          />
+
+          <EditeurDeclencheurs
+            valeur={brouillon.declencheurs ?? []}
+            onChange={(declencheurs) => maj({ declencheurs })}
           />
         </>
       )}

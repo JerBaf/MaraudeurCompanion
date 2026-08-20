@@ -19,6 +19,8 @@ export function ObjetDetaillable({
   actif,
   indisponible,
   action,
+  actionDetail,
+  teinte,
 }: {
   icone: string
   nom: string
@@ -30,11 +32,19 @@ export function ObjetDetaillable({
   actif?: boolean
   indisponible?: boolean
   /**
-   * Commande propre à cet objet, rendue sous la ligne : marquer un cristal
-   * épuisé, retirer un objet du sac. Vit hors du bouton de dépliage — un bouton
-   * dans un bouton n'est pas du HTML valide et ne se cliquerait pas.
+   * Commande toujours visible, rendue sous la ligne : marquer un Hexite épuisé.
+   * Vit hors du bouton de dépliage — un bouton dans un bouton n'est pas du HTML
+   * valide et ne se cliquerait pas.
    */
   action?: ReactNode
+  /**
+   * Commande révélée avec la description, et centrée sous elle : utiliser un
+   * objet. On la déplie parce qu'on veut s'en servir, et l'effet mérite d'être
+   * lu avant d'agir.
+   */
+  actionDetail?: ReactNode
+  /** Teinte de rareté, transmise à l'icône. */
+  teinte?: string
 }) {
   const [ouvert, setOuvert] = useState(false)
   const depliable = Boolean(detail)
@@ -49,7 +59,7 @@ export function ObjetDetaillable({
         // Sans description à révéler, l'élément n'est pas interactif.
         {...(depliable ? {} : { tabIndex: -1, style: { cursor: 'default' } })}
       >
-        <Icone nom={icone} taille={32} />
+        <Icone nom={icone} taille={32} {...(teinte ? { teinte } : {})} />
         <span className="objet__corps">
           <span className="objet__nom">{nom}</span>
           {meta && <span className="objet__meta">{meta}</span>}
@@ -71,6 +81,11 @@ export function ObjetDetaillable({
             <div className="effet__detail effet__detail--precision">
               <span className="etiquette">{precision.titre}</span>
               <p style={{ margin: '4px 0 0', whiteSpace: 'pre-line' }}>{precision.texte}</p>
+            </div>
+          )}
+          {actionDetail && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+              {actionDetail}
             </div>
           )}
         </>

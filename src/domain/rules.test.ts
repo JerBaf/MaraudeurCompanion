@@ -52,13 +52,19 @@ import {
   actionsRapidesMax,
   computeBonusEnergieAttaque,
   computeCompetence,
+  computeBruluresMax,
   computeEvasion,
+  computeFatigueMax,
+  computeFoiMax,
+  computeMarquesMax,
   computeSixthSens,
 } from './competences.ts'
 import { effetsActifs, facesDuDeDeVies, precisionPersonnalite, vieActive } from './effets.ts'
 import {
+  ajusterFatigue,
   cyclesRestants,
   effectuerDetachement,
+  fatigueRestante,
   poolDetachement,
   resoudreGrillePleine,
 } from './fatigue.ts'
@@ -83,6 +89,9 @@ import {
   derivedModifiers,
   EVASION_DE_BASE,
   expireModifiers,
+  MAX_FOI,
+  MAX_MARQUES,
+  SEUIL_COMBUSTION,
   FOI_DE_DEPART,
   modificateurDiversion,
   modificateurEsquive,
@@ -90,6 +99,7 @@ import {
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
+import { resoudreDeclencheurs } from './declencheurs.ts'
 import { chargesRestantes, peutUtiliser, rechargerObjet, utiliserObjet } from './objets.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import type {
@@ -830,6 +840,161 @@ describe('Évasion', () => {
 })
 
 // ---------------------------------------------------------------------------
+
+describe('plafonds de ressource', () => {
+  const dague: Equipement = {
+    kind: 'equipement',
+    id: 'dague-sanglante',
+    nom: 'Dague sanglante',
+    icone: 'crystal-shine',
+    slot: 'arme',
+    modificateurs: [
+      {
+        source: { kind: 'equipement', label: 'Dague sanglante' },
+        target: { kind: 'fatigue-max' },
+        op: { kind: 'add', value: -1 },
+      },
+    ],
+  }
+  const avecDague = createCatalog([...SEED, dague])
+
+  const armee = (patch: Partial<Character> = {}) =>
+    nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: [dague.id], ameliorations: [] },
+      equipe: { arme: dague.id, armure: null, bibelot: null },
+      ...patch,
+    })
+
+  it('abaisse la grille tant que l’objet est porté, et la rend dès qu’on le range', () => {
+    // Le Dusk Hunter part à 5 cases.
+    expect(computeFatigueMax(armee(), avecDague).max).toBe(4)
+
+    const rangee = nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: [dague.id], ameliorations: [] },
+    })
+    expect(computeFatigueMax(rangee, avecDague).max).toBe(5)
+  })
+
+  it('cumule deux sources', () => {
+    const bibelot: Equipement = { ...dague, id: 'os-maudit', nom: 'Os maudit', slot: 'bibelot' }
+    const catalogue = createCatalog([...SEED, dague, bibelot])
+    const char = nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: [dague.id, bibelot.id], ameliorations: [] },
+      equipe: { arme: dague.id, armure: null, bibelot: bibelot.id },
+    })
+    expect(computeFatigueMax(char, catalogue).max).toBe(3)
+  })
+
+  /** Un personnage sans aucune case ne pourrait plus rien encaisser. */
+  it('ne descend jamais la Fatigue sous une case', () => {
+    const ruineux: Equipement = {
+      ...dague,
+      modificateurs: [{ ...dague.modificateurs![0]!, op: { kind: 'add', value: -99 } }],
+    }
+    const catalogue = createCatalog([...SEED, ruineux])
+    expect(computeFatigueMax(armee(), catalogue).max).toBe(1)
+  })
+
+  it('borne la Fatigue cochée sur le plafond calculé', () => {
+    // Cinq cases cochées, puis la dague en retire une : la grille est pleine à 4.
+    const r = ajusterFatigue(armee({ fatigue: { max: 5, coches: 4 } }), avecDague, 1)
+    expect(r.char.fatigue.coches).toBe(4)
+    expect(r.grillePleine).toBe(true)
+    expect(fatigueRestante(r.char, avecDague)).toBe(0)
+  })
+
+  it('laisse les autres plafonds à leur base sans modificateur', () => {
+    const nu = nouveauPerso('trickster')
+    expect(computeFoiMax(nu, catalog).max).toBe(MAX_FOI)
+    expect(computeMarquesMax(nu, catalog).max).toBe(MAX_MARQUES)
+    expect(computeBruluresMax(nu, catalog).max).toBe(SEUIL_COMBUSTION)
+  })
+})
+
+describe('passifs réactifs', () => {
+  const sceau: Equipement = {
+    kind: 'equipement',
+    id: 'sceau-martyr',
+    nom: 'Sceau du Martyr',
+    icone: 'crystal-shine',
+    slot: 'bibelot',
+    declencheurs: [{ quand: 'marques', sens: 'augmente', alors: 'foi', delta: 1 }],
+  }
+  const avecSceau = createCatalog([...SEED, sceau])
+
+  const portant = (patch: Partial<Character> = {}) =>
+    nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+      equipe: { arme: null, armure: null, bibelot: sceau.id },
+      ...patch,
+    })
+
+  it('s’arme quand la ressource surveillée augmente', () => {
+    const avant = portant({ marques: 0, foi: 2 })
+    const apres = { ...avant, marques: 1 }
+
+    const r = resoudreDeclencheurs(avant, apres, avecSceau)
+    expect(r.char.foi).toBe(3)
+    expect(r.recits[0]).toContain('Sceau du Martyr')
+  })
+
+  it('ne s’arme pas dans l’autre sens', () => {
+    const avant = portant({ marques: 2, foi: 2 })
+    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    expect(r.char.foi).toBe(2)
+    expect(r.recits).toEqual([])
+  })
+
+  /** Même régime que les modificateurs : au fond du sac, il ne réagit à rien. */
+  it('reste muet si l’objet n’est pas porté', () => {
+    const avant = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+      marques: 0,
+      foi: 2,
+    })
+    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    expect(r.char.foi).toBe(2)
+  })
+
+  /**
+   * Une seule passe : sans cette borne, « +1 Foi quand la Foi augmente »
+   * bouclerait à l'infini.
+   */
+  it('ne se réveille pas lui-même', () => {
+    const boucle: Equipement = {
+      ...sceau,
+      declencheurs: [{ quand: 'foi', sens: 'augmente', alors: 'foi', delta: 1 }],
+    }
+    const catalogue = createCatalog([...SEED, boucle])
+    const avant = portant({ foi: 2 })
+
+    const r = resoudreDeclencheurs(avant, { ...avant, foi: 3 }, catalogue)
+    expect(r.char.foi).toBe(4)
+  })
+
+  it('reste borné par le plafond de la ressource visée', () => {
+    const avant = portant({ marques: 0, foi: MAX_FOI })
+    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    expect(r.char.foi).toBe(MAX_FOI)
+    // Rien n'a bougé : rien à raconter.
+    expect(r.recits).toEqual([])
+  })
+
+  it('additionne deux déclencheurs qui visent la même ressource', () => {
+    const second: Equipement = { ...sceau, id: 'autre-sceau', nom: 'Autre sceau', slot: 'arme' }
+    const catalogue = createCatalog([...SEED, sceau, second])
+    const avant = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [sceau.id, second.id], ameliorations: [] },
+      equipe: { arme: second.id, armure: null, bibelot: sceau.id },
+      marques: 0,
+      foi: 2,
+    })
+
+    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, catalogue)
+    expect(r.char.foi).toBe(4)
+    expect(r.recits).toHaveLength(2)
+  })
+})
 
 describe('objets à effets actifs', () => {
   const arme = (cout: CoutUsage, faces = 6): Equipement => ({

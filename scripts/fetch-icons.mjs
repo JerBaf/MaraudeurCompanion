@@ -101,11 +101,34 @@ async function ecrireManifeste() {
   await writeFile(path.join(racine, 'src', 'content', 'icones.ts'), contenu, 'utf8')
 }
 
-/** Extrait les noms d'icônes du contenu livré avec l'app. */
+/**
+ * Palette proposée à la MJ, au-delà de ce que le contenu livré référence.
+ *
+ * Le catalogue est saisi à la main : sans ces icônes, chaque nouvel objet
+ * retomberait sur les quelques dessins des exemples. Une icône introuvable en
+ * amont est signalée en fin de script, pas silencieusement ignorée.
+ */
+const PALETTE = [
+  // Armes
+  'battle-axe', 'crossbow', 'bowie-knife', 'thor-hammer', 'trident', 'katana',
+  'spear-hook', 'wood-club', 'sword-wound', 'bone-knife',
+  // Armures et protections
+  'chain-mail', 'leather-vest', 'shield-echoes', 'crested-helmet', 'cape',
+  'leather-boot', 'gauntlet',
+  // Bibelots et consommables
+  'round-potion', 'potion-ball', 'gem-pendant', 'ring', 'scroll-unfurled',
+  'book-cover', 'candle-light', 'old-lantern', 'key', 'rope-coil', 'compass',
+  'pocket-watch', 'mirror-mirror', 'dice-six-faces-three',
+  // Magie et divers
+  'magic-swirl', 'crystal-cluster', 'skull-crossed-bones', 'raven', 'wolf-head',
+  'eclipse', 'sun', 'moon', 'thorn-helix', 'chalice-drops',
+]
+
+/** Extrait les noms d'icônes du contenu livré avec l'app, plus la palette. */
 async function iconesReferencees() {
   const dossier = path.join(racine, 'src', 'content')
   const fichiers = await readdir(dossier)
-  const noms = new Set()
+  const noms = new Set(PALETTE)
 
   for (const fichier of fichiers.filter((f) => f.endsWith('.ts'))) {
     const source = await readFile(path.join(dossier, fichier), 'utf8')

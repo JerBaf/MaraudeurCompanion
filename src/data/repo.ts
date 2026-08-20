@@ -8,6 +8,7 @@ import {
   type BilanInvestissements,
 } from '../domain/campfire.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
+import { resoudreDeclencheurs } from '../domain/declencheurs.ts'
 import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
 import { creerPersonnage, normaliserPersonnage, type DemandeCreation } from '../domain/character.ts'
 import { effectuerDetachement, type ElementDetachable } from '../domain/fatigue.ts'
@@ -125,8 +126,24 @@ export const surPersonnages = (cb: (c: Character[]) => void) =>
   )
 export const surAdversaires = (cb: (a: Adversaire[]) => void) =>
   store.subscribeCollection<Adversaire>(chemins.adversaires, cb)
+/**
+ * Dernier catalogue reçu.
+ *
+ * Les déclencheurs sont résolus dans `modifierPersonnage`, qui n'a pas de
+ * catalogue sous la main et ne peut pas s'offrir une lecture réseau à chaque
+ * écriture. On garde donc le dernier connu : `surCatalogue` est souscrit dès
+ * l'ouverture de l'app (`hooks/useTable.ts`) et le tient à jour.
+ *
+ * Tant qu'il est nul — avant la première réponse —, aucun déclencheur ne part.
+ * C'est le bon comportement : rien ne doit s'appliquer sur un catalogue inconnu.
+ */
+let catalogueCourant: Catalog | null = null
+
 export const surCatalogue = (cb: (c: Catalog) => void) =>
-  store.subscribeCollection<EntreeCatalogue>(chemins.catalogue, (entrees) => cb(createCatalog(entrees)))
+  store.subscribeCollection<EntreeCatalogue>(chemins.catalogue, (entrees) => {
+    catalogueCourant = createCatalog(entrees)
+    cb(catalogueCourant)
+  })
 /** 🔒 Réservé à la MJ par les règles Firestore. */
 export const surBestiaire = (cb: (m: ModeleAdversaire[]) => void) =>
   store.subscribeCollection<ModeleAdversaire>(chemins.bestiaire, (modeles) =>
@@ -208,12 +225,30 @@ export async function enregistrerPersonnage(char: Character): Promise<void> {
 }
 
 /** Applique une transformation pure du domaine et persiste le résultat. */
+/**
+ * Modifie une fiche — **le seul chemin qui résout les passifs réactifs**.
+ *
+ * C'est ici, et nulle part ailleurs, qu'on dispose à la fois de l'état d'avant
+ * et de celui d'après. Les brancher plus haut, dans chaque écran, aurait produit
+ * des déclencheurs qui partent ou non selon qui a bougé la ressource.
+ */
 export async function modifierPersonnage(
   char: Character,
   transformer: (c: Character) => Character,
 ): Promise<Character> {
-  const suivant = { ...transformer(char), updatedAt: Date.now() }
+  const apres = transformer(char)
+
+  const { char: reactif, recits } = catalogueCourant
+    ? resoudreDeclencheurs(char, apres, catalogueCourant)
+    : { char: apres, recits: [] as string[] }
+
+  const suivant = { ...reactif, updatedAt: Date.now() }
   await store.setDoc(chemins.personnage(char.id), suivant)
+
+  for (const recit of recits) {
+    await journaliser(char.nom, 'passif', recit)
+  }
+
   return suivant
 }
 
@@ -575,8 +610,18 @@ export async function enregistrerEntreeCatalogue(entree: EntreeCatalogue): Promi
   await store.setDoc(chemins.entreeCatalogue(entree.id), entree)
 }
 
+/**
+ * Retire une entrée du catalogue, **y compris celles livrées avec l'app**.
+ *
+ * Les entrées `seed` étaient protégées ; la MJ doit pouvoir nettoyer mes
+ * exemples. Le drapeau ne sert donc plus qu'à une chose : « Réinitialiser le
+ * catalogue » les fera revenir.
+ *
+ * Une entrée supprimée que des fiches possèdent laisse un identifiant orphelin ;
+ * `catalog.equipement(id)` renvoie alors `undefined` et les écrans le filtrent
+ * déjà — l'objet disparaît proprement plutôt que de casser l'affichage.
+ */
 export async function supprimerEntreeCatalogue(entree: EntreeCatalogue): Promise<void> {
-  if (entree.seed) throw new Error('Une entrée livrée avec l’app ne peut pas être supprimée.')
   await store.deleteDoc(chemins.entreeCatalogue(entree.id))
 }
 

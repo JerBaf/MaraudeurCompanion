@@ -63,6 +63,14 @@ export function decrireCible(target: Modifier['target']): string {
       return target.filtre?.prefixeNom
         ? `coût des sorts « ${target.filtre.prefixeNom} »`
         : 'coût des sorts'
+    case 'fatigue-max':
+      return 'Points de Fatigue'
+    case 'foi-max':
+      return 'Points de Foi maximum'
+    case 'marques-max':
+      return 'Marques maximum'
+    case 'brulures-max':
+      return 'Brûlures maximum'
   }
 }
 

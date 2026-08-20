@@ -18,6 +18,7 @@ import {
   enregistrerSecret,
   exporterCatalogue,
   journaliser,
+  modifierPersonnage,
   reinitialiserCatalogue,
   supprimerPersonnage,
   surJournal,
@@ -25,9 +26,17 @@ import {
 } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { cyclesNonRenseignes, secretVierge } from '../../domain/character.ts'
-import { computeEvasion, computeSixthSens, computeToutesCompetences } from '../../domain/competences.ts'
+import {
+  computeBruluresMax,
+  computeEvasion,
+  computeFatigueMax,
+  computeFoiMax,
+  computeMarquesMax,
+  computeSixthSens,
+  computeToutesCompetences,
+} from '../../domain/competences.ts'
 import { cyclesRestants, fatigueRestante, resoudreGrillePleine } from '../../domain/fatigue.ts'
-import { MAX_FOI, MAX_MARQUES, SEUIL_COMBUSTION, modificateurMJ } from '../../domain/modifiers.ts'
+import { modificateurMJ } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   COMPETENCES,
@@ -184,7 +193,7 @@ function LignePersonnage({
 }) {
   const classe = catalog.classe(char.classeId)
   const evasion = computeEvasion(char, catalog)
-  const restante = fatigueRestante(char)
+  const restante = fatigueRestante(char, catalog)
 
   return (
     <button type="button" className={`objet ${actif ? 'objet--actif' : ''}`} onClick={onClick}>
@@ -192,7 +201,7 @@ function LignePersonnage({
       <span className="objet__corps">
         <span className="objet__nom">{char.nom}</span>
         <span className="objet__meta">
-          Fatigue {restante}/{char.fatigue.max} · Foi {char.foi} · Brûlures {char.brulures} ·
+          Fatigue {restante}/{computeFatigueMax(char, catalog).max} · Foi {char.foi} · Brûlures {char.brulures} ·
           Marques {char.marques} · Évasion {evasion.total} · {char.lumens} ʟ
         </span>
       </span>
@@ -223,10 +232,17 @@ function DetailPersonnage({
 
   const competences = computeToutesCompetences(char, catalog)
   const sens = computeSixthSens(char, catalog)
-  const restante = fatigueRestante(char)
+  const restante = fatigueRestante(char, catalog)
+  const fatigueMax = computeFatigueMax(char, catalog).max
+  const foiMax = computeFoiMax(char, catalog).max
+  const marquesMax = computeMarquesMax(char, catalog).max
+  const bruluresMax = computeBruluresMax(char, catalog).max
 
+  // Passe par `modifierPersonnage` et non par `enregistrerPersonnage` : une
+  // Marque posée depuis l'écran MJ est le même événement de fiction qu'une
+  // Marque prise par la joueuse, et doit armer les mêmes passifs réactifs.
   const maj = (transformer: (c: Character) => Character) => {
-    void enregistrerPersonnage(transformer(char))
+    void modifierPersonnage(char, transformer)
   }
 
   /**
@@ -389,31 +405,31 @@ function DetailPersonnage({
         libelle="Fatigue"
         variante="fatigue"
         valeur={char.fatigue.coches}
-        max={char.fatigue.max}
+        max={fatigueMax}
         onChange={(v) => maj((c) => ({ ...c, fatigue: { ...c.fatigue, coches: v } }))}
       />
       <Compteur
         libelle="Brûlures"
         variante="brulures"
         valeur={char.brulures}
-        max={SEUIL_COMBUSTION}
+        max={bruluresMax}
         onChange={(v) => maj((c) => ({ ...c, brulures: v }))}
       />
       <Compteur
         libelle="Points de Foi"
         variante="foi"
         valeur={char.foi}
-        max={MAX_FOI}
+        max={foiMax}
         onChange={(v) => maj((c) => ({ ...c, foi: v }))}
       />
       <Compteur
         libelle="Marques"
         variante="marques"
-        valeur={Math.min(char.marques, MAX_MARQUES)}
-        max={MAX_MARQUES}
+        valeur={Math.min(char.marques, marquesMax)}
+        max={marquesMax}
         onChange={(v) => maj((c) => ({ ...c, marques: v }))}
         note={
-          char.marques >= MAX_MARQUES
+          char.marques >= marquesMax
             ? 'Seuil atteint — vous pouvez prendre le contrôle du personnage.'
             : undefined
         }
