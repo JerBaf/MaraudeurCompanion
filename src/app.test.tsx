@@ -305,9 +305,10 @@ describe('outillage de table', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
     await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
 
-    fireEvent.click(screen.getAllByText(/^Cristal épuisé/)[0] as HTMLElement)
-    await waitFor(() => expect(screen.getByText('Épuisé')).toBeTruthy())
-    expect(screen.getByText('Cristal réétudié')).toBeTruthy()
+    const cases = screen.getAllByRole('checkbox')
+    expect(cases.length).toBeGreaterThan(0)
+    fireEvent.click(cases[0] as HTMLElement)
+    await waitFor(() => expect((cases[0] as HTMLInputElement).checked).toBe(true))
   })
 
   it('n’offre pas d’épuiser un cristal aux magies qui n’en ont pas', async () => {
@@ -338,8 +339,8 @@ describe('outillage de table', () => {
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
     await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
-    // Accordé hors boutique, il arrive en réserve et non dans le Grimoire.
-    expect(screen.getByText(/En réserve/)).toBeTruthy()
+    // Accordé hors boutique, il rejoint le répertoire sans être préparé.
+    expect(screen.getByText('Sorts connus')).toBeTruthy()
   })
 
   it('la MJ pose un désavantage qui se cumule avec un ajustement chiffré', async () => {
@@ -650,15 +651,21 @@ describe('parcours de création', () => {
     const marques = screen.getByText('Marques').closest('.compteur')
     expect(marques?.textContent).toContain('/ 3')
 
-    // L'onglet Sorts montre tout ce que la joueuse connaît — le Grimoire ne
-    // retient que les 3 premiers, le quatrième attend en réserve juste en
-    // dessous, sans qu'il faille changer d'onglet pour le comparer.
+    // L'onglet Sorts montre tout ce que la joueuse connaît, en trois sections :
+    // les 3 préparés en haut, le reste du répertoire rangé par magie en bas.
+    // Chaque sort n'apparaît qu'une fois.
     fireEvent.click(screen.getByRole('tab', { name: 'Sorts' }))
     await waitFor(() => expect(screen.getByText('Burst')).toBeTruthy())
     expect(screen.getByText('Heat track')).toBeTruthy()
     expect(screen.getByText('First Aid')).toBeTruthy()
     expect(screen.getByText('Prey Impulse')).toBeTruthy()
-    expect(screen.getAllByText('Préparé')).toHaveLength(3)
-    expect(screen.getByText(/En réserve/)).toBeTruthy()
+
+    const prepares = screen.getByText('Sorts préparés').closest('section')
+    expect(prepares?.textContent).toContain('Burst')
+    expect(prepares?.textContent).not.toContain('Prey Impulse')
+
+    const connus = screen.getByText('Sorts connus').closest('section')
+    expect(connus?.textContent).toContain('Prey Impulse')
+    expect(connus?.textContent).toContain('Miracle')
   })
 })

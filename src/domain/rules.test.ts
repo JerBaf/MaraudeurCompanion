@@ -64,8 +64,12 @@ import {
 } from './fatigue.ts'
 import {
   appliquerGainBrulures,
+  bruluresDisponibles,
+  classesDuSort,
   combustionVolontaire,
+  consommerBrulures,
   coutAdditionnel,
+  sortOuvertA,
   coutFoiEffectif,
   disponibiliteSort,
   estHorsEmplacement,
@@ -257,23 +261,59 @@ describe('Voie de la Flamme', () => {
 })
 
 describe('Combustion', () => {
-  it('prend 1 Fatigue et remet à zéro en franchissant 9', () => {
+  /**
+   * Règle corrigée avec la MJ : une brûlure dépensée **ne disparaît pas**, elle
+   * devient inactive. C'est la neuvième *consommée* qui brûle, pas la neuvième
+   * acquise — accumuler neuf marques sans en dépenser aucune ne coûte rien.
+   */
+  it('gagner des brûlures ne déclenche jamais la Combustion', () => {
     const char = nouveauPerso('soulshifter', { brulures: 7 })
     const r = appliquerGainBrulures(char, 3)
+    expect(r.brulures).toBe(9)
+  })
+
+  it('plafonne les acquises à 9 et perd le surplus', () => {
+    const r = appliquerGainBrulures(nouveauPerso('soulshifter', { brulures: 8 }), 4)
+    expect(r.brulures).toBe(9)
+  })
+
+  it('consommer la neuvième prend 1 Fatigue et efface les marques', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 9, bruluresConsommees: 7 })
+    const r = consommerBrulures(char, 2)
     expect(r.combustion).toBe(true)
-    expect(r.brulures).toBe(0)
     expect(r.fatigueAjoutee).toBe(1)
+    expect(r.brulures).toBe(0)
+    expect(r.bruluresConsommees).toBe(0)
   })
 
-  it('ne déclenche rien sous le seuil', () => {
-    const r = appliquerGainBrulures(nouveauPerso('soulshifter', { brulures: 2 }), 3)
+  it('consommer sans atteindre le seuil garde les marques acquises', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 6, bruluresConsommees: 1 })
+    const r = consommerBrulures(char, 2)
     expect(r.combustion).toBe(false)
-    expect(r.brulures).toBe(5)
+    expect(r.brulures).toBe(6)
+    expect(r.bruluresConsommees).toBe(3)
   })
 
-  it('volontaire : paie 1 Fatigue et conserve les 9 brûlures', () => {
+  it('ne laisse pas dépenser plus que le disponible', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 5, bruluresConsommees: 3 })
+    expect(bruluresDisponibles(char)).toBe(2)
+    expect(() => consommerBrulures(char, 3)).toThrow(/disponibles/)
+  })
+
+  /**
+   * Le passif se lit sur les marques **acquises** : la brûlure est physiquement
+   * là même dépensée, donc la Voie de la Flamme tient.
+   */
+  it('garde les paliers de la Voie de la Flamme après avoir tout dépensé', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 8, bruluresConsommees: 8 })
+    expect(bruluresDisponibles(char)).toBe(0)
+    expect(paliersFlammeAtteints(char.brulures).map((p) => p.id)).toEqual(['perception', 'fureur'])
+  })
+
+  it('volontaire : paie 1 Fatigue et rend les 9 brûlures dépensables', () => {
     const r = combustionVolontaire()
     expect(r.brulures).toBe(9)
+    expect(r.bruluresConsommees).toBe(0)
     expect(r.fatigueAjoutee).toBe(1)
   })
 
@@ -1139,6 +1179,41 @@ describe('boutique', () => {
     // Le matériel de base ne se vend pas, les illusions non plus.
     expect(achetables.map((e) => e.id)).not.toContain('catalyseur')
     expect(achetables.map((e) => e.id)).not.toContain('mage-hand')
+  })
+
+  /**
+   * Un sort appartient à une ou plusieurs classes ; sans classe déclarée, il
+   * reste ouvert à toutes. La boutique s'y conforme — proposer « Burst » à une
+   * Trickster n'aurait aucun sens.
+   */
+  it('ne propose pas les sorts réservés à une autre classe', () => {
+    const vendable = { ...(catalog.sort('burst') as Sort), prix: 30 }
+    const avecBurst = createCatalog([...SEED.filter((e) => e.id !== 'burst'), vendable])
+
+    expect(entreesAchetables(riche(), avecBurst).map((e) => e.id)).not.toContain('burst')
+
+    const dusk = nouveauPerso('dusk-hunter', { lumens: 500, possede: { sorts: [], equipements: [], ameliorations: [] } })
+    expect(entreesAchetables(dusk, avecBurst).map((e) => e.id)).toContain('burst')
+  })
+
+  it('propose à tout le monde un sort sans classe déclarée', () => {
+    const commun: Sort = {
+      ...(catalog.sort('burst') as Sort),
+      id: 'sort-commun',
+      nom: 'Sort commun',
+      prix: 30,
+      classeId: undefined,
+      classesIds: [],
+    }
+    const avecCommun = createCatalog([...SEED, commun])
+    expect(entreesAchetables(riche(), avecCommun).map((e) => e.id)).toContain('sort-commun')
+  })
+
+  it('relit un sort saisi sous l’ancien champ au singulier', () => {
+    const ancien = { ...(catalog.sort('burst') as Sort), classesIds: undefined }
+    expect(classesDuSort(ancien)).toEqual(['dusk-hunter'])
+    expect(sortOuvertA(ancien, 'dusk-hunter')).toBe(true)
+    expect(sortOuvertA(ancien, 'trickster')).toBe(false)
   })
 
   it('tire des offres distinctes', () => {

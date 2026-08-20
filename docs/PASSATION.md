@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 138 tests — 116 de domaine, 22 de rendu |
+| `npm test` | 145 tests — 123 de domaine, 22 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -46,8 +46,7 @@ catalogue.
   style Moebius/Ghibli ; déposer un fichier de même nom dans `public/icons/` suffit.
 - **Le lot B**, demandé par la MJ et non commencé : modèle d'objet complet (table
   d'effets actifs en d4/d6/d8, charges rechargées à la main par la MJ, objets
-  consommables), sorts réservés à une ou plusieurs classes, et **édition des
-  `modificateurs` depuis le catalogue**. Ce dernier point est le plus important : le
+  consommables), et **édition des `modificateurs` depuis le catalogue**. Ce dernier point est le plus important : le
   moteur est déjà générique, seule l'interface d'édition manque — voir § 2 ci-dessous.
   `Equipement.attaqueSpeciale` est le point de départ prévu ; elle est déjà déclarée
   dans les types et n'est lue nulle part.
@@ -241,6 +240,10 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Recueillir | l'app **tire la thématique**, la joueuse écrit dans son carnet | un seul tirage, sans relance ; rien de ce qu'elle rédige ne transite par l'app. Liste dans `src/content/questions-recueil.json` |
 | Fardeau / Fatigue | la case **change de fiche** | prendre un point « à la place » d'une autre PJ doit la soulager ; seules les alliées ayant une case cochée sont proposées |
 | Osselets | toutes les faces sauf le **4** brûlent | seule la face 4 est vierge ; Overheat ajoute 1 au **total** du jet, pas 1 par dé |
+| Brûlures | deux compteurs : **acquises** et **consommées** | une brûlure dépensée ne disparaît pas, elle devient inactive — voir l'encadré ci-dessous |
+| Combustion | à la **neuvième consommée**, jamais au gain | accumuler neuf marques sans en dépenser aucune ne brûle personne |
+| Voie de la Flamme | lue sur les brûlures **acquises** | la marque reste sur la peau une fois dépensée, donc le palier tient |
+| Sorts et classes | `classesIds`, plusieurs classes possibles ; vide = ouvert à toutes | la boutique ne propose que le générique et la classe de la joueuse |
 | Cristal épuisé | signalé **par la joueuse**, sur un sort d'Arcane préparé | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser |
 | Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
@@ -251,6 +254,29 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Offres de boutique | tirage assisté que la MJ ajuste | 3 offres × 5 joueuses = trop de choix manuels |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |
 | Écran MJ pendant le camp | **miroir** de l'écran d'une joueuse, actions neutralisées, contrôles d'édition à leur place | un seul rendu à maintenir ; permet de retoucher brief et offres camp lancé |
+
+### Les brûlures se comptent deux fois
+
+C'est la règle la plus facile à re-simplifier par erreur. Une brûlure **acquise** ne
+disparaît pas quand on la dépense : la marque reste sur la peau, seule son usage est
+consommé. D'où deux champs sur la fiche :
+
+```
+brulures            marques acquises, plafonnées à 9  → porte la Voie de la Flamme
+bruluresConsommees  part déjà dépensée               → la 9ᵉ déclenche la Combustion
+disponibles = brulures − bruluresConsommees          → ce qui paie encore un sort
+```
+
+Trois conséquences qu'un seul compteur ne peut pas rendre :
+
+- **Gagner des brûlures ne brûle jamais.** `appliquerGainBrulures` plafonne à 9 et
+  s'arrête là ; le surplus est perdu. C'est `consommerBrulures` qui déclenche la
+  Combustion, à la neuvième dépensée — 1 Point de Fatigue, et les deux compteurs
+  repartent à zéro.
+- **Les paliers se lisent sur l'acquis.** Une joueuse à 8 acquises / 8 consommées n'a
+  plus rien à dépenser mais garde ses deux paliers de la Voie de la Flamme.
+- **La Combustion volontaire donne 9 brûlures *dépensables*** (`bruluresConsommees: 0`)
+  contre 1 Point de Fatigue. La ramener à « 9 consommées » lui retirerait tout intérêt.
 
 ---
 

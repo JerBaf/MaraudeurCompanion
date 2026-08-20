@@ -1,4 +1,5 @@
 import type { Catalog } from './catalog.ts'
+import { sortOuvertA } from './magie.ts'
 import { expireModifiers, FOI_DE_DEPART } from './modifiers.ts'
 import type { Rng } from './random.ts'
 import {
@@ -416,6 +417,9 @@ export function entreesAchetables(char: Character, catalog: Catalog): EntreeCata
     .toutes()
     .filter((e) => prixDe(e) !== null)
     .filter((e) => !(e.kind === 'sort' && e.illusion === true))
+    // Un sort réservé à d'autres classes n'a rien à faire dans sa boutique ;
+    // un sort sans classe déclarée reste ouvert à tout le monde.
+    .filter((e) => !(e.kind === 'sort' && !sortOuvertA(e, char.classeId)))
     .filter((e) => !(e.kind === 'equipement' && e.materielDeBase === true))
     .filter((e) => !dejaPossede(char, e))
 }

@@ -23,7 +23,9 @@ import {
 import { fatigueRestante } from '../../domain/fatigue.ts'
 import {
   appliquerGainBrulures,
+  bruluresDisponibles,
   combustionVolontaire,
+  consommerBrulures,
   disponibiliteSort,
   grimoireEffectif,
   resumeSort,
@@ -39,7 +41,9 @@ import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
+  LIBELLE_MAGIE,
   LIBELLE_SLOT,
+  MAGIES,
   type Adversaire,
   type Character,
   type EtatTable,
@@ -176,7 +180,10 @@ function OngletFiche({
   const evasion = computeEvasion(char, catalog)
   const sens = computeSixthSens(char, catalog)
   const rapidesMax = actionsRapidesMax(char, catalog)
+  // Les paliers se lisent sur les brûlures **acquises** : la marque reste sur
+  // la peau une fois dépensée, et c'est elle qui ouvre la Voie de la Flamme.
   const paliers = paliersFlammeAtteints(char.brulures)
+  const disponibles = bruluresDisponibles(char)
   const restante = fatigueRestante(char)
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
@@ -188,25 +195,42 @@ function OngletFiche({
   function lancerOsselets() {
     const { des, brulures } = tirerOsselets(cryptoRng)
     const resultat = appliquerGainBrulures(char, brulures)
+    const perdu = char.brulures + resultat.gainEffectif - resultat.brulures
     setDernierJet(
       `Osselets ${des.join(' · ')} → ${brulures} brûlure(s)` +
         (resultat.gainEffectif !== brulures ? ` (Overheat : ${resultat.gainEffectif})` : '') +
-        (resultat.combustion ? ' — Combustion ! 1 Point de Fatigue' : ''),
+        (perdu > 0 ? ` — ${perdu} perdue(s), vous êtes déjà marquée à ${SEUIL_COMBUSTION}` : ''),
     )
+    maj((c) => ({ ...c, brulures: resultat.brulures }))
+  }
+
+  /** Dépenser des brûlures les rend inactives ; la neuvième déclenche la Combustion. */
+  function depenser(nombre: number) {
+    const r = consommerBrulures(char, nombre)
+    setDernierJet(
+      r.combustion
+        ? `${nombre} brûlure(s) dépensée(s) — Combustion ! 1 Point de Fatigue, les marques s'effacent.`
+        : `${nombre} brûlure(s) dépensée(s).`,
+    )
+    if (r.combustion) {
+      void journaliser(char.nom, 'combustion', `${char.nom} atteint la Combustion.`)
+    }
     maj((c) => ({
       ...c,
-      brulures: resultat.brulures,
-      fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + resultat.fatigueAjoutee) },
+      brulures: r.brulures,
+      bruluresConsommees: r.bruluresConsommees,
+      fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + r.fatigueAjoutee) },
     }))
   }
 
   function declencherCombustion() {
     const r = combustionVolontaire()
-    setDernierJet('Combustion volontaire : 9 brûlures, 1 Point de Fatigue.')
+    setDernierJet('Combustion volontaire : 9 brûlures disponibles, 1 Point de Fatigue.')
     void journaliser(char.nom, 'combustion', `${char.nom} entre volontairement en Combustion.`)
     maj((c) => ({
       ...c,
       brulures: r.brulures,
+      bruluresConsommees: r.bruluresConsommees,
       fatigue: { ...c.fatigue, coches: Math.min(c.fatigue.max, c.fatigue.coches + r.fatigueAjoutee) },
     }))
   }
@@ -370,9 +394,24 @@ function OngletFiche({
           {...(paliers.length > 0 ? { note: paliers.map((p) => p.effet).join(' ') } : {})}
         />
 
+        {/* Les marques acquises portent les paliers ; seule la part non dépensée
+            peut encore payer un sort. D'où deux nombres, et non un seul. */}
+        <p className="tres-discret" style={{ margin: 0 }}>
+          {disponibles} disponible(s) · {char.bruluresConsommees} consommée(s) sur{' '}
+          {SEUIL_COMBUSTION}
+        </p>
+
         <div className="rangee">
           <button type="button" className="btn" onClick={lancerOsselets}>
             Tirer les osselets
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={disponibles < 1}
+            onClick={() => depenser(1)}
+          >
+            Dépenser 1
           </button>
           <button type="button" className="btn btn--danger" onClick={declencherCombustion}>
             Combustion
@@ -427,16 +466,12 @@ function LigneSort({
   sort,
   char,
   catalog,
-  horsEmplacement,
-  prepare,
   maj,
 }: {
   sort: Sort
   char: Character
   catalog: Catalog
-  horsEmplacement?: boolean
-  prepare?: boolean
-  /** Absent en lecture seule ; présent, il autorise la bascule du cristal. */
+  /** Absent en lecture seule ; présent, il autorise la bascule de l'Hexite. */
   maj?: (t: (c: Character) => Character) => void
 }) {
   const dispo = disponibiliteSort(sort, char, catalog)
@@ -447,8 +482,8 @@ function LigneSort({
   const precision = precisionPersonnalite(sort.id, char, VIES_SOULSHIFTER)
   const vie = vieActive(char, VIES_SOULSHIFTER)
 
-  // Seule l'Arcane consomme un cristal : c'est le d6 à 1 ou 2 qui l'épuise, et
-  // la joueuse le lance à table — l'app ne peut que l'enregistrer.
+  // Seule l'Arcane consomme un Hexite. La joueuse lance son d6 à table ; l'app
+  // ne fait qu'enregistrer que le cristal ne répond plus.
   function basculerEpuise() {
     maj?.((c) => ({
       ...c,
@@ -458,14 +493,6 @@ function LigneSort({
     }))
   }
 
-  const puce = epuise ? (
-    <span className="puce puce--desavantage">Épuisé</span>
-  ) : horsEmplacement ? (
-    <span className="puce puce--ambre">Hors emplacement</span>
-  ) : prepare ? (
-    <span className="puce puce--ambre">Préparé</span>
-  ) : undefined
-
   return (
     <ObjetDetaillable
       icone={sort.icone}
@@ -474,13 +501,20 @@ function LigneSort({
       detail={sort.effet}
       indisponible={!dispo.disponible}
       {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
-      {...(puce ? { puce } : {})}
       {...(maj && sort.magie === 'arcane'
         ? {
+            // Une case à cocher plutôt qu'un bouton : l'Hexite épuisé est un
+            // état, pas une action, et la ligne grisée dit le reste.
             action: (
-              <button type="button" className="btn btn--fantome" onClick={basculerEpuise}>
-                {epuise ? 'Cristal réétudié' : 'Cristal épuisé (1 ou 2 au dé)'}
-              </button>
+              <label className="rangee" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={epuise}
+                  style={{ minHeight: 0, width: 'auto' }}
+                  onChange={basculerEpuise}
+                />
+                <span className="tres-discret">Hexite épuisé</span>
+              </label>
             ),
           }
         : {})}
@@ -489,11 +523,12 @@ function LigneSort({
 }
 
 /**
- * Tous les sorts possédés, pas seulement les préparés.
+ * Le répertoire de sorts, en trois temps.
  *
- * Comparer un sort du Grimoire à un sort en réserve obligeait auparavant à
- * passer d'un onglet à l'autre ; ils sont désormais dans la même liste, ce qui
- * est préparé portant sa puce.
+ * Les préparés d'abord — ce sont les seuls lançables —, puis ce que le passif
+ * accorde en permanence, puis le reste du répertoire rangé par magie. Chaque
+ * sort n'apparaît qu'une fois, ce qui rend toute puce « Préparé » inutile : la
+ * section où il figure le dit déjà.
  */
 function OngletSorts({
   char,
@@ -505,11 +540,11 @@ function OngletSorts({
   maj: (t: (c: Character) => Character) => void
 }) {
   const grimoire = grimoireEffectif(char, catalog)
-  const prepares = grimoire.filter((e) => !e.horsEmplacement).length
-  const permanents = grimoire.length - prepares
+  const prepares = grimoire.filter((e) => !e.horsEmplacement).map((e) => e.sort)
+  const permanents = grimoire.filter((e) => e.horsEmplacement).map((e) => e.sort)
 
   const enJeu = new Set(grimoire.map((e) => e.sort.id))
-  const enReserve = char.possede.sorts
+  const connus = char.possede.sorts
     .filter((id) => !enJeu.has(id))
     .map((id) => catalog.sort(id))
     .filter((s): s is Sort => Boolean(s))
@@ -518,45 +553,50 @@ function OngletSorts({
     <div className="pile">
       <section className="carte pile pile--serree">
         <div className="carte__titre">
-          <span className="etiquette">Sorts</span>
+          <span className="etiquette">Sorts préparés</span>
           <span className="tres-discret">
-            {prepares}/{TAILLE_GRIMOIRE} préparé(s)
-            {permanents > 0 ? ` + ${permanents} en permanence` : ''}
+            {prepares.length}/{TAILLE_GRIMOIRE}
           </span>
         </div>
-
-        {grimoire.length === 0 && enReserve.length === 0 && <p className="vide">Aucun sort connu.</p>}
-
-        {grimoire.map(({ sort, horsEmplacement }) => (
-          <LigneSort
-            key={sort.id}
-            sort={sort}
-            char={char}
-            catalog={catalog}
-            horsEmplacement={horsEmplacement}
-            prepare
-            maj={maj}
-          />
+        {prepares.length === 0 && <p className="vide">Aucun sort préparé.</p>}
+        {prepares.map((sort) => (
+          <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} maj={maj} />
         ))}
+      </section>
 
-        {enReserve.length > 0 && (
-          <>
-            <hr className="separateur" />
-            <span className="tres-discret">
-              En réserve — préparables au prochain feu de camp
-            </span>
-            {enReserve.map((sort) => (
-              <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
-            ))}
-          </>
-        )}
-
-        {permanents > 0 && (
+      {permanents.length > 0 && (
+        <section className="carte pile pile--serree">
+          <div className="carte__titre">
+            <span className="etiquette">Hors emplacement</span>
+            <span className="tres-discret">accordés par votre passif</span>
+          </div>
           <p className="tres-discret" style={{ margin: 0 }}>
-            Les sorts « hors emplacement » sont disponibles en permanence et ne comptent pas dans
-            la limite de {TAILLE_GRIMOIRE}.
+            Disponibles en permanence ; ils ne comptent pas dans la limite de {TAILLE_GRIMOIRE}.
           </p>
-        )}
+          {permanents.map((sort) => (
+            <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} maj={maj} />
+          ))}
+        </section>
+      )}
+
+      <section className="carte pile pile--serree">
+        <div className="carte__titre">
+          <span className="etiquette">Sorts connus</span>
+          <span className="tres-discret">préparables au prochain feu de camp</span>
+        </div>
+        {connus.length === 0 && <p className="vide">Rien d'autre à votre répertoire.</p>}
+        {MAGIES.map((magie) => {
+          const duType = connus.filter((s) => s.magie === magie)
+          if (duType.length === 0) return null
+          return (
+            <div key={magie} className="pile pile--serree">
+              <span className="tres-discret">{LIBELLE_MAGIE[magie]}</span>
+              {duType.map((sort) => (
+                <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
+              ))}
+            </div>
+          )
+        })}
       </section>
     </div>
   )

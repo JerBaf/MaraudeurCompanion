@@ -113,6 +113,24 @@ export function resumeSort(sort: Sort, char: Character, catalog: Catalog): strin
   return [LIBELLE_MAGIE[sort.magie], cout, sort.de, sort.duree].filter(Boolean).join(' · ')
 }
 
+/**
+ * Les classes autorisées à lancer un sort.
+ *
+ * Absorbe l'ancien champ `classeId`, au singulier : le catalogue de la table
+ * contient des sorts saisis sous cette forme, et l'amorçage n'écrase jamais
+ * l'existant. Une liste vide signifie « ouvert à toutes les classes ».
+ */
+export function classesDuSort(sort: Sort): string[] {
+  if (sort.classesIds?.length) return sort.classesIds
+  return sort.classeId ? [sort.classeId] : []
+}
+
+/** Vrai si cette classe peut lancer le sort. Un sort sans classe est ouvert à toutes. */
+export function sortOuvertA(sort: Sort, classeId: string): boolean {
+  const classes = classesDuSort(sort)
+  return classes.length === 0 || classes.includes(classeId)
+}
+
 export function peutPayerFoi(char: Character, cout: number): boolean {
   return char.foi >= cout
 }
@@ -178,51 +196,85 @@ export function gainBrulureEffectif(char: Character, gainBrut: number): number {
   return char.passifs.hexcore === 'overheat' ? gainBrut + 1 : gainBrut
 }
 
+/**
+ * Ce qui reste dépensable.
+ *
+ * Les brûlures acquises ne disparaissent pas quand on les dépense — la marque
+ * reste sur la peau, et c'est elle qui porte les paliers de la Voie de la
+ * Flamme. Seule la part **consommée** cesse d'être utilisable.
+ */
+export function bruluresDisponibles(char: Character): number {
+  return Math.max(0, char.brulures - char.bruluresConsommees)
+}
+
 export interface ResultatBrulures {
   gainBrut: number
   gainEffectif: number
+  /** Brûlures acquises après le gain, plafonnées à 9. */
   brulures: number
-  /** Le seuil de 9 a été franchi : 1 Point de Fatigue et remise à zéro. */
-  combustion: boolean
-  fatigueAjoutee: number
 }
 
 /**
  * Applique un gain de brûlures.
  *
- * « Une fois arrivée au seuil maximal de brûlure, établi à 9, le joueur doit
- * prendre un Point de Fatigue. Son nombre de brûlures est ensuite remis à zéro. »
- * Le dépassement est perdu, conformément à « remis à zéro ».
+ * Le gain n'a **jamais** déclenché la Combustion : c'est la neuvième brûlure
+ * *consommée* qui la provoque (voir `consommerBrulures`). Gagner au-delà de 9
+ * ne fait rien de plus — le surplus est perdu.
  */
 export function appliquerGainBrulures(char: Character, gainBrut: number): ResultatBrulures {
   const gainEffectif = gainBrulureEffectif(char, gainBrut)
-  const cumul = char.brulures + gainEffectif
-  const franchit = char.brulures < SEUIL_COMBUSTION && cumul >= SEUIL_COMBUSTION
   return {
     gainBrut,
     gainEffectif,
-    brulures: franchit ? 0 : Math.max(0, Math.min(SEUIL_COMBUSTION, cumul)),
-    combustion: franchit,
-    fatigueAjoutee: franchit ? 1 : 0,
+    brulures: Math.min(SEUIL_COMBUSTION, char.brulures + gainEffectif),
+  }
+}
+
+export interface ResultatConsommation {
+  brulures: number
+  bruluresConsommees: number
+  /** La neuvième brûlure a été consommée : 1 Point de Fatigue, tout repart à zéro. */
+  combustion: boolean
+  fatigueAjoutee: number
+}
+
+/**
+ * Dépenser des brûlures : soit un sort de Sang de rang N, soit +1 par brûlure
+ * à un jet.
+ *
+ * « Une fois arrivée au seuil maximal de brûlure, établi à 9, le joueur doit
+ * prendre un Point de Fatigue. Son nombre de brûlures est ensuite remis à
+ * zéro. » Ce seuil se compte sur les brûlures **consommées** : accumuler neuf
+ * marques sans en dépenser aucune ne brûle personne.
+ */
+export function consommerBrulures(char: Character, nombre: number): ResultatConsommation {
+  const dispo = bruluresDisponibles(char)
+  if (nombre < 0 || nombre > dispo) {
+    throw new Error(`Impossible de dépenser ${nombre} brûlure(s) (disponibles : ${dispo})`)
+  }
+
+  const consommees = char.bruluresConsommees + nombre
+  const combustion = consommees >= SEUIL_COMBUSTION
+
+  return {
+    brulures: combustion ? 0 : char.brulures,
+    bruluresConsommees: combustion ? 0 : consommees,
+    combustion,
+    fatigueAjoutee: combustion ? 1 : 0,
   }
 }
 
 /**
- * Combustion volontaire : la joueuse paie 1 Point de Fatigue pour atteindre
- * instantanément 9 brûlures — et les garde, sinon la manœuvre n'aurait aucun
- * intérêt. C'est ce qui la distingue du franchissement passif du seuil, qui lui
- * remet le compteur à zéro.
+ * Combustion volontaire : la joueuse paie 1 Point de Fatigue pour disposer
+ * instantanément des neuf brûlures — et elles sont **toutes dépensables**,
+ * sinon la manœuvre n'aurait aucun intérêt.
  */
-export function combustionVolontaire(): { brulures: number; fatigueAjoutee: number } {
-  return { brulures: SEUIL_COMBUSTION, fatigueAjoutee: 1 }
-}
-
-/** Dépenser des brûlures : soit un sort de Sang de rang N, soit +1 par brûlure à un jet. */
-export function depenserBrulures(char: Character, nombre: number): number {
-  if (nombre < 0 || nombre > char.brulures) {
-    throw new Error(`Impossible de dépenser ${nombre} brûlures (disponibles : ${char.brulures})`)
-  }
-  return char.brulures - nombre
+export function combustionVolontaire(): {
+  brulures: number
+  bruluresConsommees: number
+  fatigueAjoutee: number
+} {
+  return { brulures: SEUIL_COMBUSTION, bruluresConsommees: 0, fatigueAjoutee: 1 }
 }
 
 /** Le rang du sort de Magie du Sang lancé correspond au nombre de brûlures dépensées. */
@@ -258,7 +310,7 @@ export function estHorsEmplacement(sort: Sort, char: Character): boolean {
  */
 export function sortsHorsEmplacement(char: Character, catalog: Catalog): Sort[] {
   if (char.passifs.voieTrickster !== 'illusionniste') return []
-  return catalog.sorts().filter((s) => s.illusion === true && s.classeId === char.classeId)
+  return catalog.sorts().filter((s) => s.illusion === true && sortOuvertA(s, char.classeId))
 }
 
 /**
@@ -302,10 +354,13 @@ export function disponibiliteSort(
   const coutFoi = coutFoiEffectif(sort, char, catalog)
   if (coutFoi !== null && char.foi < coutFoi) raisons.push('foi-insuffisante')
 
-  if (sort.cout.kind === 'brulures' && char.brulures < sort.cout.valeur) {
+  // Sur ce qui reste dépensable, pas sur le total acquis : une marque déjà
+  // consommée ne paie pas un second sort.
+  const brulures = bruluresDisponibles(char)
+  if (sort.cout.kind === 'brulures' && brulures < sort.cout.valeur) {
     raisons.push('brulures-insuffisantes')
   }
-  if (sort.cout.kind === 'brulures-variable' && char.brulures < 1) {
+  if (sort.cout.kind === 'brulures-variable' && brulures < 1) {
     raisons.push('brulures-insuffisantes')
   }
 

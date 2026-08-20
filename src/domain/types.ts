@@ -185,7 +185,14 @@ export interface Sort extends EntreeCatalogueBase {
   de: string | null
   duree: string
   effet: string
-  /** Renseigné pour les sorts propres à une classe. */
+  /**
+   * Classes autorisées à le lancer. Vide ou absent = ouvert à toutes.
+   *
+   * Se lit par `classesDuSort` (`magie.ts`), qui absorbe l'ancien champ
+   * `classeId` — des sorts au singulier dorment encore en base.
+   */
+  classesIds?: string[]
+  /** Ancien nom, au singulier. Conservé pour relire le contenu déjà saisi. */
   classeId?: string
   /** Illusion d'Illusionniste : gratuite et hors des 3 slots du Grimoire. */
   illusion?: boolean
@@ -298,7 +305,20 @@ export interface Character {
   maitrises: Maitrises
 
   fatigue: { max: number; coches: number }
+
+  /**
+   * Brûlures **acquises**, plafonnées à 9.
+   *
+   * Elles ne disparaissent pas quand on les dépense : la marque reste sur la
+   * peau. C'est sur ce total que se lisent les paliers de la Voie de la Flamme.
+   */
   brulures: number
+  /**
+   * Brûlures déjà dépensées. `brulures - bruluresConsommees` donne ce qui reste
+   * utilisable ; à la neuvième consommée, c'est la Combustion.
+   */
+  bruluresConsommees: number
+
   foi: number
   marques: number
 

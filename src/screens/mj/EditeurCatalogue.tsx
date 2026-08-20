@@ -5,12 +5,14 @@ import { ICONES_DISPONIBLES } from '../../content/icones.ts'
 import { enregistrerEntreeCatalogue, supprimerEntreeCatalogue } from '../../data/repo.ts'
 import { prixDe } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { classesDuSort, sortOuvertA } from '../../domain/magie.ts'
 import {
   LIBELLE_MAGIE,
   LIBELLE_SLOT,
   MAGIES,
   SLOTS_EQUIPEMENT,
   type Amelioration,
+  type Classe,
   type EntreeCatalogue,
   type Equipement,
   type Investissement,
@@ -62,7 +64,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
     .filter((e) => e.kind === onglet)
     .filter((e) => !(filtreSlot && e.kind === 'equipement' && e.slot !== filtreSlot))
     .filter((e) => !(filtreMagie && e.kind === 'sort' && e.magie !== filtreMagie))
-    .filter((e) => !(filtreClasse && e.kind === 'sort' && e.classeId !== filtreClasse))
+    .filter((e) => !(filtreClasse && e.kind === 'sort' && !sortOuvertA(e, filtreClasse)))
     .sort((a, b) => (triPrix ? (prixDe(a) ?? Infinity) - (prixDe(b) ?? Infinity) : 0))
 
   return (
@@ -162,6 +164,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
       {edition ? (
         <Formulaire
           entree={edition}
+          classes={catalog.classes()}
           onAnnuler={() => setEdition(null)}
           onEnregistrer={(e) => {
             void enregistrerEntreeCatalogue(e)
@@ -243,10 +246,12 @@ function vierge(onglet: Onglet): EntreeCatalogue {
 
 function Formulaire({
   entree,
+  classes,
   onAnnuler,
   onEnregistrer,
 }: {
   entree: EntreeCatalogue
+  classes: Classe[]
   onAnnuler: () => void
   onEnregistrer: (e: EntreeCatalogue) => void
 }) {
@@ -480,6 +485,54 @@ function Formulaire({
           <label className="champ">
             <span className="tres-discret">Effet</span>
             <textarea value={brouillon.effet} onChange={(e) => maj({ effet: e.target.value })} />
+          </label>
+
+          {/* Rien de coché = ouvert à toutes les classes. C'est la lecture la
+              plus permissive, et elle n'oblige à rien renseigner pour un sort
+              commun. */}
+          <div className="champ">
+            <span className="tres-discret">
+              Classes éligibles — aucune cochée : ouvert à toutes
+            </span>
+            <div className="rangee">
+              {classes.map((c) => {
+                const choisies = classesDuSort(brouillon as Sort)
+                const actif = choisies.includes(c.id)
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`btn ${actif ? 'btn--principal' : ''}`}
+                    aria-pressed={actif}
+                    onClick={() =>
+                      maj({
+                        classesIds: actif
+                          ? choisies.filter((id) => id !== c.id)
+                          : [...choisies, c.id],
+                        // L'ancien champ au singulier disparaît dès qu'on touche
+                        // à la liste, sinon les deux divergeraient.
+                        classeId: undefined,
+                      })
+                    }
+                  >
+                    {c.nom}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <label className="rangee" style={{ gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={brouillon.illusion === true}
+              style={{ minHeight: 0, width: 'auto' }}
+              onChange={(e) => maj({ illusion: e.target.checked || undefined })}
+            />
+            <span className="tres-discret">
+              Illusion — accordée par le passif Illusionniste, hors des 3 emplacements et hors
+              boutique
+            </span>
           </label>
         </>
       )}
