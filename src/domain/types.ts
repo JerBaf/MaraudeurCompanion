@@ -213,14 +213,34 @@ export interface Equipement extends EntreeCatalogueBase {
    * et exclu du tirage de Détachement.
    */
   materielDeBase?: boolean
-  /** Attaque Spéciale : table d'effets propre à l'arme. */
-  attaqueSpeciale?: {
-    de: string
-    /** Effets indexés par résultat du dé. */
-    effets: Record<string, string>
-    cout: { kind: 'paiement'; description: string } | { kind: 'charges'; max: number; rituel: string }
-  }
+  /**
+   * Effets actifs : la table qu'on lance en utilisant l'objet.
+   *
+   * Vaut pour l'Attaque Spéciale d'une arme comme pour une potion — une table
+   * à une seule face rend simplement l'effet déterministe.
+   */
+  effetsActifs?: EffetsActifs
 }
+
+/** Ce que coûte l'usage d'un objet à effets actifs. */
+export type CoutUsage =
+  /** Charges rechargeables par un rituel, que la MJ applique à la main. */
+  | { kind: 'charges'; max: number; rituel: string }
+  /** Charges non rechargeables : à zéro, l'objet est détruit. */
+  | { kind: 'consommable'; max: number }
+  /** Ni compteur ni recharge : la contrepartie s'applique à table. */
+  | { kind: 'paiement'; description: string }
+
+export interface EffetsActifs {
+  /** 4, 6 ou 8 : la table se lance au d{faces}. */
+  faces: number
+  /** Un effet par face, dans l'ordre des résultats. */
+  effets: string[]
+  cout: CoutUsage
+}
+
+/** Les tailles de table proposées par le PDF. */
+export const FACES_TABLE = [1, 4, 6, 8] as const
 
 export interface Investissement extends EntreeCatalogueBase {
   kind: 'investissement'
@@ -350,6 +370,16 @@ export interface Character {
 
   /** Ce qui a déjà été consommé au Feu de Camp, et jusqu'à quand. */
   jetonsCamp: JetonsCamp
+
+  /**
+   * Charges restantes, par identifiant d'équipement.
+   *
+   * Une clé absente signifie « objet au complet » : sans ce repli, il faudrait
+   * initialiser les charges à chaque acquisition — achat en boutique, don de la
+   * MJ, fiche écrite avant l'existence du champ. `chargesRestantes`
+   * (`domain/objets.ts`) porte la règle une fois pour toutes.
+   */
+  chargesObjets: Record<string, number>
 
   /** Sorts Arcane dont le cristal est épuisé (d6 à 1 ou 2), jusqu'au prochain camp. */
   sortsEpuises: string[]

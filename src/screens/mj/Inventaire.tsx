@@ -2,6 +2,7 @@ import { Icone } from '../../components/Icone.tsx'
 import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { resumeSort } from '../../domain/magie.ts'
+import { capaciteMax, chargesRestantes, rechargerObjet } from '../../domain/objets.ts'
 import {
   LIBELLE_SLOT,
   SLOTS_EQUIPEMENT,
@@ -179,27 +180,57 @@ export function Inventaire({
 
       <span className="etiquette">Équipement possédé</span>
       {equipements.length === 0 && <p className="vide">Aucun objet.</p>}
-      {equipements.map((eq) => (
-        <div key={eq.id} className="objet">
-          <Icone nom={eq.icone} taille={28} />
-          <span className="objet__corps">
-            <span className="objet__nom">{eq.nom}</span>
-            <span className="objet__meta">
-              {LIBELLE_SLOT[eq.slot]}
-              {eq.materielDeBase ? ' · matériel de base' : ''}
-              {eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : ''}
-            </span>
-          </span>
-          {equipes.has(eq.id) && <span className="puce puce--ambre">Porté</span>}
-          <button
-            type="button"
-            className="btn btn--fantome"
-            onClick={() => retirerEquipement(eq.id, eq.nom)}
-          >
-            Retirer
-          </button>
-        </div>
-      ))}
+      {equipements.map((eq) => {
+        const max = capaciteMax(eq)
+        const restantes = chargesRestantes(char, eq)
+
+        return (
+          <div key={eq.id} className="pile pile--serree">
+            <div className="objet">
+              <Icone nom={eq.icone} taille={28} />
+              <span className="objet__corps">
+                <span className="objet__nom">{eq.nom}</span>
+                <span className="objet__meta">
+                  {[
+                    LIBELLE_SLOT[eq.slot],
+                    eq.materielDeBase ? 'matériel de base' : null,
+                    eq.bonusEvasion ? `Évasion +${eq.bonusEvasion}` : null,
+                    max !== null ? `${restantes}/${max} charge(s)` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </span>
+              {equipes.has(eq.id) && <span className="puce puce--ambre">Porté</span>}
+              <button
+                type="button"
+                className="btn btn--fantome"
+                onClick={() => retirerEquipement(eq.id, eq.nom)}
+              >
+                Retirer
+              </button>
+            </div>
+
+            {/* Seule la MJ recharge, et seulement quand la fiction le justifie :
+                le PDF attache un rituel propre à chaque objet. */}
+            {eq.effetsActifs?.cout.kind === 'charges' && (
+              <div className="rangee">
+                <span className="tres-discret" style={{ flex: 1 }}>
+                  Rituel — {eq.effetsActifs.cout.rituel}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={restantes === max}
+                  onClick={() => maj((c) => rechargerObjet(c, eq))}
+                >
+                  Recharger
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })}
 
       <label className="champ">
         <span className="etiquette">Accorder un équipement</span>

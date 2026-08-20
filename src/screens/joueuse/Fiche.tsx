@@ -31,6 +31,13 @@ import {
   resumeSort,
 } from '../../domain/magie.ts'
 import {
+  aDesEffetsActifs,
+  capaciteMax,
+  chargesRestantes,
+  peutUtiliser,
+  utiliserObjet,
+} from '../../domain/objets.ts'
+import {
   EVASION_DE_BASE,
   MAX_FOI,
   MAX_MARQUES,
@@ -46,6 +53,7 @@ import {
   MAGIES,
   type Adversaire,
   type Character,
+  type Equipement,
   type EtatTable,
   type SlotEquipement,
   type Sort,
@@ -159,7 +167,7 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
           <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />
         )}
         {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} maj={maj} />}
-        {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}
+        {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} maj={maj} />}
       </div>
     </>
   )
@@ -592,12 +600,46 @@ function OngletSorts({
 // ---------------------------------------------------------------------------
 
 /**
+ * La description d'un objet, augmentée de ce que la joueuse doit savoir avant
+ * de s'en servir : sa table d'effets et sa contrepartie.
+ */
+function detailObjet(eq: Equipement): string {
+  const lignes = [eq.description ?? 'Aucune description pour cet objet.']
+  const actifs = eq.effetsActifs
+  if (!actifs) return lignes.join('\n')
+
+  if (actifs.faces > 1) {
+    lignes.push('', `Table — 1d${actifs.faces}`)
+    actifs.effets.forEach((e, i) => lignes.push(`${i + 1} · ${e}`))
+  }
+
+  if (actifs.cout.kind === 'charges') lignes.push('', `Recharge — ${actifs.cout.rituel}`)
+  if (actifs.cout.kind === 'consommable') lignes.push('', 'Consommable : détruit une fois épuisé.')
+  if (actifs.cout.kind === 'paiement') lignes.push('', `Contrepartie — ${actifs.cout.description}`)
+
+  return lignes.join('\n')
+}
+
+/**
  * Tout l'équipement possédé, porté ou non — le porté marqué de son emplacement.
  *
  * N'afficher que la réserve obligeait à regarder à deux endroits pour comparer
  * ce qu'on porte à ce qu'on pourrait porter.
  */
-function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
+function OngletSac({
+  char,
+  catalog,
+  maj,
+}: {
+  char: Character
+  catalog: Catalog
+  maj: (t: (c: Character) => Character) => void
+}) {
+  // Le récit d'usage vit au-dessus de la liste, et non sur la ligne de l'objet :
+  // un consommable disparaît en même temps qu'il agit, et son effet serait parti
+  // avec lui.
+  const [dernierUsage, setDernierUsage] = useState<string | null>(null)
+
   const equipes = Object.entries(char.equipe).filter(([, id]) => id) as [SlotEquipement, string][]
   const parObjetPorte = new Map(equipes.map(([slot, id]) => [id, slot]))
 
@@ -609,6 +651,19 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
     .map((id) => catalog.amelioration(id))
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
 
+  function utiliser(eq: Equipement) {
+    const r = utiliserObjet(char, eq, cryptoRng)
+    const faces = eq.effetsActifs?.faces ?? 1
+    setDernierUsage(
+      `${eq.nom} — ` +
+        (faces > 1 ? `1d${faces} → ${r.de} · ` : '') +
+        r.effet +
+        (r.detruit ? ' Il se consume et disparaît.' : ''),
+    )
+    void journaliser(char.nom, 'objet', `${char.nom} utilise ${eq.nom} : ${r.effet}`)
+    maj(() => r.char)
+  }
+
   return (
     <div className="pile">
       <p className="alerte alerte--info">
@@ -617,22 +672,45 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
 
       <section className="carte pile pile--serree">
         <span className="etiquette">Équipement</span>
+        {dernierUsage && <p className="alerte alerte--info">{dernierUsage}</p>}
         {equipements.length === 0 && <p className="vide">Vous ne possédez aucun objet.</p>}
         {equipements.map((eq) => {
           const porteEn = parObjetPorte.get(eq.id)
+          const restantes = chargesRestantes(char, eq)
+          const max = capaciteMax(eq)
+
           return (
             <ObjetDetaillable
               key={eq.id}
               icone={eq.icone}
               nom={eq.nom}
               meta={
-                `${LIBELLE_SLOT[eq.slot]}` +
-                (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
-                (eq.materielDeBase ? ' · matériel de base' : '')
+                [
+                  LIBELLE_SLOT[eq.slot],
+                  eq.bonusEvasion ? `Évasion +${eq.bonusEvasion}` : null,
+                  eq.materielDeBase ? 'matériel de base' : null,
+                  max !== null ? `${restantes}/${max} charge(s)` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               }
-              detail={eq.description ?? 'Aucune description pour cet objet.'}
+              detail={detailObjet(eq)}
               {...(porteEn
                 ? { puce: <span className="puce puce--ambre">{LIBELLE_SLOT[porteEn]}</span> }
+                : {})}
+              {...(aDesEffetsActifs(eq)
+                ? {
+                    action: (
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={!peutUtiliser(char, eq)}
+                        onClick={() => utiliser(eq)}
+                      >
+                        {peutUtiliser(char, eq) ? 'Utiliser' : 'Plus de charge'}
+                      </button>
+                    ),
+                  }
                 : {})}
             />
           )

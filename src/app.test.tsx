@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -341,6 +341,103 @@ describe('outillage de table', () => {
     await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
     // Accordé hors boutique, il rejoint le répertoire sans être préparé.
     expect(screen.getByText('Sorts connus')).toBeTruthy()
+  })
+
+  /**
+   * Le parcours que le lot B rend possible : la MJ compose un passif en données,
+   * sans qu'aucune ligne de code ne connaisse ce talisman. Le moteur de
+   * modificateurs le relit comme n'importe quelle armure.
+   */
+  it('un passif saisi au catalogue remonte sur la fiche de la joueuse', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), {
+      target: { value: 'Talisman de protection' },
+    })
+    fireEvent.change(screen.getByLabelText('Emplacement'), { target: { value: 'bibelot' } })
+    fireEvent.change(screen.getByLabelText('Évasion'), { target: { value: '2' } })
+
+    // Et un passif composé à la main : avantage en Social.
+    fireEvent.click(screen.getByText('Ajouter un passif'))
+    fireEvent.change(await screen.findByLabelText('Cible du passif'), {
+      target: { value: 'competence' },
+    })
+    fireEvent.change(screen.getByLabelText('Compétence visée'), { target: { value: 'social' } })
+    fireEvent.change(screen.getByLabelText('Effet du passif'), { target: { value: 'avantage' } })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    // La MJ l'accorde à la joueuse, puis le lui fait porter.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const accorder = await screen.findByLabelText('Accorder un équipement')
+    const option = within(accorder).getByRole('option', { name: /Talisman de protection/ })
+    fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+
+    const slotBibelot = await screen.findByLabelText('Bibelot')
+    await waitFor(() =>
+      expect(
+        within(slotBibelot).queryByRole('option', { name: /Talisman de protection/ }),
+      ).toBeTruthy(),
+    )
+    fireEvent.change(slotBibelot, { target: { value: (option as HTMLOptionElement).value } })
+    cleanup()
+
+    // Côté joueuse : Évasion 1 + 2, et l'avantage en Social, sans qu'aucune
+    // ligne de code ne connaisse ce talisman.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+
+    const vignette = screen.getByText('Évasion').closest('.vignette')
+    expect(vignette?.textContent).toContain('3')
+
+    const social = screen.getByText('Social').closest('.competence')
+    expect(social?.textContent).toContain('+d4')
+  })
+
+  it('la joueuse utilise un consommable, qui se détruit', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), {
+      target: { value: 'Potion de brume' },
+    })
+    fireEvent.change(screen.getByLabelText('Emplacement'), { target: { value: 'bibelot' } })
+
+    fireEvent.click(screen.getByText('Ajouter des effets actifs'))
+    fireEvent.change(await screen.findByLabelText('Faces'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Contrepartie'), { target: { value: 'consommable' } })
+    fireEvent.change(await screen.findByLabelText('Effet'), {
+      target: { value: 'Un brouillard vous dérobe aux regards.' },
+    })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    fireEvent.click(await screen.findByText('Ilma'))
+    const accorder = await screen.findByLabelText('Accorder un équipement')
+    const option = within(accorder).getByRole('option', { name: /Potion de brume/ })
+    fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Équipement' }))
+    await waitFor(() => expect(screen.getByText('Potion de brume')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Utiliser' }))
+    await waitFor(() => expect(screen.getByText(/brouillard vous dérobe/)).toBeTruthy())
+    // Une seule charge, non rechargeable : l'objet quitte l'inventaire.
+    await waitFor(() => expect(screen.queryByText('Potion de brume')).toBeNull())
   })
 
   it('la MJ pose un désavantage qui se cumule avec un ajustement chiffré', async () => {

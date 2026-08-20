@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { EditeurModificateurs } from '../../components/EditeurModificateurs.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { ICONES_DISPONIBLES } from '../../content/icones.ts'
 import { enregistrerEntreeCatalogue, supprimerEntreeCatalogue } from '../../data/repo.ts'
@@ -7,12 +8,15 @@ import { prixDe } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { classesDuSort, sortOuvertA } from '../../domain/magie.ts'
 import {
+  FACES_TABLE,
   LIBELLE_MAGIE,
   LIBELLE_SLOT,
   MAGIES,
   SLOTS_EQUIPEMENT,
   type Amelioration,
   type Classe,
+  type CoutUsage,
+  type EffetsActifs,
   type EntreeCatalogue,
   type Equipement,
   type Investissement,
@@ -324,6 +328,18 @@ function Formulaire({
               Matériel de base — hors des 3 emplacements, exclu du Détachement et de la boutique
             </span>
           </label>
+
+          <EditeurModificateurs
+            valeur={brouillon.modificateurs ?? []}
+            label={brouillon.nom || 'Objet'}
+            source="equipement"
+            onChange={(modificateurs) => maj({ modificateurs })}
+          />
+
+          <EditeurEffetsActifs
+            valeur={brouillon.effetsActifs}
+            onChange={(effetsActifs) => maj({ effetsActifs })}
+          />
         </>
       )}
 
@@ -346,6 +362,15 @@ function Formulaire({
               onChange={(e) => maj({ effetTexte: e.target.value })}
             />
           </label>
+
+          {/* Une amélioration n'a pas d'emplacement : ses passifs valent dès
+              qu'elle est possédée. */}
+          <EditeurModificateurs
+            valeur={brouillon.modificateurs ?? []}
+            label={brouillon.nom || 'Amélioration'}
+            source="passif"
+            onChange={(modificateurs) => maj({ modificateurs })}
+          />
         </>
       )}
 
@@ -571,6 +596,149 @@ function Formulaire({
           Enregistrer
         </button>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Saisie de la table d'effets d'un objet.
+ *
+ * Le PDF décrit ces pouvoirs pour les armes, mais le même modèle sert à une
+ * potion : une table d'une seule face rend l'effet déterministe. Deux
+ * contreparties possibles, comme le PDF — des charges qu'un rituel restaure, ou
+ * un paiement décrit en toutes lettres —, plus le cas dégénéré du consommable,
+ * dont les charges ne se rechargent pas.
+ */
+function EditeurEffetsActifs({
+  valeur,
+  onChange,
+}: {
+  valeur: EffetsActifs | undefined
+  onChange: (v: EffetsActifs | undefined) => void
+}) {
+  if (!valeur) {
+    return (
+      <button
+        type="button"
+        className="btn"
+        onClick={() =>
+          onChange({ faces: 6, effets: Array(6).fill(''), cout: { kind: 'charges', max: 3, rituel: '' } })
+        }
+      >
+        Ajouter des effets actifs
+      </button>
+    )
+  }
+
+  const majCout = (cout: CoutUsage) => onChange({ ...valeur, cout })
+
+  return (
+    <div className="champ">
+      <span className="tres-discret">Effets actifs — la table que la joueuse lance</span>
+
+      <div className="rangee">
+        <label className="champ" style={{ flex: 1 }}>
+          <span className="tres-discret">Faces</span>
+          <select
+            value={valeur.faces}
+            onChange={(e) => {
+              const faces = Number(e.target.value)
+              // On conserve les effets déjà saisis : réduire la table puis la
+              // rouvrir ne doit pas effacer le travail de la MJ.
+              onChange({
+                ...valeur,
+                faces,
+                effets: Array.from({ length: faces }, (_, i) => valeur.effets[i] ?? ''),
+              })
+            }}
+          >
+            {FACES_TABLE.map((f) => (
+              <option key={f} value={f}>
+                {f === 1 ? 'Effet unique' : `1d${f}`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="champ" style={{ flex: 1 }}>
+          <span className="tres-discret">Contrepartie</span>
+          <select
+            value={valeur.cout.kind}
+            onChange={(e) => {
+              const kind = e.target.value as CoutUsage['kind']
+              if (kind === 'charges') majCout({ kind, max: 3, rituel: '' })
+              else if (kind === 'consommable') majCout({ kind, max: 1 })
+              else majCout({ kind: 'paiement', description: '' })
+            }}
+          >
+            <option value="charges">Charges rechargeables</option>
+            <option value="consommable">Consommable</option>
+            <option value="paiement">Paiement</option>
+          </select>
+        </label>
+      </div>
+
+      {valeur.cout.kind !== 'paiement' && (
+        <label className="champ">
+          <span className="tres-discret">Charges</span>
+          <input
+            type="number"
+            min={1}
+            value={valeur.cout.max}
+            onChange={(e) =>
+              majCout({ ...(valeur.cout as { kind: 'charges' | 'consommable' }), max: Math.max(1, Number(e.target.value) || 1) } as CoutUsage)
+            }
+          />
+        </label>
+      )}
+
+      {valeur.cout.kind === 'charges' && (
+        <label className="champ">
+          <span className="tres-discret">Rituel de recharge</span>
+          <input
+            type="text"
+            value={valeur.cout.rituel}
+            placeholder="La tremper dans le sang d'une Carcasse"
+            onChange={(e) => majCout({ kind: 'charges', max: (valeur.cout as { max: number }).max, rituel: e.target.value })}
+          />
+        </label>
+      )}
+
+      {valeur.cout.kind === 'paiement' && (
+        <label className="champ">
+          <span className="tres-discret">Contrepartie, en toutes lettres</span>
+          <input
+            type="text"
+            value={valeur.cout.description}
+            placeholder="Une Marque toutes les trois utilisations"
+            onChange={(e) => majCout({ kind: 'paiement', description: e.target.value })}
+          />
+        </label>
+      )}
+
+      {valeur.effets.map((effet, index) => (
+        <label key={index} className="champ">
+          <span className="tres-discret">
+            {valeur.faces === 1 ? 'Effet' : `Résultat ${index + 1}`}
+          </span>
+          <input
+            type="text"
+            value={effet}
+            onChange={(e) =>
+              onChange({
+                ...valeur,
+                effets: valeur.effets.map((v, i) => (i === index ? e.target.value : v)),
+              })
+            }
+          />
+        </label>
+      ))}
+
+      <button type="button" className="btn btn--fantome" onClick={() => onChange(undefined)}>
+        Retirer les effets actifs
+      </button>
     </div>
   )
 }

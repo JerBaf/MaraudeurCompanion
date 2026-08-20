@@ -81,6 +81,7 @@ import {
 } from './magie.ts'
 import {
   derivedModifiers,
+  EVASION_DE_BASE,
   expireModifiers,
   FOI_DE_DEPART,
   modificateurDiversion,
@@ -89,10 +90,13 @@ import {
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
+import { chargesRestantes, peutUtiliser, rechargerObjet, utiliserObjet } from './objets.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import type {
   Character,
+  CoutUsage,
   EntreeCatalogue,
+  Equipement,
   EtatCombat,
   Investissement,
   ModeleAdversaire,
@@ -826,6 +830,127 @@ describe('Évasion', () => {
 })
 
 // ---------------------------------------------------------------------------
+
+describe('objets à effets actifs', () => {
+  const arme = (cout: CoutUsage, faces = 6): Equipement => ({
+    kind: 'equipement',
+    id: 'lame-runique',
+    nom: 'Lame runique',
+    icone: 'crystal-shine',
+    slot: 'arme',
+    effetsActifs: {
+      faces,
+      effets: Array.from({ length: faces }, (_, i) => `Effet ${i + 1}`),
+      cout,
+    },
+  })
+
+  const porteuse = (eq: Equipement, patch: Partial<Character> = {}) =>
+    nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: [eq.id], ameliorations: [] },
+      equipe: { arme: eq.id, armure: null, bibelot: null },
+      ...patch,
+    })
+
+  it('part au complet sans que rien n’ait été initialisé', () => {
+    const eq = arme({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' })
+    // La fiche ne connaît pas encore l'objet : c'est le cas d'un achat en
+    // boutique ou d'un don de la MJ.
+    expect(chargesRestantes(porteuse(eq), eq)).toBe(3)
+  })
+
+  it('décompte une charge par usage et refuse la suivante à zéro', () => {
+    const eq = arme({ kind: 'charges', max: 2, rituel: 'sang de Carcasse' })
+    let char = porteuse(eq)
+
+    char = utiliserObjet(char, eq, seededRng(3)).char
+    expect(chargesRestantes(char, eq)).toBe(1)
+
+    const r = utiliserObjet(char, eq, seededRng(4))
+    expect(r.restantes).toBe(0)
+    expect(r.detruit).toBe(false)
+    char = r.char
+
+    // L'objet reste au sac, mais ne répond plus tant qu'on ne l'a pas rechargé.
+    expect(peutUtiliser(char, eq)).toBe(false)
+    expect(() => utiliserObjet(char, eq, seededRng(5))).toThrow(/charge/)
+  })
+
+  it('tire un effet de la table, et le rend déterministe à une seule face', () => {
+    const potion = arme({ kind: 'consommable', max: 1 }, 1)
+    const r = utiliserObjet(porteuse(potion), potion, seededRng(7))
+    expect(r.de).toBe(1)
+    expect(r.effet).toBe('Effet 1')
+  })
+
+  it('détruit un consommable épuisé et le déséquipe', () => {
+    const potion = arme({ kind: 'consommable', max: 1 }, 1)
+    const r = utiliserObjet(porteuse(potion), potion, seededRng(1))
+
+    expect(r.detruit).toBe(true)
+    expect(r.char.possede.equipements).not.toContain(potion.id)
+    // Sans cela, l'emplacement pointerait dans le vide.
+    expect(r.char.equipe.arme).toBeNull()
+    expect(r.char.chargesObjets[potion.id]).toBeUndefined()
+  })
+
+  it('ne décompte rien sur un objet à paiement', () => {
+    const eq = arme({ kind: 'paiement', description: 'une Marque toutes les 3 utilisations' })
+    const r = utiliserObjet(porteuse(eq), eq, seededRng(2))
+    expect(r.restantes).toBeNull()
+    expect(r.detruit).toBe(false)
+    expect(peutUtiliser(r.char, eq)).toBe(true)
+  })
+
+  it('se recharge à neuf, et seulement à la main', () => {
+    const eq = arme({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' })
+    const vide = porteuse(eq, { chargesObjets: { [eq.id]: 0 } })
+
+    expect(peutUtiliser(vide, eq)).toBe(false)
+    expect(chargesRestantes(rechargerObjet(vide, eq), eq)).toBe(3)
+
+    // Un objet à paiement n'a rien à recharger.
+    const paye = arme({ kind: 'paiement', description: 'une Marque' })
+    expect(rechargerObjet(porteuse(paye), paye).chargesObjets).toEqual({})
+  })
+
+  /**
+   * Le moteur de modificateurs n'a pas changé : un passif saisi au catalogue
+   * remonte par le même chemin que le bonus d'Évasion d'une armure.
+   */
+  it('applique les modificateurs d’un objet porté, et eux seuls', () => {
+    const talisman: Equipement = {
+      kind: 'equipement',
+      id: 'talisman',
+      nom: 'Talisman de protection',
+      icone: 'crystal-shine',
+      slot: 'bibelot',
+      bonusEvasion: 2,
+      modificateurs: [
+        {
+          source: { kind: 'equipement', label: 'Talisman de protection' },
+          target: { kind: 'competence', competence: 'social' },
+          op: { kind: 'avantage' },
+        },
+      ],
+    }
+    const avecTalisman = createCatalog([...SEED, talisman])
+
+    const porte = nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: ['talisman'], ameliorations: [] },
+      equipe: { arme: null, armure: null, bibelot: 'talisman' },
+    })
+    expect(computeEvasion(porte, avecTalisman).total).toBe(EVASION_DE_BASE + 2)
+    expect(computeCompetence(porte, avecTalisman, 'social').net).toBe('avantage')
+
+    // Au fond du sac, il ne protège personne.
+    const range = nouveauPerso('dusk-hunter', {
+      possede: { sorts: [], equipements: ['talisman'], ameliorations: [] },
+    })
+    expect(computeEvasion(range, avecTalisman).total).toBe(EVASION_DE_BASE)
+    expect(computeCompetence(range, avecTalisman, 'social').net).toBe('neutre')
+  })
+})
 
 describe('Détachement', () => {
   const equipe = {

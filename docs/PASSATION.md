@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 149 tests — 127 de domaine, 22 de rendu |
+| `npm test` | 158 tests — 133 de domaine, 25 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -44,12 +44,6 @@ catalogue.
   **N'écrivez pas ce contenu en dur** — voir le piège n° 1.
 - **Les icônes.** 28 icônes `game-icons.net` (CC-BY). La MJ veut à terme des dessins
   style Moebius/Ghibli ; déposer un fichier de même nom dans `public/icons/` suffit.
-- **Le lot B**, demandé par la MJ et non commencé : modèle d'objet complet (table
-  d'effets actifs en d4/d6/d8, charges rechargées à la main par la MJ, objets
-  consommables), et **édition des `modificateurs` depuis le catalogue**. Ce dernier point est le plus important : le
-  moteur est déjà générique, seule l'interface d'édition manque — voir § 2 ci-dessous.
-  `Equipement.attaqueSpeciale` est le point de départ prévu ; elle est déjà déclarée
-  dans les types et n'est lue nulle part.
 - **Les upgrades annoncées** dans `Guidelines.pdf`, non commencées : nouvelles classes,
   QTE (mini-jeux poussés sur l'écran d'une joueuse), combat rapide type
   pierre-feuille-ciseau. Le champ `EtatTable.overlay` existe pour les accueillir.
@@ -65,7 +59,7 @@ src/
   store/       stockage temps réel : implémentation locale et Firestore
   data/repo.ts opérations métier sur la table — le seul écrivain
   screens/     écrans joueuse et MJ
-  components/  avatar, compteurs, icônes, objets dépliables
+  components/  avatar, compteurs, icônes, objets dépliables, éditeur de passifs
 firebase/      règles de sécurité Firestore
 scripts/       téléchargement des icônes
 ```
@@ -109,13 +103,15 @@ C'est cette séparation qui rend l'exigence « les modificateurs doivent être d
 tenable : si les brûlures passent de 3 à 5, le point de 6ᵉ Sens supplémentaire apparaît
 sans qu'aucun écran n'ait eu à y penser, et rien ne peut se désynchroniser.
 
-> **Les passifs ne sont pas câblés en dur, contrairement à ce que l'écran laisse croire.**
-> `Equipement.modificateurs` et `Amelioration.modificateurs` sont déjà appliqués par
-> `derivedModifiers` : un talisman qui donne « Évasion +2 » ou un passif qui accorde un
-> avantage en Social se décrivent entièrement en données. Ce qui manque, c'est le
-> **formulaire** : `EditeurCatalogue` ne laisse saisir que nom, description, prix et slot,
-> si bien que tout nouveau passif doit aujourd'hui passer par un développeur. L'ouvrir est
-> le point le plus rentable du lot B — il n'y a aucun moteur à écrire.
+> **Les passifs se composent en données, depuis l'écran Réglages.**
+> `Equipement.modificateurs` et `Amelioration.modificateurs` sont appliqués par
+> `derivedModifiers`, et `EditeurModificateurs` (`components/`) permet à la MJ de les
+> saisir : cible — une compétence, toutes, Évasion, 6ᵉ Sens, Points d'Énergie d'attaque —
+> et opération — chiffre, avantage, désavantage. **Aucune ligne de code ne connaît le
+> talisman qu'elle vient de créer.** Un test de rendu suit ce parcours de bout en bout.
+>
+> Deux cibles restent hors de l'éditeur, délibérément : `cout-sort` sert au passif Conteur
+> et `competence-sauf` au Serment. Ce sont des mécaniques de règle, pas du contenu.
 
 `domain/effets.ts` en donne une vue unifiée pour l'affichage : chaque effet porte une
 **origine** parmi six — `choisi`, `feu-de-camp`, `derive`, `equipement`, `mj`,
@@ -244,6 +240,11 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Combustion | à la **neuvième consommée**, jamais au gain | accumuler neuf marques sans en dépenser aucune ne brûle personne |
 | Voie de la Flamme | lue sur les brûlures **acquises** | la marque reste sur la peau une fois dépensée, donc le palier tient |
 | Sorts et classes | `classesIds`, plusieurs classes possibles ; vide = ouvert à toutes | la boutique ne propose que le générique et la classe de la joueuse |
+| Objets à effets actifs | une table `1d{faces}`, une contrepartie parmi trois | même modèle pour l'Attaque Spéciale d'une arme et pour une potion — une table à une face rend l'effet déterministe |
+| Charges | par identifiant d'objet, sur la fiche ; **clé absente = objet au complet** | évite d'initialiser à chaque acquisition — achat, don de la MJ, fiche ancienne |
+| Recharge | **à la main par la MJ**, jamais au feu de camp | le PDF attache un rituel propre à chaque objet ; c'est la fiction qui décide |
+| Consommable | charges non rechargeables ; à zéro l'objet est **détruit et déséquipé** | cas dégénéré des charges, pas un second mécanisme |
+| Passifs de sorts | **non** : seuls équipements et améliorations en portent | un passif permanent se modélise par une amélioration ; évite un troisième régime d'activation |
 | Cristal épuisé | signalé **par la joueuse**, sur un sort d'Arcane préparé | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser |
 | Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
