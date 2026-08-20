@@ -6,6 +6,7 @@ import { Effets } from '../../components/Effets.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
+import { OngletDuel } from './OngletDuel.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
@@ -79,11 +80,12 @@ interface Props {
   onQuitter: () => void
 }
 
-type Onglet = 'fiche' | 'combat' | 'camp' | 'sorts' | 'sac'
+type Onglet = 'fiche' | 'combat' | 'duel' | 'camp' | 'sorts' | 'sac'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   fiche: 'Fiche',
   combat: 'Combat',
+  duel: 'Combat rapide',
   camp: 'Feu de camp',
   sorts: 'Sorts',
   // L'onglet montre désormais tout l'équipement, porté compris : « Sac à dos »
@@ -97,26 +99,30 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
 
   const enCombat = etat?.mode === 'combat'
   const auCamp = etat?.mode === 'campfire'
+  const enDuel = etat?.mode === 'duel'
   const monTour = enCombat && estSonTour(char, etat.combat)
 
-  // Combat et Feu de camp *ajoutent* un onglet, ils n'en remplacent aucun :
-  // la fiche reste consultable à tout moment.
+  // Combat, Combat rapide et Feu de camp *ajoutent* un onglet, ils n'en
+  // remplacent aucun : la fiche reste consultable à tout moment.
   const onglets: Onglet[] = [
     'fiche',
     ...(enCombat ? (['combat'] as const) : []),
+    ...(enDuel ? (['duel'] as const) : []),
     ...(auCamp ? (['camp'] as const) : []),
     'sorts',
     'sac',
   ]
   const ongletActif = onglets.includes(onglet) ? onglet : 'fiche'
 
-  // Quand la MJ lance un feu de camp ou un combat, on y amène la joueuse :
-  // sans cela, elle resterait sur sa fiche sans voir que la table a basculé.
+  // Quand la MJ lance un feu de camp, un combat ou un duel, on y amène la
+  // joueuse : sans cela, elle resterait sur sa fiche sans voir que la table a
+  // basculé.
   useEffect(() => {
     if (auCamp) setOnglet('camp')
+    else if (enDuel) setOnglet('duel')
     else if (enCombat) setOnglet('combat')
     else setOnglet('fiche')
-  }, [auCamp, enCombat])
+  }, [auCamp, enCombat, enDuel])
 
   const maj = (transformer: (c: Character) => Character) => {
     void modifierPersonnage(char, transformer)
@@ -161,6 +167,9 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
             adversaires={adversaires}
             personnages={personnages}
           />
+        )}
+        {ongletActif === 'duel' && etat && (
+          <OngletDuel char={char} etat={etat} personnages={personnages} />
         )}
         {ongletActif === 'camp' && etat && (
           <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />

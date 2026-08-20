@@ -464,7 +464,7 @@ export interface CharacterSecret {
 // État partagé de la table
 // ---------------------------------------------------------------------------
 
-export type ModeTable = 'standard' | 'combat' | 'campfire'
+export type ModeTable = 'standard' | 'combat' | 'campfire' | 'duel'
 
 /**
  * Fiche réutilisable d'une créature, écrite par la MJ.
@@ -515,6 +515,107 @@ export interface EtatCombat {
   sousGroupeActif: 'avant-mj' | 'mj' | 'apres-mj'
   /** Initiative saisie par chaque joueuse (résultat du d6). */
   initiatives: Record<string, number>
+}
+
+// ---------------------------------------------------------------------------
+// Combat rapide — le duel « Flow »
+// ---------------------------------------------------------------------------
+
+/**
+ * Les cinq actions du duel.
+ *
+ * ⚠️ **L'ordre de ce tableau est l'anneau, et l'anneau est toute la règle.**
+ * Résolution, Flow, Anti-Flow et Appât s'y déduisent tous d'un décalage d'index
+ * (`domain/duel.ts`), et le pentagone affiché à l'écran s'en dessine. Réordonner
+ * cette liste change le jeu ; y insérer une action met tout à jour d'un coup.
+ */
+export const ACTIONS_DUEL = ['pression', 'feinte', 'placement', 'contre', 'garde'] as const
+export type ActionDuel = (typeof ACTIONS_DUEL)[number]
+
+export const LIBELLE_ACTION_DUEL: Record<ActionDuel, string> = {
+  pression: 'Pression',
+  feinte: 'Feinte',
+  placement: 'Placement',
+  contre: 'Contre',
+  garde: 'Garde',
+}
+
+export type IssueEchange = 'joueuse' | 'adversaire' | 'clash'
+
+/** Une manche révélée. La suite de ces manches porte tout l'état du duel. */
+export interface MancheJouee {
+  actionJoueuse: ActionDuel
+  actionAdversaire: ActionDuel
+  issue: IssueEchange
+  points: number
+  /** La gagnante a complété son Flow. */
+  flow: boolean
+  /** La manche valait 2 grâce à un Clash antérieur. */
+  bonusClash: boolean
+}
+
+export type IssueDuel =
+  | {
+      kind: 'victoire'
+      vainqueur: 'joueuse' | 'adversaire'
+      /** `objectif` = 4 points ; `points` = meilleur score ; `derniere-marque` = départage. */
+      motif: 'objectif' | 'points' | 'derniere-marque'
+    }
+  /** Personne n'a marqué : le PNJ qui fuyait s'échappe, l'assaut échoue. */
+  | { kind: 'statu-quo' }
+
+/**
+ * Un duel en cours.
+ *
+ * Ce document est **lisible par toute la table** : les joueuses qui ne se
+ * battent pas suivent le plateau. Il ne contient donc que ce qui a été révélé —
+ * le motif du PNJ vit dans `DuelPrive`.
+ *
+ * Ni score ni action précédente : `etatDuel` (`domain/duel.ts`) les recalcule
+ * depuis `historique`, si bien que rien ne peut se désynchroniser.
+ */
+export interface Duel {
+  id: string
+  /** La duelliste. Les autres joueuses regardent. */
+  characterId: string
+  adversaireNom: string
+  adversaireIcone: string
+  /** Ce qui se joue, annoncé à la table ; c'est le statu quo si personne ne marque. */
+  enjeu: string
+  dureeChoixMs: number
+  /** Jouée pour la duelliste si le chrono expire sans rien de sélectionné. */
+  actionParDefaut: ActionDuel
+  historique: MancheJouee[]
+  /** Départ du chrono de la manche en cours ; `null` = manche pas encore ouverte. */
+  debutManche: number | null
+  /** Le choix **verrouillé** de la duelliste — le seul champ qu'elle a le droit d'écrire. */
+  choixJoueuse: ActionDuel | null
+  issue: IssueDuel | null
+  lanceLe: number | null
+}
+
+/**
+ * La préparation du duel, et le motif du PNJ.
+ *
+ * 🔒 Vit dans un document refusé aux joueuses. **Un duel dont le motif est
+ * lisible est un duel déjà résolu** : Firestore ne sait pas cacher un champ, et
+ * masquer la valeur à l'écran ne protégerait rien.
+ *
+ * Le même document sert de brouillon puis de secret vivant — `duelId` distingue
+ * les deux : `null` tant que rien n'est lancé.
+ */
+export interface DuelPrive {
+  duelId: string | null
+  characterId: string
+  adversaireNom: string
+  adversaireIcone: string
+  enjeu: string
+  dureeChoixMs: number
+  actionParDefaut: ActionDuel
+  /** La suite d'actions du PNJ, répétée jusqu'à la fin du duel. */
+  motif: ActionDuel[]
+  /** Remplace la prochaine action scriptée, une seule fois. */
+  override: ActionDuel | null
 }
 
 export type PhaseCampfire = 'banque' | 'brief' | 'boutique' | 'grimoire' | 'armurerie'
@@ -613,8 +714,10 @@ export interface EtatTable {
   mode: ModeTable
   combat: EtatCombat | null
   campfireId: string | null
+  /** Le combat rapide en cours, s'il y en a un. */
+  duelId: string | null
   sessionId: string | null
-  /** Réservé aux upgrades futures (QTE, combat rapide) : un overlay poussé sur des écrans. */
+  /** Réservé aux upgrades futures (QTE) : un overlay poussé sur des écrans. */
   overlay: { kind: string; cibles: string[]; payload: unknown } | null
 }
 

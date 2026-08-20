@@ -132,6 +132,22 @@ service cloud.firestore {
         allow write: if estMJ();
       }
 
+      // --- Combat rapide ----------------------------------------------------
+      // Le duel est lisible par toute la table : les joueuses qui ne se battent
+      // pas suivent le plateau. La duelliste n'y écrit qu'un seul champ, son
+      // choix verrouillé — sans cette clause, elle ne pourrait pas jouer ; avec
+      // une clause plus large, elle pourrait se donner les points elle-même.
+      //
+      // 🔒 Le motif du PNJ n'est PAS ici : il vit dans `secrets/duel`, couvert
+      // par la règle `secrets/{charId}` ci-dessus. Un motif lisible est un duel
+      // déjà résolu, et Firestore ne sait pas cacher un champ.
+      match /duels/{duelId} {
+        allow read: if deLaTable();
+        allow create, delete: if estMJ();
+        allow update: if estMJ()
+                      || (estJoueuse() && champsTouches().hasOnly(['choixJoueuse']));
+      }
+
       // --- 🔒 Journal -------------------------------------------------------
       // Les joueuses y déposent leurs actions mais ne peuvent pas le relire :
       // il contient les décisions et les tirages de la MJ.

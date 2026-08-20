@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { RAPPELS_COMBAT, SEQUENCE_COMBAT } from '../../content/regles-combat.ts'
+import { RAPPELS_COMBAT, SEQUENCE_COMBAT, type RappelRegle } from '../../content/regles-combat.ts'
 
 /**
  * Rappels de règles et séquence de combat.
@@ -38,7 +38,8 @@ export function RappelsCombat() {
   )
 }
 
-function Rappel({ rappel }: { rappel: (typeof RAPPELS_COMBAT)[number] }) {
+/** Un rappel replié, réutilisé tel quel par les rappels du combat rapide. */
+export function Rappel({ rappel }: { rappel: RappelRegle }) {
   const [ouvert, setOuvert] = useState(false)
 
   return (

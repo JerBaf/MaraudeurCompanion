@@ -100,9 +100,25 @@ import {
   paliersFlammeAtteints,
 } from './modifiers.ts'
 import { resoudreDeclencheurs } from './declencheurs.ts'
+import {
+  actionScriptee,
+  appatDe,
+  bat,
+  briseFlow,
+  etatDuel,
+  flowDe,
+  issueDuel,
+  issueEchange,
+  jouerManche,
+  MANCHES_MAX,
+  OBJECTIF_POINTS,
+  perdContre,
+} from './duel.ts'
 import { chargesRestantes, peutUtiliser, rechargerObjet, utiliserObjet } from './objets.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
+import { ACTIONS_DUEL } from './types.ts'
 import type {
+  ActionDuel,
   Amelioration,
   Character,
   CoutUsage,
@@ -110,6 +126,7 @@ import type {
   Equipement,
   EtatCombat,
   Investissement,
+  MancheJouee,
   ModeleAdversaire,
   Sort,
   VieSoulshifter,
@@ -1796,5 +1813,252 @@ describe('tirages', () => {
 
   it('la même graine produit la même suite', () => {
     expect(seededRng(9).roll(5, 20)).toEqual(seededRng(9).roll(5, 20))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Combat rapide — le duel « Flow »
+// ---------------------------------------------------------------------------
+
+/** Enchaîne des manches depuis le début du duel et rend l'historique complet. */
+function duel(paires: [ActionDuel, ActionDuel][]): MancheJouee[] {
+  const historique: MancheJouee[] = []
+  for (const [j, a] of paires) historique.push(jouerManche(etatDuel(historique), j, a))
+  return historique
+}
+
+describe('Combat rapide — l’anneau des actions', () => {
+  it('donne à chaque action exactement deux victimes et deux prédatrices', () => {
+    for (const action of ACTIONS_DUEL) {
+      const battues = bat(action)
+      const perdantes = perdContre(action)
+
+      expect(battues).toHaveLength(2)
+      expect(perdantes).toHaveLength(2)
+      // Les quatre autres actions se répartissent sans recouvrement : c'est la
+      // symétrie qui rend les cinq actions jouables à 20 % chacune.
+      expect(new Set([...battues, ...perdantes])).toEqual(
+        new Set(ACTIONS_DUEL.filter((a) => a !== action)),
+      )
+    }
+  })
+
+  it('reproduit la table de résolution du document de playtest', () => {
+    const attendu: Record<ActionDuel, ActionDuel[]> = {
+      pression: ['feinte', 'placement'],
+      feinte: ['placement', 'contre'],
+      placement: ['contre', 'garde'],
+      contre: ['garde', 'pression'],
+      garde: ['pression', 'feinte'],
+    }
+    for (const [action, battues] of Object.entries(attendu)) {
+      expect([...bat(action as ActionDuel)]).toEqual(battues)
+    }
+  })
+
+  it('déclare un Clash sur deux actions identiques', () => {
+    for (const action of ACTIONS_DUEL) expect(issueEchange(action, action)).toBe('clash')
+    expect(issueEchange('pression', 'feinte')).toBe('joueuse')
+    expect(issueEchange('pression', 'garde')).toBe('adversaire')
+  })
+
+  it('n’offre aucun Flow à la première manche', () => {
+    expect(flowDe(null)).toBeNull()
+  })
+
+  it('reproduit la table Flow / Anti-Flow / Appât du document', () => {
+    const attendu: [ActionDuel, ActionDuel, ActionDuel, ActionDuel][] = [
+      ['pression', 'feinte', 'pression', 'contre'],
+      ['feinte', 'placement', 'feinte', 'garde'],
+      ['placement', 'contre', 'placement', 'pression'],
+      ['contre', 'garde', 'contre', 'feinte'],
+      ['garde', 'pression', 'garde', 'placement'],
+    ]
+    for (const [precedente, flow, anti, appat] of attendu) {
+      expect(flowDe(precedente)).toBe(flow)
+      expect(briseFlow(precedente)).toBe(anti)
+      expect(appatDe(precedente)).toBe(appat)
+    }
+  })
+
+  /**
+   * La propriété qui fait tout l'intérêt du jeu : « BREAK beats FLOW · BAIT
+   * beats BREAK · FLOW beats BAIT ». Elle n'est écrite nulle part dans le code,
+   * elle **émerge** de l'alignement des deux anneaux — ce test la vérifie.
+   */
+  it('fait émerger le second pierre-feuille-ciseau, pour les cinq états', () => {
+    for (const precedente of ACTIONS_DUEL) {
+      const flow = flowDe(precedente) as ActionDuel
+      const anti = briseFlow(precedente)
+      const appat = appatDe(precedente)
+
+      expect(bat(anti)).toContain(flow)
+      expect(bat(appat)).toContain(anti)
+      expect(bat(flow)).toContain(appat)
+    }
+  })
+})
+
+describe('Combat rapide — barème', () => {
+  it('rapporte 1 point à une victoire ordinaire', () => {
+    const [manche] = duel([['pression', 'feinte']])
+    expect(manche).toMatchObject({ issue: 'joueuse', points: 1, flow: false })
+  })
+
+  it('rapporte 2 points à une victoire qui complète un Flow', () => {
+    // Manche 1 : la joueuse gagne avec Garde. Son Flow devient Pression.
+    // Manche 2 : elle joue Pression et gagne — 2 points.
+    const historique = duel([
+      ['garde', 'pression'],
+      ['pression', 'placement'],
+    ])
+    expect(historique[1]).toMatchObject({ issue: 'joueuse', points: 2, flow: true })
+    expect(etatDuel(historique).scoreJoueuse).toBe(3)
+  })
+
+  it('ne rapporte rien à un Clash, et arme la manche suivante', () => {
+    const historique = duel([['contre', 'contre']])
+    expect(historique[0]).toMatchObject({ issue: 'clash', points: 0 })
+    expect(etatDuel(historique)).toMatchObject({
+      scoreJoueuse: 0,
+      scoreAdversaire: 0,
+      bonusClashActif: true,
+    })
+  })
+
+  it('paie 2 points la manche décisive qui suit un Clash', () => {
+    const historique = duel([
+      ['contre', 'contre'],
+      ['pression', 'feinte'],
+    ])
+    expect(historique[1]).toMatchObject({ points: 2, flow: false, bonusClash: true })
+  })
+
+  /**
+   * Le plafond explicite du document : « If the next decisive winner also
+   * completes a Flow, the exchange is still worth 2—not 4. »
+   */
+  it('plafonne à 2 une victoire Flow qui suit un Clash', () => {
+    const historique = duel([
+      ['garde', 'pression'], // la joueuse gagne avec Garde : son Flow devient Pression
+      ['garde', 'garde'], // Clash sur Garde : le Flow tient, la suivante vaut 2…
+      ['pression', 'placement'], // …et c'est justement son Flow. 2, pas 4.
+    ])
+    expect(historique[2]).toMatchObject({ points: 2, flow: true, bonusClash: true })
+    expect(etatDuel(historique).scoreJoueuse).toBe(3)
+  })
+
+  it('ne cumule pas deux Clash d’affilée au-delà de 2', () => {
+    const historique = duel([
+      ['garde', 'garde'],
+      ['contre', 'contre'],
+      ['pression', 'feinte'],
+    ])
+    expect(historique[2]?.points).toBe(2)
+  })
+
+  /** Un Clash met bien les deux camps sur la même action précédente : l'état « Miroir ». */
+  it('inscrit l’action jouée comme précédente, Clash compris', () => {
+    const etat = etatDuel(duel([['feinte', 'feinte']]))
+    expect(etat.precedenteJoueuse).toBe('feinte')
+    expect(etat.precedenteAdversaire).toBe('feinte')
+    expect(flowDe(etat.precedenteJoueuse)).toBe(flowDe(etat.precedenteAdversaire))
+  })
+
+  it('accorde le Flow à la gagnante, jamais à la perdante', () => {
+    // L'adversaire gagne la manche 1 avec Placement, son Flow devient Contre ;
+    // il le complète en manche 2. La joueuse, elle, ne marque rien.
+    const historique = duel([
+      ['contre', 'placement'],
+      ['garde', 'contre'],
+    ])
+    expect(historique[1]).toMatchObject({ issue: 'adversaire', points: 2, flow: true })
+    expect(etatDuel(historique)).toMatchObject({ scoreJoueuse: 0, scoreAdversaire: 3 })
+  })
+})
+
+describe('Combat rapide — fin du duel', () => {
+  it('laisse le duel courir tant que rien n’est joué', () => {
+    expect(issueDuel([])).toBeNull()
+  })
+
+  it('donne la victoire immédiate à qui atteint l’objectif', () => {
+    const historique = duel([
+      ['garde', 'pression'], // victoire simple : 1
+      ['pression', 'placement'], // Flow complété : +2 = 3
+      ['placement', 'contre'], // victoire simple : +1 = 4
+    ])
+    expect(etatDuel(historique).scoreJoueuse).toBe(OBJECTIF_POINTS)
+    expect(issueDuel(historique)).toEqual({
+      kind: 'victoire',
+      vainqueur: 'joueuse',
+      motif: 'objectif',
+    })
+  })
+
+  it('tranche au meilleur score après la cinquième manche', () => {
+    const historique = duel([
+      ['pression', 'feinte'], // joueuse +1
+      ['garde', 'garde'], // clash
+      ['contre', 'pression'], // joueuse +2 (bonus clash)
+      ['garde', 'placement'], // adversaire +1
+      ['pression', 'garde'], // adversaire +1
+    ])
+    expect(historique).toHaveLength(MANCHES_MAX)
+    expect(etatDuel(historique)).toMatchObject({ scoreJoueuse: 3, scoreAdversaire: 2 })
+    expect(issueDuel(historique)).toEqual({
+      kind: 'victoire',
+      vainqueur: 'joueuse',
+      motif: 'points',
+    })
+  })
+
+  it('départage une égalité par la dernière manche marquée', () => {
+    const historique = duel([
+      ['pression', 'feinte'], // joueuse +1
+      ['contre', 'garde'], // joueuse +1 → 2
+      ['placement', 'feinte'], // adversaire +1
+      ['pression', 'garde'], // adversaire +1 → 2, et c'est la dernière marquée
+      ['contre', 'contre'], // clash : le score reste à égalité
+    ])
+    expect(etatDuel(historique)).toMatchObject({ scoreJoueuse: 2, scoreAdversaire: 2 })
+    expect(issueDuel(historique)).toEqual({
+      kind: 'victoire',
+      vainqueur: 'adversaire',
+      motif: 'derniere-marque',
+    })
+  })
+
+  it('rend le statu quo quand personne n’a marqué', () => {
+    const historique = duel([
+      ['pression', 'pression'],
+      ['feinte', 'feinte'],
+      ['placement', 'placement'],
+      ['contre', 'contre'],
+      ['garde', 'garde'],
+    ])
+    expect(etatDuel(historique)).toMatchObject({ scoreJoueuse: 0, scoreAdversaire: 0 })
+    expect(issueDuel(historique)).toEqual({ kind: 'statu-quo' })
+  })
+})
+
+describe('Combat rapide — le motif du PNJ', () => {
+  it('répète le motif d’une manche à l’autre', () => {
+    const motif: ActionDuel[] = ['garde', 'pression', 'feinte']
+    expect([1, 2, 3, 4, 5].map((m) => actionScriptee(motif, m))).toEqual([
+      'garde',
+      'pression',
+      'feinte',
+      'garde',
+      'pression',
+    ])
+  })
+
+  it('tient sur un motif d’une seule action', () => {
+    expect(actionScriptee(['contre'], 4)).toBe('contre')
+  })
+
+  it('refuse un motif vide plutôt que d’inventer une action', () => {
+    expect(() => actionScriptee([], 1)).toThrow()
   })
 })

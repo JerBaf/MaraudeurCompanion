@@ -10,6 +10,7 @@ import { EditeurCatalogue } from './EditeurCatalogue.tsx'
 import { Inventaire } from './Inventaire.tsx'
 import { PanneauCampfire } from './PanneauCampfire.tsx'
 import { PanneauCombat } from './PanneauCombat.tsx'
+import { PanneauDuel } from './PanneauDuel.tsx'
 import {
   amorcerSiNecessaire,
   definirMode,
@@ -67,11 +68,12 @@ interface Props {
   onDeconnexion: () => void
 }
 
-type Onglet = 'table' | 'combat' | 'camp' | 'journal' | 'reglages'
+type Onglet = 'table' | 'combat' | 'duel' | 'camp' | 'journal' | 'reglages'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   table: 'Table',
   combat: 'Combat',
+  duel: 'Combat rapide',
   camp: 'Feu de camp',
   journal: 'Journal',
   reglages: 'Réglages',
@@ -84,11 +86,12 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
   const selection = personnages.find((c) => c.id === selectionId) ?? null
 
   // L'onglet Combat n'apparaît qu'en mode Combat : hors affrontement, il n'a
-  // rien à montrer et encombrerait la barre.
+  // rien à montrer et encombrerait la barre. Combat rapide, lui, reste visible
+  // comme le Feu de camp — c'est là qu'on prépare le duel avant de le lancer.
   const onglets: Onglet[] =
     etat?.mode === 'combat'
-      ? ['table', 'combat', 'camp', 'journal', 'reglages']
-      : ['table', 'camp', 'journal', 'reglages']
+      ? ['table', 'combat', 'duel', 'camp', 'journal', 'reglages']
+      : ['table', 'duel', 'camp', 'journal', 'reglages']
 
   const ongletActif = onglets.includes(onglet) ? onglet : 'table'
 
@@ -137,6 +140,10 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
 
         {ongletActif === 'combat' && etat && (
           <PanneauCombat etat={etat} personnages={personnages} adversaires={adversaires} />
+        )}
+
+        {ongletActif === 'duel' && etat && (
+          <PanneauDuel etat={etat} personnages={personnages} />
         )}
 
         {ongletActif === 'camp' && etat && (

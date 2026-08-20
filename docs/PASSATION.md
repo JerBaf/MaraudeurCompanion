@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 173 tests — 145 de domaine, 28 de rendu |
+| `npm test` | 200 tests — 169 de domaine, 31 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -37,6 +37,10 @@ combat complet (initiative, adversaires, dégâts partagés, actions alternative
 feu de camp (cinq phases au camp initial, trois au repos court), bestiaire, éditeur de
 catalogue.
 
+S'y ajoute le **Combat rapide** — le duel « Flow » de
+`docs/Flow_v0.3_Playtest_Rules.docx` : un quatrième mode de table, cinq actions en anneau,
+cinq manches, sans dés. Voir § 10.
+
 ### Ce qui reste
 
 - **Le contenu.** Le catalogue ne contient que quelques exemples. La MJ doit saisir ses
@@ -47,8 +51,9 @@ catalogue.
   veut à terme des dessins style Moebius/Ghibli ; déposer un fichier de même nom dans
   `public/icons/` suffit — le script n'écrase jamais un fichier existant.
 - **Les upgrades annoncées** dans `Guidelines.pdf`, non commencées : nouvelles classes,
-  QTE (mini-jeux poussés sur l'écran d'une joueuse), combat rapide type
-  pierre-feuille-ciseau. Le champ `EtatTable.overlay` existe pour les accueillir.
+  et les QTE (mini-jeux poussés sur l'écran d'une joueuse). Le champ `EtatTable.overlay`
+  les attend toujours — le combat rapide, lui, ne s'en sert pas, et pour une raison qui
+  vaut sans doute aussi pour les QTE : voir le piège n° 11.
 
 ---
 
@@ -166,21 +171,23 @@ refusé aux joueuses par les règles.
 
 ```
 /tables/entre-monde/
-  state/current              public  mode · combat · campfireId · sessionId · overlay
+  state/current              public  mode · combat · campfireId · duelId · sessionId · overlay
   characters/{id}            public  la fiche — tout ce que les joueuses peuvent voir
   adversaries/{id}           public  nom · evasion · evasionPublique · degatsSubis · icone
   catalog/{id}               public  classes, sorts, équipements, améliorations, investissements
+  duels/{id}                 public  le duel en cours — la joueuse n'y écrit que `choixJoueuse`
   campfires/{id}             lecture publique, écriture MJ — un camp LANCÉ : phase · brief · offres
   sessions/{id}              lecture publique, écriture MJ — numero · ouverteLe
 
   secrets/{characterId}      🔒 MJ   cyclesTotal · cyclesConsommes · notesMJ
   secrets/adversaires        🔒 MJ   seuils de Fatigue des adversaires en jeu
   secrets/campfire-brouillon 🔒 MJ   le camp EN PRÉPARATION
+  secrets/duel               🔒 MJ   préparation du duel, et le MOTIF du PNJ
   bestiary/{id}              🔒 MJ   modèles de créatures : évasion, seuil
   log/{id}                   🔒 MJ   journal — écriture ouverte, lecture réservée
 ```
 
-Quatre secrets, quatre raisons :
+Cinq secrets, cinq raisons :
 
 - **Les cycles** (`1d4+2`, combien de vies reste-t-il) : le PDF insiste, la joueuse ne
   doit *jamais* les connaître. Ils ne transitent même pas par son appareil — la MJ les
@@ -193,6 +200,10 @@ Quatre secrets, quatre raisons :
 - **Le brouillon de camp** : les joueuses lisent toute la collection `campfires`. Y
   écrire une préparation leur livrerait le brief et les offres avant l'annonce.
   **Lancer un camp, c'est publier le brouillon.**
+- **Le motif du duel** : la suite d'actions que le PNJ répète. Un duel dont le motif est
+  lisible est un duel déjà résolu — c'est toute la tension du jeu qui disparaît. Il reste
+  dans `secrets/` **pendant** le duel, et pas seulement avant : lancer un duel, c'est
+  publier la moitié que les joueuses ont le droit de voir.
 
 ### Authentification
 
@@ -262,6 +273,12 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Offres de boutique | tirage assisté que la MJ ajuste | 3 offres × 5 joueuses = trop de choix manuels |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |
 | Écran MJ pendant le camp | **miroir** de l'écran d'une joueuse, actions neutralisées, contrôles d'édition à leur place | un seul rendu à maintenir ; permet de retoucher brief et offres camp lancé |
+| Combat rapide | un **quatrième mode de table**, pas un overlay | la MJ le lance comme un Combat ; il ouvre un onglet et se termine explicitement — voir piège n° 11 |
+| Action du PNJ | **motif secret** préparé avant le lancement, répété par l'app ; remplacement possible entre deux manches | le doc de playtest veut un motif lisible à la longue, donc conditionnable ; le remplacement en direct resterait invérifiable |
+| Conséquences du duel | **aucune sur les fiches** — l'issue est narrative | le doc l'exige : « Do not add yet … character-sheet bonuses » |
+| Noms des actions | **français** : Pression · Feinte · Placement · Contre · Garde | cohérent avec le reste de l'app, et lisible en une seconde sur un téléphone |
+| Joueuses non-duellistes | **spectatrices** : le plateau sans aucun bouton | le duel est un moment de table ; le rendu en lecture seule est le même composant |
+| Chrono | il **verrouille la sélection en cours**, l'action par défaut seulement si rien n'est préparé | un choix irréversible ne doit pas tenir à un doigt qui glisse |
 
 ### Les passifs réactifs passent par un point unique
 
@@ -419,7 +436,42 @@ une entrée. Ne réintroduisez pas d'énumération exclusive.
 - le seuil de Fatigue d'un adversaire (`instancierAdversaire` ne le recopie pas — un test
   le vérifie sur le JSON réellement écrit) ;
 - le nombre de cycles (`creerPersonnage` ne le produit même pas) ;
-- le brief et les offres d'un camp non lancé.
+- le brief et les offres d'un camp non lancé ;
+- **le motif du PNJ en combat rapide** (`lancerDuel` ne recopie que la moitié publique —
+  un test le vérifie sur le JSON réellement écrit).
+
+#### Piège n° 9 : une sélection tentative ne doit pas quitter l'appareil
+
+En duel, la joueuse *prépare* une action avant de la *verrouiller*. Seul le choix
+verrouillé est écrit ; la préparation vit en `useState`. L'écrire au premier appui
+livrerait ses hésitations à la MJ, qui lit le document — la même raison qui garde le
+nombre de cycles hors de son navigateur.
+
+Corollaire : **c'est le téléphone de la duelliste qui verrouille à l'expiration du
+chrono**, puisque lui seul connaît la sélection. L'écran MJ n'arbitre qu'en filet, après
+un délai de grâce, au cas où l'appareil ne répondrait plus.
+
+#### Piège n° 10 : l'arbitre du duel est l'écran MJ, et il ne doit résoudre qu'une fois
+
+Seul l'écran MJ peut lire le motif, donc seul lui peut résoudre une manche. L'`useEffect`
+qui le fait (`useArbitrage`, `PanneauDuel.tsx`) est gardé par une `ref` indexée sur le
+nombre de manches jouées : sans elle, un re-rendu survenant entre l'écriture et son écho
+résoudrait la manche deux fois. Le chrono de la joueuse est gardé de la même façon, par
+une `ref` et une `key` qui remonte le composant à chaque manche.
+
+Conséquence assumée : si la MJ quitte l'onglet pendant une manche, rien ne se résout tant
+qu'elle n'y revient pas — et à son retour tout se rattrape d'un coup.
+
+#### Piège n° 11 : `EtatTable.overlay` ne convient pas à un mini-jeu où la joueuse agit
+
+C'était pourtant sa raison d'être annoncée. Deux obstacles, tous deux dans
+`firebase/firestore.rules` : les joueuses ne peuvent écrire dans `state/` que le champ
+`combat`, donc elles ne pourraient pas y déposer leur choix ; et `state/current` est
+**public**, donc y ranger le motif du PNJ le révélerait.
+
+Le duel a donc sa propre collection — publique pour ce qui se voit, `secrets/` pour ce qui
+se cache. Un QTE qui demande une action à la joueuse rencontrera exactement les deux mêmes
+murs ; `overlay` reste utilisable pour ce qu'on ne fait que *pousser* vers un écran.
 
 ### 6.3 Pièges techniques
 
@@ -528,6 +580,69 @@ le droit d'écrire**.
 2. `npm install && npm run dev`, deux onglets **du même navigateur** (MJ, PIN `1234` ;
    joueuse, code `ENTREMONDE`). Connectez-vous **en MJ d'abord** : le catalogue s'installe
    à ce moment-là.
-3. Parcourez `src/domain/rules.test.ts` — 104 tests qui décrivent le système mieux que
+3. Parcourez `src/domain/rules.test.ts` — 169 tests qui décrivent le système mieux que
    n'importe quelle prose.
 4. Demandez à la MJ ce qu'elle veut, et posez-lui vos questions avant de coder.
+
+---
+
+## 10. Le Combat rapide — le duel « Flow »
+
+Règle de référence : `docs/Flow_v0.3_Playtest_Rules.docx`. Un duel 1 contre 1 entre une
+joueuse et un PNJ, sans dés, en cinq manches au plus. Chaque manche, les deux choisissent
+en secret parmi cinq actions ; on révèle simultanément.
+
+### L'anneau est toute la règle
+
+`ACTIONS_DUEL` (`domain/types.ts`) déclare les cinq actions **dans l'ordre de l'anneau**, et
+tout le reste s'en déduit par un décalage d'index (`domain/duel.ts`) :
+
+| | Définition | Sens de jeu |
+|---|---|---|
+| `bat(a)` | `i+1`, `i+2` | chaque action bat les deux suivantes |
+| `flowDe(prec)` | `i+1` | la menace visible, qui vaut 2 points si elle gagne |
+| `briseFlow(prec)` | `prec` | rejouer sa propre action coupe le Flow adverse |
+| `appatDe(prec)` | `i+3` | abandonner son Flow pour punir ce réflexe |
+
+⚠️ **Ne réintroduisez pas de table de résolution écrite à la main.** Le pentagone affiché
+(`components/Pentagone.tsx`) se dessine des mêmes index : une table recopiée finirait par
+contredire le dessin. Réordonner `ACTIONS_DUEL` change le jeu ; y insérer une action met
+tout à jour d'un coup, écran compris.
+
+De cet alignement naît un **second pierre-feuille-ciseau** que rien n'a codé :
+Anti-Flow bat Flow · Appât bat Anti-Flow · Flow bat Appât. Un test le vérifie pour les cinq
+états plutôt que de le décrire.
+
+### Ce qui est stocké, et ce qui se dérive
+
+`Duel.historique` porte les manches révélées, **et rien d'autre**. Score, actions
+précédentes et bonus de Clash se recalculent par `etatDuel(historique)` : c'est ce qui
+permet aux trois écrans — duelliste, spectatrices, MJ — de se rendre depuis la même source
+sans risque de divergence.
+
+Barème, en une ligne : `points = flow || bonusClash ? 2 : 1`. Une manche ne vaut **jamais**
+plus de 2 — le document plafonne explicitement une victoire Flow qui suit un Clash.
+
+### Qui écrit quoi
+
+```
+joueuse   →  duels/{id}.choixJoueuse   (et rien d'autre : hasOnly, dans les règles)
+MJ        →  tout le reste, et elle seule arbitre — seule à pouvoir lire le motif
+```
+
+Le cycle d'une manche : la MJ **ouvre** la manche (le chrono démarre) → la duelliste
+prépare puis verrouille sur son téléphone → l'écran MJ **révèle**. Voir les pièges n° 9
+et n° 10 : la sélection tentative reste sur l'appareil, et une manche ne doit être résolue
+qu'une fois.
+
+### Le plateau
+
+Un seul composant pour les trois écrans. Le contour du pentagone porte le sens du Flow
+(avec ses pointes), les diagonales complètent la relation « bat » : les dix relations du
+jeu sont donc **dans le dessin**, ce que le document demande explicitement (apprendre
+l'anneau en moins de deux minutes). Toucher une action allume en vert ce qu'elle bat, en
+rouge ce qui la bat. Sans `onChoisir`, le plateau est en lecture seule.
+
+Les sommets sont de vrais `<button>` HTML posés par-dessus le SVG — cible tactile, focus
+natif, texte à la taille système. Tout est en pourcentage du conteneur, donc la figure
+tient à toutes les largeurs sans média-requête.

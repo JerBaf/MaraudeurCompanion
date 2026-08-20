@@ -881,3 +881,200 @@ describe('parcours de création', () => {
     expect(connus?.textContent).toContain('Miracle')
   })
 })
+
+// ---------------------------------------------------------------------------
+
+describe('Combat rapide', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  /** Amorce la table, puis crée les personnages demandés en une seule session. */
+  async function tableAvec(noms: string[]) {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+    )
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    for (const nom of noms) {
+      fireEvent.click(await screen.findByText('Créer un personnage'))
+      fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: nom } })
+      fireEvent.click(await screen.findByText('Dusk Hunter'))
+      fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+      fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+      await waitFor(() => expect(screen.getByText(nom)).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Changer de personnage' }))
+    }
+    cleanup()
+  }
+
+  /** Compose et lance un duel depuis l'écran MJ. Laisse cet écran monté. */
+  async function lancerDuelMJ(motif: string[]) {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat rapide' }))
+    fireEvent.click(await screen.findByText('Préparer un combat rapide'))
+
+    fireEvent.change(await screen.findByPlaceholderText('Carcasse'), {
+      target: { value: 'Carcasse' },
+    })
+
+    const bloc = (await screen.findByText(/Motif de l'adversaire/)).closest('section')
+    for (const action of motif) {
+      fireEvent.click(within(bloc as HTMLElement).getByRole('button', { name: action }))
+    }
+
+    fireEvent.click(await screen.findByText('Lancer le combat rapide'))
+    await waitFor(() => expect(screen.getByText(/Ouvrir la manche 1/)).toBeTruthy())
+  }
+
+  /**
+   * Monte l'écran joueuse sur l'onglet du duel. `nom` n'est utile qu'au premier
+   * passage : ensuite l'appareil retrouve tout seul la fiche qu'il a réclamée.
+   */
+  async function jouerLeDuel(nom?: string) {
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    if (nom) fireEvent.click(await screen.findByText(nom))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat rapide' }))
+  }
+
+  /**
+   * Le pendant, pour le duel, du test qui garde le seuil de Fatigue des
+   * adversaires : on n'assure pas le secret en regardant l'écran — les cinq
+   * actions y sont toutes affichées, forcément — mais en relisant le document
+   * réellement écrit.
+   */
+  it('garde le motif du PNJ hors du document que les joueuses lisent', async () => {
+    await tableAvec(['Ilma'])
+    await lancerDuelMJ(['Pression', 'Feinte'])
+
+    const clePublique = clesStockage().find((k) => k.includes('/duels/'))
+    const cleSecrete = clesStockage().find((k) => k.includes('/secrets/duel'))
+    expect(clePublique).toBeDefined()
+    expect(cleSecrete).toBeDefined()
+
+    const publique = localStorage.getItem(clePublique as string) as string
+    expect(publique).not.toContain('motif')
+    expect(publique).not.toContain('override')
+    // Le motif choisi évite volontairement l'action par défaut, qui elle est
+    // publique : la joueuse doit savoir ce qui se joue si son chrono expire.
+    expect(publique).not.toContain('pression')
+    expect(publique).not.toContain('feinte')
+    expect(publique).toContain('"actionParDefaut":"garde"')
+
+    // …et il est bien quelque part, dans le document refusé aux joueuses.
+    expect(localStorage.getItem(cleSecrete as string)).toContain('pression')
+  })
+
+  it('résout la manche que la duelliste verrouille, et fait monter le score', async () => {
+    await tableAvec(['Ilma'])
+    await lancerDuelMJ(['Garde'])
+
+    fireEvent.click(screen.getByText(/Ouvrir la manche 1/))
+    await waitFor(() => expect(screen.getByText(/Ilma choisit/)).toBeTruthy())
+    cleanup()
+
+    // --- La duelliste prépare, puis verrouille ---
+    await jouerLeDuel('Ilma')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Contre' }))
+    // Un premier appui ne fait que préparer : rien n'est encore parti.
+    expect(screen.getByText('Verrouiller Contre')).toBeTruthy()
+    const cleDuel = clesStockage().find((k) => k.includes('/duels/')) as string
+    expect(localStorage.getItem(cleDuel)).toContain('"choixJoueuse":null')
+
+    fireEvent.click(screen.getByText('Verrouiller Contre'))
+    await waitFor(() => expect(screen.getByText(/verrouillée/)).toBeTruthy())
+    cleanup()
+
+    // --- La MJ est le seul écran qui puisse lire le motif, donc arbitrer ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Combat rapide' }))
+
+    // Contre bat Garde : la duelliste marque 1 point (pas de Flow en manche 1).
+    await waitFor(() => expect(screen.getAllByText(/Ilma marque 1/).length).toBeGreaterThan(0))
+    expect(screen.getByText(/Ouvrir la manche 2/)).toBeTruthy()
+    cleanup()
+
+    // --- Et la duelliste voit le résultat arriver sur son écran ---
+    await jouerLeDuel()
+    await waitFor(() => expect(screen.getAllByText(/Vous marque 1/).length).toBeGreaterThan(0))
+    expect(screen.getByLabelText('1 point(s)')).toBeTruthy()
+  })
+
+  /**
+   * On ne fige que `Date` : `setInterval` reste réel, si bien que le battement
+   * du chrono continue de tourner pendant qu'on avance l'horloge.
+   */
+  async function laisserExpirerLeChrono() {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 60_000)
+  }
+
+  it('verrouille la sélection en cours quand le chrono expire', async () => {
+    await tableAvec(['Ilma'])
+    await lancerDuelMJ(['Garde'])
+    fireEvent.click(screen.getByText(/Ouvrir la manche 1/))
+    await waitFor(() => expect(screen.getByText(/Ilma choisit/)).toBeTruthy())
+    cleanup()
+
+    await jouerLeDuel('Ilma')
+    // Préparée sans être verrouillée : c'est elle que le chrono doit engager,
+    // et non l'action par défaut. Un doigt posé ne doit pas être perdu.
+    fireEvent.click(await screen.findByRole('button', { name: 'Contre' }))
+
+    const cleDuel = clesStockage().find((k) => k.includes('/duels/')) as string
+    expect(localStorage.getItem(cleDuel)).toContain('"choixJoueuse":null')
+
+    await laisserExpirerLeChrono()
+    await waitFor(() => expect(screen.getByText(/Contre verrouillée/)).toBeTruthy())
+    expect(localStorage.getItem(cleDuel)).toContain('"choixJoueuse":"contre"')
+  })
+
+  it('joue l’action par défaut quand le chrono expire sans rien de préparé', async () => {
+    await tableAvec(['Ilma'])
+    await lancerDuelMJ(['Pression'])
+    fireEvent.click(screen.getByText(/Ouvrir la manche 1/))
+    await waitFor(() => expect(screen.getByText(/Ilma choisit/)).toBeTruthy())
+    cleanup()
+
+    await jouerLeDuel('Ilma')
+    await screen.findByText(/Touchez une action/)
+
+    await laisserExpirerLeChrono()
+    // Rien n'a été touché : la Garde, repli par défaut, part à sa place.
+    await waitFor(() => expect(screen.getByText(/Garde verrouillée/)).toBeTruthy())
+    const cleDuel = clesStockage().find((k) => k.includes('/duels/')) as string
+    expect(localStorage.getItem(cleDuel)).toContain('"choixJoueuse":"garde"')
+  })
+
+  it('montre le plateau aux autres joueuses, sans leur donner de choix', async () => {
+    await tableAvec(['Ilma', 'Maya'])
+    await lancerDuelMJ(['Garde'])
+    fireEvent.click(screen.getByText(/Ouvrir la manche 1/))
+    await waitFor(() => expect(screen.getByText(/Ilma choisit/)).toBeTruthy())
+    cleanup()
+
+    // C'est Ilma qui se bat — le duel vise la première fiche par ordre alphabétique.
+    await jouerLeDuel('Maya')
+
+    expect(await screen.findByText(/Ilma affronte Carcasse/)).toBeTruthy()
+    // Le plateau est là, mais aucune des cinq actions n'est cliquable.
+    expect(screen.getByText('Contre')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Contre' })).toBeNull()
+    expect(screen.queryByText(/Verrouiller/)).toBeNull()
+  })
+})

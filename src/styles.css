@@ -1080,6 +1080,245 @@ textarea {
   }
 }
 
+/* --------------------------------------------------------------------------
+   Combat rapide — le plateau
+
+   Le dessin porte la règle : le contour du pentagone est le sens du Flow, les
+   diagonales sont l'autre moitié de la relation « bat ». Les sommets sont de
+   vrais boutons HTML posés par-dessus le SVG — ils gardent ainsi une cible
+   tactile généreuse, le focus natif et un texte qui suit la taille système.
+   -------------------------------------------------------------------------- */
+
+.pentagone {
+  position: relative;
+  width: min(88vw, 360px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  flex: none;
+}
+
+.pentagone__figure {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.pentagone__lien line {
+  stroke: var(--encre-4);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  transition: stroke 120ms ease, stroke-width 120ms ease;
+}
+
+.pentagone__lien polygon {
+  fill: var(--encre-4);
+  transition: fill 120ms ease;
+}
+
+/* L'anneau — le contour — porte le sens du Flow : c'est lui qu'on doit voir en
+   premier. Les diagonales complètent la relation « bat » sans se battre avec. */
+.pentagone__lien--anneau line {
+  stroke-width: 1.1;
+}
+
+.pentagone__lien--diagonale line {
+  stroke-opacity: 0.45;
+}
+
+/* Ce que l'action sélectionnée bat, et ce qui la bat. */
+.pentagone__lien--gagne line {
+  stroke: var(--vert);
+  stroke-width: 1.5;
+}
+.pentagone__lien--gagne polygon {
+  fill: var(--vert);
+}
+.pentagone__lien--perd line {
+  stroke: var(--sang);
+  stroke-width: 1.5;
+}
+.pentagone__lien--perd polygon {
+  fill: var(--sang);
+}
+
+.pentagone__sommet {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 27%;
+  min-height: var(--touche);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 2px;
+  border-radius: var(--rayon-l);
+  border: 1px solid var(--encre-4);
+  background: var(--encre-2);
+  color: var(--parchemin);
+  text-align: center;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.pentagone__nom {
+  font-family: var(--serif);
+  font-size: 0.72rem;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+
+.pentagone__revele {
+  font-size: 0.6rem;
+  color: var(--ambre);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+button.pentagone__sommet:hover {
+  border-color: var(--ambre-sourd);
+}
+
+/* Le Flow de la duelliste : la menace à 2 points, en or. */
+.pentagone__sommet--flow {
+  border-color: var(--ambre);
+  box-shadow: 0 0 0 3px rgb(224 164 76 / 0.22);
+}
+
+/* Le Flow que menace le PNJ. Les deux peuvent tomber sur le même sommet. */
+.pentagone__sommet--menace {
+  border-color: var(--sang);
+}
+.pentagone__sommet--flow.pentagone__sommet--menace {
+  border-color: var(--ambre);
+  box-shadow:
+    0 0 0 3px rgb(224 164 76 / 0.22),
+    0 0 0 5px rgb(200 85 61 / 0.55);
+}
+
+.pentagone__sommet--choisi {
+  background: var(--encre-4);
+  border-color: var(--ambre-vif);
+  box-shadow: 0 0 0 3px rgb(245 192 105 / 0.3);
+}
+
+.pentagone__centre {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 38%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Le chrono : gros chiffre au centre de la figure, rouge sur la fin. */
+.chrono {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--ambre-vif);
+}
+
+.chrono--urgent {
+  color: var(--sang-vif);
+}
+
+/* Le score : une pastille par point, jusqu'à l'objectif. */
+.score-duel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score-duel__nom {
+  font-family: var(--serif);
+  font-size: 0.95rem;
+}
+
+.score-duel__points {
+  display: flex;
+  gap: 4px;
+}
+
+.score-duel__point {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--encre-4);
+  background: var(--encre);
+}
+
+.score-duel__point--pleine {
+  background: var(--ambre);
+  border-color: var(--ambre);
+}
+
+/* Une manche de l'historique, révélée. */
+.manche {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--rayon);
+  border: var(--bordure);
+  background: var(--encre-2);
+}
+
+.manche--joueuse {
+  border-left: 3px solid var(--ambre);
+}
+.manche--adversaire {
+  border-left: 3px solid var(--sang);
+}
+.manche--clash {
+  border-left: 3px solid var(--oblivion);
+}
+
+.manche__numero {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--parchemin-faible);
+  min-width: 22px;
+}
+
+.manche__corps {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Le motif du PNJ, sur l'écran MJ seulement. */
+.motif {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.motif__pas {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--encre-4);
+  background: var(--encre);
+  font-size: 0.82rem;
+}
+
+.motif__pas--prochain {
+  border-color: var(--ambre);
+  color: var(--ambre-vif);
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
