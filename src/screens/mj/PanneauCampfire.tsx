@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 import { Icone } from '../../components/Icone.tsx'
 import {
   abandonnerBrouillon,
+  creerBrouillonPourSession,
   definirPhase,
   enregistrerBrouillon,
   lancerCampfire,
-  nouveauBrouillon,
   ouvrirSession,
   surBrouillonCampfire,
   surCampfire,
@@ -102,6 +102,17 @@ function Ouverture({
   const [enCours, setEnCours] = useState(false)
 
   async function ouvrir() {
+    // Ouvrir une session verse les revenus et tire les risques : le faire deux
+    // fois paierait deux fois les loyers. On confirme dès qu'une session existe.
+    if (
+      session &&
+      !confirm(
+        `La session ${session.numero} est déjà ouverte. En ouvrir une nouvelle versera à nouveau les revenus d'investissement et retirera les risques. Continuer ?`,
+      )
+    ) {
+      return
+    }
+
     setEnCours(true)
     try {
       onBilan(await ouvrirSession(etat, personnages))
@@ -181,9 +192,10 @@ function Preparation({
   const investissements = catalog.investissements()
 
   function creer() {
-    // Le premier camp d'une session ouvre la Banque.
-    const premier = etat.campfireId === null && etat.jour === 1
-    void enregistrerBrouillon(nouveauBrouillon(session.numero, premier))
+    // La Banque s'ouvre au premier camp de chaque session — c'est
+    // `creerBrouillonPourSession` qui le détermine, en regardant les camps déjà
+    // lancés plutôt que le numéro de journée.
+    void creerBrouillonPourSession(session.numero).then(enregistrerBrouillon)
   }
 
   if (!brouillon) {

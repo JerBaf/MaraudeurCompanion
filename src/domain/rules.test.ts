@@ -26,6 +26,7 @@ import {
   creerPersonnage,
   cyclesNonRenseignes,
   maitrisesSuiventLeProfil,
+  normaliserPersonnage,
   secretVierge,
 } from './character.ts'
 import {
@@ -897,6 +898,70 @@ describe('effets actifs', () => {
     const effet = effetsActifs(porte, catalog).find((e) => e.nom === 'Cuirasse usée')
     expect(effet?.origine).toBe('equipement')
     expect(effet?.resume).toContain('Évasion : +1')
+  })
+})
+
+describe('normalisation des fiches lues en base', () => {
+  /**
+   * Régression : `investissements` a été ajouté au lot 3, mais les fiches déjà
+   * écrites ne le contenaient pas — « Ouvrir une nouvelle session » levait une
+   * erreur. Troisième occurrence de la même cause, d'où la normalisation unique
+   * plutôt qu'un `?? []` par site d'appel.
+   */
+  it('comble les champs absents d’une fiche antérieure', () => {
+    // Ce qu'un vieux document Firestore contient réellement.
+    const ancienne = {
+      id: 'x',
+      nom: 'Ilma',
+      classeId: 'trickster',
+      avatarSeed: 'x:Ilma',
+      maitrises: { physique: 2, roublardise: 2, esprit: 0, social: -2 },
+      fatigue: { max: 4, coches: 1 },
+      brulures: 0,
+      foi: 2,
+      marques: 0,
+      sixthSensBase: 1,
+      sixthSensUtilises: 0,
+      lumens: 40,
+      actionsRapidesUtilisees: 0,
+      equipe: { arme: null, armure: null, bibelot: null },
+      grimoire: ['polymorph'],
+      possede: { sorts: ['polymorph'], equipements: [], ameliorations: [] },
+      sortsEpuises: [],
+      cicatrices: [],
+      passifs: {},
+      modifiers: [],
+      claimedBy: null,
+      createdAt: 0,
+      updatedAt: 0,
+    } as unknown as Character
+
+    const normalisee = normaliserPersonnage(ancienne)
+    expect(normalisee.investissements).toEqual([])
+    // Et rien d'existant n'est écrasé au passage.
+    expect(normalisee.lumens).toBe(40)
+    expect(normalisee.grimoire).toEqual(['polymorph'])
+  })
+
+  it('ne fait plus lever l’ouverture de session sur une fiche antérieure', () => {
+    const sansChamp = { ...nouveauPerso('trickster') } as Character
+    delete (sansChamp as { investissements?: unknown }).investissements
+
+    // Avant le correctif, cette ligne levait un TypeError.
+    expect(() => resoudreInvestissements(sansChamp, catalog, 2, seededRng(1))).toThrow()
+    expect(() =>
+      resoudreInvestissements(normaliserPersonnage(sansChamp), catalog, 2, seededRng(1)),
+    ).not.toThrow()
+  })
+
+  it('survit à une fiche presque vide', () => {
+    const minimale = { id: 'y', nom: 'Test', classeId: 'trickster' } as unknown as Character
+    const normalisee = normaliserPersonnage(minimale)
+
+    expect(normalisee.possede.sorts).toEqual([])
+    expect(normalisee.equipe.armure).toBeNull()
+    expect(normalisee.modifiers).toEqual([])
+    expect(() => computeEvasion(normalisee, catalog)).not.toThrow()
   })
 })
 

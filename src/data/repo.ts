@@ -8,7 +8,7 @@ import {
 } from '../domain/campfire.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
 import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
-import { creerPersonnage, type DemandeCreation } from '../domain/character.ts'
+import { creerPersonnage, normaliserPersonnage, type DemandeCreation } from '../domain/character.ts'
 import { effectuerDetachement, type ElementDetachable } from '../domain/fatigue.ts'
 import { expireModifiers, type EvenementExpiration } from '../domain/modifiers.ts'
 import { cryptoRng } from '../domain/random.ts'
@@ -111,8 +111,17 @@ export async function reinitialiserCatalogue(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export const surEtat = (cb: (e: EtatTable | null) => void) => store.subscribeDoc<EtatTable>(chemins.etat, cb)
+/**
+ * Seul chemin par lequel une fiche entre dans l'application.
+ *
+ * La normalisation y est appliquée une fois pour toutes : les fiches écrites
+ * avant l'ajout d'un champ n'en contiennent pas, et les écrans ne doivent pas
+ * avoir à s'en méfier. Voir `normaliserPersonnage`.
+ */
 export const surPersonnages = (cb: (c: Character[]) => void) =>
-  store.subscribeCollection<Character>(chemins.personnages, cb)
+  store.subscribeCollection<Character>(chemins.personnages, (bruts) =>
+    cb(bruts.map(normaliserPersonnage)),
+  )
 export const surAdversaires = (cb: (a: Adversaire[]) => void) =>
   store.subscribeCollection<Adversaire>(chemins.adversaires, cb)
 export const surCatalogue = (cb: (c: Catalog) => void) =>
@@ -473,6 +482,20 @@ export async function majJetons(
 // ---------------------------------------------------------------------------
 // Feu de Camp
 // ---------------------------------------------------------------------------
+
+/**
+ * Prépare un brouillon pour la session en cours.
+ *
+ * La Banque s'ouvre au **premier camp de chaque session**, ce qui se lit en
+ * regardant si un camp a déjà été lancé pour ce numéro de session. Se fier au
+ * numéro de journée serait faux : une session peut couvrir plusieurs jours de
+ * fiction, et la Banque ne se rouvrirait alors jamais.
+ */
+export async function creerBrouillonPourSession(sessionNumero: number): Promise<Campfire> {
+  const camps = await store.getCollection<Campfire>(chemins.campfires)
+  const dejaLance = camps.some((c) => c.sessionNumero === sessionNumero && c.lanceLe !== null)
+  return nouveauBrouillon(sessionNumero, !dejaLance)
+}
 
 export function nouveauBrouillon(sessionNumero: number, debutDeSession: boolean): Campfire {
   return {

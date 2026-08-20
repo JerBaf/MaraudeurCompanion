@@ -104,6 +104,54 @@ export function cyclesNonRenseignes(secret: CharacterSecret | null): boolean {
   return secret === null || secret.cyclesTotal <= 0
 }
 
+/**
+ * Comble les champs absents d'une fiche lue en base.
+ *
+ * ⚠️ **Point de vigilance permanent du projet.** Un document Firestore écrit
+ * hier ne contient pas les champs ajoutés aujourd'hui. Le type `Character` les
+ * déclare pourtant obligatoires : le compilateur est donc rassurant à tort, et
+ * le premier `.filter()` sur un champ absent lève une erreur en pleine session.
+ *
+ * Le problème s'est présenté trois fois — illusions du Trickster, contenu du
+ * catalogue, puis `investissements` — d'où cette normalisation unique plutôt
+ * que des `?? []` disséminés : **tout ajout de champ à `Character` doit recevoir
+ * ici sa valeur neutre**, et les écrans n'ont plus jamais à s'en soucier.
+ *
+ * Appliquée dans `surPersonnages` (`data/repo.ts`), seul chemin par lequel une
+ * fiche entre dans l'application.
+ */
+export function normaliserPersonnage(brut: Character): Character {
+  return {
+    ...brut,
+    maitrises: { ...maitrisesVierges(), ...(brut.maitrises ?? {}) },
+    fatigue: brut.fatigue ?? { max: 4, coches: 0 },
+    brulures: brut.brulures ?? 0,
+    foi: brut.foi ?? FOI_DE_DEPART,
+    marques: brut.marques ?? 0,
+    sixthSensBase: brut.sixthSensBase ?? 1,
+    sixthSensUtilises: brut.sixthSensUtilises ?? 0,
+    lumens: brut.lumens ?? 0,
+    actionsRapidesUtilisees: brut.actionsRapidesUtilisees ?? 0,
+    equipe: {
+      arme: brut.equipe?.arme ?? null,
+      armure: brut.equipe?.armure ?? null,
+      bibelot: brut.equipe?.bibelot ?? null,
+    },
+    grimoire: brut.grimoire ?? [],
+    possede: {
+      sorts: brut.possede?.sorts ?? [],
+      equipements: brut.possede?.equipements ?? [],
+      ameliorations: brut.possede?.ameliorations ?? [],
+    },
+    investissements: brut.investissements ?? [],
+    sortsEpuises: brut.sortsEpuises ?? [],
+    cicatrices: brut.cicatrices ?? [],
+    passifs: brut.passifs ?? {},
+    modifiers: brut.modifiers ?? [],
+    claimedBy: brut.claimedBy ?? null,
+  }
+}
+
 function passifsInitiaux(moteur: string | undefined): EtatPassifs {
   switch (moteur) {
     case 'dusk-hexcore':
