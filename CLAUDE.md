@@ -2,7 +2,11 @@
 
 ## Goal 
 
-Develop a companion app for a GM and their player
+Bonjour Claude. J’aimerais que tu prennes le rôle d’un senior Softwares Developer. Je gère en tant que MJ une table de jeu de rôle et j’aimerais avoir une companion app/website pour interragir avec mes Joueuses et faciliter quelques procédures. 
+
+Elle sera utilisée uniquement par ma table, mais mes joueuses ne sont pas systématiquement les mêmes à chaque session. La plupart d’entre elles utilisent un smartphone pour accéder à l’écran companion, pour ma part ce sera un ordinateur (1-2 joueuses utilisent des tablettes). Le dossier actuel est associé à un repo public GitHub.
+
+
 
 ## Interaction with user
 

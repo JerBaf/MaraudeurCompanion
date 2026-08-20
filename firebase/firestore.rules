@@ -113,13 +113,23 @@ service cloud.firestore {
       }
 
       // --- Sessions et feux de camp ----------------------------------------
+      // Les deux sont pilotés par la MJ seule. Ce que la joueuse engage au camp
+      // — Recueillir, Fardeau, Serment, investissement, acquisition — s'inscrit
+      // sur sa propre fiche (`Character.jetonsCamp`), qu'elle a le droit
+      // d'écrire. Le ranger ici l'aurait fait refuser à chaque fois, et la
+      // limite n'aurait jamais été posée.
       match /sessions/{sessionId} {
         allow read: if deLaTable();
         allow write: if estMJ();
       }
 
+      // Lisible par la table — les joueuses suivent la phase et lisent leurs
+      // offres — mais écrit par la MJ seule : sans quoi une joueuse pourrait,
+      // depuis la console, changer la phase, réécrire le brief ou se
+      // réattribuer des offres.
       match /campfires/{campfireId} {
-        allow read, write: if deLaTable();
+        allow read: if deLaTable();
+        allow write: if estMJ();
       }
 
       // --- 🔒 Journal -------------------------------------------------------

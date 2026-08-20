@@ -5,20 +5,22 @@ import {
   acheter,
   entreesAchetables,
   grimoireValide,
-  jetonsSessionVierges,
+  jetonsCampVierges,
+  normaliserCampfire,
   peutAcheter,
   peutInvestir,
   peutPrendreFardeau,
-  peutPrendreFardeauDesavantage,
   peutPrendreInvestissement,
   peutPrononcerSerment,
   peutRecueillir,
+  phasesDuCamp,
   prixDe,
   resoudreCampPourPersonnage,
   resoudreInvestissements,
   resoudrePriseInvestissement,
   TAILLE_GRIMOIRE,
   tirerOffres,
+  type ContexteCamp,
 } from './campfire.ts'
 import { createCatalog } from './catalog.ts'
 import {
@@ -165,14 +167,25 @@ describe('Serment', () => {
     expect(computeCompetence(char, catalog, 'social').bonus).toBe(-4)
   })
 
-  it('survit à un repos court mais tombe en fin de journée', () => {
+  it('survit à un repos court mais tombe au camp initial', () => {
     const char = nouveauPerso('trickster', { modifiers: [modificateurSerment('esprit')] })
 
-    const court = resoudreCampPourPersonnage(char, { finDeJournee: false })
+    const court = resoudreCampPourPersonnage(char, 'repos-court')
     expect(court.char.modifiers).toHaveLength(1)
 
-    const jour = resoudreCampPourPersonnage(char, { finDeJournee: true })
-    expect(jour.char.modifiers).toHaveLength(0)
+    const initial = resoudreCampPourPersonnage(char, 'initial')
+    expect(initial.char.modifiers).toHaveLength(0)
+  })
+
+  // Les Serments écrits avant la refonte portent `fin-de-journee`. Sans le cas
+  // hérité, aucun `case` ne les reconnaîtrait et le `filter` les effacerait
+  // dès le premier repos court venu.
+  it('reconnaît encore les modificateurs écrits sous l’ancien nom d’échéance', () => {
+    const ancien = { ...modificateurSerment('esprit'), expires: { kind: 'fin-de-journee' } as const }
+    const char = nouveauPerso('trickster', { modifiers: [ancien] })
+
+    expect(resoudreCampPourPersonnage(char, 'repos-court').char.modifiers).toHaveLength(1)
+    expect(resoudreCampPourPersonnage(char, 'initial').char.modifiers).toHaveLength(0)
   })
 })
 
@@ -798,22 +811,41 @@ describe('Feu de Camp', () => {
       modifiers: [modificateurSerment('esprit')],
     })
 
-  it('repos court : Fatigue et cristaux, rien d’autre', () => {
-    const r = resoudreCampPourPersonnage(use(), { finDeJournee: false })
-    expect(r.char.fatigue.coches).toBe(0)
+  it('repos court : les cristaux, et rien d’autre', () => {
+    const r = resoudreCampPourPersonnage(use(), 'repos-court')
     expect(r.char.sortsEpuises).toHaveLength(0)
+    // Un repos court ne soigne pas : les 3 cases restent cochées.
+    expect(r.char.fatigue.coches).toBe(3)
     expect(r.char.sixthSensUtilises).toBe(1)
     expect(r.char.actionsRapidesUtilisees).toBe(2)
     expect(r.char.modifiers).toHaveLength(1)
   })
 
-  it('fin de journée : tout est remis à neuf', () => {
-    const r = resoudreCampPourPersonnage(use(), { finDeJournee: true })
-    expect(r.char.fatigue.coches).toBe(0)
+  it('camp initial : un seul Point de Fatigue, mais tout le reste est rendu', () => {
+    const r = resoudreCampPourPersonnage(use(), 'initial')
+    expect(r.char.fatigue.coches).toBe(2)
     expect(r.char.sortsEpuises).toHaveLength(0)
     expect(r.char.sixthSensUtilises).toBe(0)
     expect(r.char.actionsRapidesUtilisees).toBe(0)
     expect(r.char.modifiers).toHaveLength(0)
+  })
+
+  it('ne descend jamais la Fatigue sous zéro', () => {
+    const repose = nouveauPerso('dusk-hunter', { fatigue: { max: 5, coches: 0 } })
+    const r = resoudreCampPourPersonnage(repose, 'initial')
+    expect(r.char.fatigue.coches).toBe(0)
+    expect(r.effets.some((e) => e.includes('Fatigue'))).toBe(false)
+  })
+
+  it('n’ouvre au repos court que la Boutique, le Grimoire et l’Armurerie', () => {
+    expect(phasesDuCamp('initial')).toEqual([
+      'banque',
+      'brief',
+      'boutique',
+      'grimoire',
+      'armurerie',
+    ])
+    expect(phasesDuCamp('repos-court')).toEqual(['boutique', 'grimoire', 'armurerie'])
   })
 })
 
@@ -938,6 +970,8 @@ describe('normalisation des fiches lues en base', () => {
 
     const normalisee = normaliserPersonnage(ancienne)
     expect(normalisee.investissements).toEqual([])
+    // Ajouté à la refonte du Feu de Camp : mêmes causes, même parade.
+    expect(normalisee.jetonsCamp).toEqual(jetonsCampVierges())
     // Et rien d'existant n'est écrasé au passage.
     expect(normalisee.lumens).toBe(40)
     expect(normalisee.grimoire).toEqual(['polymorph'])
@@ -961,6 +995,7 @@ describe('normalisation des fiches lues en base', () => {
     expect(normalisee.possede.sorts).toEqual([])
     expect(normalisee.equipe.armure).toBeNull()
     expect(normalisee.modifiers).toEqual([])
+    expect(normalisee.jetonsCamp.achat).toBeNull()
     expect(() => computeEvasion(normalisee, catalog)).not.toThrow()
   })
 })
@@ -1093,38 +1128,50 @@ describe('boutique', () => {
   it('refuse le crédit', () => {
     const cuirasse = catalog.equipement('cuirasse-usee') as EntreeCatalogue
     expect(() => acheter(pauvre(), cuirasse)).toThrow(/crédit/)
-    expect(peutAcheter({ ...ctxCamp, jetons: jetonsSessionVierges() }, pauvre(), 40)).toBe(false)
+    expect(peutAcheter(ctxCamp, pauvre(), 40)).toBe(false)
   })
 
   it('refuse un second achat dans le même feu de camp', () => {
-    const jetons = { ...jetonsSessionVierges(), achatFaitCeCamp: true }
+    const jetons = { ...jetonsCampVierges(), achat: ctxCamp.campfireId }
     expect(peutAcheter({ ...ctxCamp, jetons }, riche(), 40)).toBe(false)
+  })
+
+  /**
+   * La régression qui rendait la Boutique inutilisable : le jeton d'achat était
+   * un booléen que rien ne remettait à zéro, si bien qu'« une acquisition par
+   * feu de camp » se comportait en « une par session ». Il retient désormais
+   * l'identifiant du camp, et se périme donc tout seul au camp suivant.
+   */
+  it('rouvre l’achat au feu de camp suivant de la même session', () => {
+    const jetons = { ...jetonsCampVierges(), achat: 'camp-precedent' }
+    expect(peutAcheter({ ...ctxCamp, jetons }, riche(), 40)).toBe(true)
   })
 })
 
-const ctxCamp = {
-  jetons: jetonsSessionVierges(),
-  premierCampDuJour: true,
-  debutDeSession: true,
+const ctxCamp: ContexteCamp = {
+  jetons: jetonsCampVierges(),
+  type: 'initial',
+  campfireId: 'camp-en-cours',
+  sessionNumero: 3,
 }
 
 describe('ordonnancement du Feu de Camp', () => {
   /**
    * Le piège central du lot : la résolution du camp a lieu à son **ouverture**.
-   * Un Serment prononcé ensuite, à la phase Grimoire, vaut pour la journée qui
+   * Un Serment prononcé ensuite, à la phase Grimoire, vaut pour la session qui
    * commence — le résoudre à la fermeture l'effacerait aussitôt.
    */
   it('un Serment pris pendant le camp survit à la fermeture du camp', () => {
-    // Ouverture : la journée écoulée se clôt, les anciens effets tombent.
+    // Ouverture : la session écoulée se clôt, les anciens effets tombent.
     const arrivee = nouveauPerso('trickster', {
       modifiers: [modificateurSerment('esprit')],
       fatigue: { max: 4, coches: 3 },
     })
-    const ouvert = resoudreCampPourPersonnage(arrivee, { finDeJournee: true })
+    const ouvert = resoudreCampPourPersonnage(arrivee, 'initial')
     expect(ouvert.char.modifiers).toHaveLength(0)
-    expect(ouvert.char.fatigue.coches).toBe(0)
+    expect(ouvert.char.fatigue.coches).toBe(2)
 
-    // Phase Grimoire : elle engage un nouveau Serment pour la journée à venir.
+    // Phase Grimoire : elle engage un nouveau Serment pour la session à venir.
     const engagee = {
       ...ouvert.char,
       modifiers: [...ouvert.char.modifiers, modificateurSerment('physique')],
@@ -1132,33 +1179,75 @@ describe('ordonnancement du Feu de Camp', () => {
     expect(computeCompetence(engagee, catalog, 'esprit').bonus).toBe(-4)
     expect(computeCompetence(engagee, catalog, 'physique').bonus).toBe(0)
 
-    // Il doit encore être là au camp suivant, et ne tomber qu'à sa fin de journée.
-    const repos = resoudreCampPourPersonnage(engagee, { finDeJournee: false })
+    // Il doit encore être là aux repos courts, et ne tomber qu'au camp initial suivant.
+    const repos = resoudreCampPourPersonnage(engagee, 'repos-court')
     expect(repos.char.modifiers).toHaveLength(1)
-    expect(resoudreCampPourPersonnage(engagee, { finDeJournee: true }).char.modifiers).toHaveLength(0)
+    expect(resoudreCampPourPersonnage(engagee, 'initial').char.modifiers).toHaveLength(0)
   })
 
-  it('verrouille les gains de Foi selon la session et la journée', () => {
+  it('réserve les gains de Foi au camp initial, une fois par session', () => {
     expect(peutRecueillir(ctxCamp)).toBe(true)
+    expect(peutPrendreFardeau(ctxCamp)).toBe(true)
     expect(peutPrononcerSerment(ctxCamp)).toBe(true)
 
-    const plusTard = { ...ctxCamp, premierCampDuJour: false }
-    expect(peutRecueillir(plusTard)).toBe(false)
-    expect(peutPrononcerSerment(plusTard)).toBe(false)
-    // Le Fardeau « à la place d'une autre PJ » reste ouvert hors premier camp.
-    expect(peutPrendreFardeau(plusTard)).toBe(true)
-    expect(peutPrendreFardeauDesavantage(plusTard)).toBe(false)
+    // Un repos court ne rouvre aucun des trois.
+    const halte = { ...ctxCamp, type: 'repos-court' as const }
+    expect(peutRecueillir(halte)).toBe(false)
+    expect(peutPrendreFardeau(halte)).toBe(false)
+    expect(peutPrononcerSerment(halte)).toBe(false)
 
-    const deja = { ...ctxCamp, jetons: { ...jetonsSessionVierges(), sermentUtilise: true } }
+    const deja = { ...ctxCamp, jetons: { ...jetonsCampVierges(), serment: ctxCamp.sessionNumero } }
     expect(peutPrononcerSerment(deja)).toBe(false)
+
+    // …mais le jeton d'une session antérieure ne bloque plus rien.
+    const vieux = { ...ctxCamp, jetons: { ...jetonsCampVierges(), serment: 1 } }
+    expect(peutPrononcerSerment(vieux)).toBe(true)
   })
 
-  it('n’ouvre la Banque qu’au premier camp de la session', () => {
-    expect(peutInvestir(ctxCamp)).toBe(true)
-    expect(peutInvestir({ ...ctxCamp, debutDeSession: false })).toBe(false)
+  it('n’ouvre la Banque qu’au camp initial, et une fois par session', () => {
+    const sansRien = nouveauPerso('trickster')
+    expect(peutInvestir(ctxCamp, sansRien)).toBe(true)
+    expect(peutInvestir({ ...ctxCamp, type: 'repos-court' }, sansRien)).toBe(false)
 
-    const deja = { ...ctxCamp, jetons: { ...jetonsSessionVierges(), investissementPris: 'loto' } }
-    expect(peutInvestir(deja)).toBe(false)
+    // Le registre des investissements sert lui-même de jeton.
+    const dejaInvesti = nouveauPerso('trickster', {
+      investissements: [{ investissementId: 'loto', sessionNumero: ctxCamp.sessionNumero }],
+    })
+    expect(peutInvestir(ctxCamp, dejaInvesti)).toBe(false)
+
+    const sessionPassee = nouveauPerso('trickster', {
+      investissements: [{ investissementId: 'loto', sessionNumero: 1 }],
+    })
+    expect(peutInvestir(ctxCamp, sessionPassee)).toBe(true)
+  })
+
+  /**
+   * `Campfire` n'avait aucun normaliseur, et les camps déjà en base portent
+   * `finDeJournee`/`debutDeSession` sans connaître `type`.
+   */
+  it('relit un camp écrit avant la refonte', () => {
+    const ancienInitial = normaliserCampfire({
+      id: 'c1',
+      sessionNumero: 2,
+      debutDeSession: true,
+      finDeJournee: true,
+      phase: 'banque',
+    } as never)
+    expect(ancienInitial.type).toBe('initial')
+    expect(ancienInitial.phase).toBe('banque')
+
+    // Une phase que le camp n'ouvre pas retombe sur la première du profil :
+    // la MJ ne peut plus se retrouver sans onglet actif.
+    const ancienneHalte = normaliserCampfire({
+      id: 'c2',
+      sessionNumero: 2,
+      debutDeSession: false,
+      finDeJournee: false,
+      phase: 'banque',
+    } as never)
+    expect(ancienneHalte.type).toBe('repos-court')
+    expect(ancienneHalte.phase).toBe('boutique')
+    expect(ancienneHalte.offres).toEqual({})
   })
 
   it('refuse un Grimoire à 4 sorts ou avec doublons', () => {

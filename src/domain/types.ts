@@ -80,13 +80,20 @@ export type ModifierOp =
  * Quand le modificateur disparaît.
  *
  * `fin-de-camp` = au prochain feu de camp, quel qu'il soit.
- * `fin-de-journee` = uniquement à un feu de camp qualifié « fin de journée ».
+ * `fin-de-session` = uniquement à un feu de camp **initial**, qui ouvre une session.
  * `fin-tour-suivant` = Actions Alternatives ; `turnId` identifie le tour de combat
  * pendant lequel le modificateur a été posé, pour qu'il survive exactement un tour.
  */
 export type ModifierExpiry =
   | { kind: 'jamais' }
   | { kind: 'fin-de-camp' }
+  | { kind: 'fin-de-session' }
+  /**
+   * Ancien nom de `fin-de-session`, du temps où le système comptait les journées
+   * de fiction. Des Serments et des Fardeaux écrits sous cette forme dorment en
+   * base : le conserver ici évite qu'`expireModifiers` ne les efface au premier
+   * camp faute de savoir les reconnaître.
+   */
   | { kind: 'fin-de-journee' }
   /**
    * Disparaît quand le combat atteint ce moment de l'horloge (voir
@@ -321,6 +328,9 @@ export interface Character {
    */
   investissements: InvestissementPris[]
 
+  /** Ce qui a déjà été consommé au Feu de Camp, et jusqu'à quand. */
+  jetonsCamp: JetonsCamp
+
   /** Sorts Arcane dont le cristal est épuisé (d6 à 1 ou 2), jusqu'au prochain camp. */
   sortsEpuises: string[]
 
@@ -411,6 +421,19 @@ export interface EtatCombat {
 
 export type PhaseCampfire = 'banque' | 'brief' | 'boutique' | 'grimoire' | 'armurerie'
 
+/**
+ * Les deux natures de Feu de Camp.
+ *
+ * `initial` ouvre une session : c'est lui qui rend le 6th Sens et les Actions
+ * Rapides, lève les Fardeaux et Serments engagés, et donne accès à la Banque et
+ * au Brief. `repos-court` est une halte en cours de session — on y achète, on
+ * réétudie ses cristaux, on refait son Grimoire et son Armurerie, rien de plus.
+ *
+ * Ce qui les distingue est rassemblé dans `PROFILS_CAMP` (`campfire.ts`) plutôt
+ * qu'éparpillé en booléens : ajouter une nature de camp, c'est ajouter une ligne.
+ */
+export type TypeCamp = 'initial' | 'repos-court'
+
 export const PHASES_CAMPFIRE: PhaseCampfire[] = [
   'banque',
   'brief',
@@ -432,27 +455,31 @@ export const LIBELLE_PHASE: Record<PhaseCampfire, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Ce qui a déjà été consommé pendant la session en cours, par personnage.
+ * Ce que la joueuse a déjà consommé au Feu de Camp.
  *
- * Vit ici plutôt que dans `campfire.ts` parce que le document de session le
- * transporte : le placer à côté de la logique créerait un cycle d'imports.
+ * Chaque jeton porte sa **portée dans sa valeur** plutôt que d'être un booléen :
+ * on y range le moment où l'action a été faite, et la disponibilité se dérive en
+ * comparant avec le moment courant. Rien n'a donc à être remis à zéro — c'est
+ * exactement ce qui manquait à la version précédente, où « une acquisition par
+ * feu de camp » se comportait en « une par session » faute de réinitialisation.
+ *
+ * Vit sur la fiche du personnage, seul document que la joueuse a le droit
+ * d'écrire : les jetons rangés dans le document de session étaient refusés par
+ * les règles Firestore, et la limite n'était jamais posée.
  */
-export interface JetonsSession {
-  recueillirUtilise: boolean
-  fardeauUtilise: boolean
-  sermentUtilise: boolean
-  /** Un investissement au maximum par session. */
-  investissementPris: string | null
-  /** Une acquisition en boutique au maximum par feu de camp. */
-  achatFaitCeCamp: boolean
+export interface JetonsCamp {
+  /** Numéro de session où l'action a été consommée. */
+  recueillir: number | null
+  fardeau: number | null
+  serment: number | null
+  /** Identifiant du camp où l'acquisition en boutique a été faite. */
+  achat: string | null
 }
 
 export interface Session {
   id: string
   numero: number
   ouverteLe: number
-  /** Jetons par identifiant de personnage. */
-  jetons: Record<string, JetonsSession>
 }
 
 /** Un investissement acquis, et la session où il l'a été. */
@@ -472,10 +499,8 @@ export interface InvestissementPris {
 export interface Campfire {
   id: string
   sessionNumero: number
-  /** Repos court ou fin de journée : seul le second rend le 6th Sens. */
-  finDeJournee: boolean
-  /** Premier camp de la session : ouvre la Banque. */
-  debutDeSession: boolean
+  /** Ce que ce camp restaure et quelles phases il ouvre — voir `PROFILS_CAMP`. */
+  type: TypeCamp
   /** Phase pilotée par la MJ ; l'écran des joueuses suit. */
   phase: PhaseCampfire
   brief: string
@@ -490,8 +515,6 @@ export interface EtatTable {
   mode: ModeTable
   combat: EtatCombat | null
   campfireId: string | null
-  /** Numéro de journée de fiction, incrémenté à chaque feu de camp « fin de journée ». */
-  jour: number
   sessionId: string | null
   /** Réservé aux upgrades futures (QTE, combat rapide) : un overlay poussé sur des écrans. */
   overlay: { kind: string; cibles: string[]; payload: unknown } | null

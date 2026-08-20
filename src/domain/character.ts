@@ -1,5 +1,5 @@
 import type { Catalog } from './catalog.ts'
-import { TAILLE_GRIMOIRE } from './campfire.ts'
+import { jetonsCampVierges, TAILLE_GRIMOIRE } from './campfire.ts'
 import {
   COMPETENCES,
   type Character,
@@ -79,6 +79,7 @@ export function creerPersonnage(
     grimoire: sorts.slice(0, TAILLE_GRIMOIRE),
     possede: { sorts, equipements: [], ameliorations: [] },
     investissements: [],
+    jetonsCamp: jetonsCampVierges(),
     sortsEpuises: [],
     cicatrices: [],
     passifs: passifsInitiaux(classe.passifMoteur),
@@ -144,6 +145,7 @@ export function normaliserPersonnage(brut: Character): Character {
       ameliorations: brut.possede?.ameliorations ?? [],
     },
     investissements: brut.investissements ?? [],
+    jetonsCamp: { ...jetonsCampVierges(), ...(brut.jetonsCamp ?? {}) },
     sortsEpuises: brut.sortsEpuises ?? [],
     cicatrices: brut.cicatrices ?? [],
     passifs: brut.passifs ?? {},

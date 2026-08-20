@@ -6,6 +6,7 @@ import {
   creerBrouillonPourSession,
   definirPhase,
   enregistrerBrouillon,
+  enregistrerCampfire,
   lancerCampfire,
   ouvrirSession,
   surBrouillonCampfire,
@@ -14,17 +15,24 @@ import {
   terminerCampfire,
   type BilanOuverture,
 } from '../../data/repo.ts'
-import { entreesAchetables, prixDe, tirerOffres } from '../../domain/campfire.ts'
+import {
+  entreesAchetables,
+  phasesDuCamp,
+  prixDe,
+  PROFILS_CAMP,
+  tirerOffres,
+} from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   LIBELLE_PHASE,
-  PHASES_CAMPFIRE,
   type Campfire,
   type Character,
   type EtatTable,
   type Session,
+  type TypeCamp,
 } from '../../domain/types.ts'
+import { OngletCampfire } from '../joueuse/OngletCampfire.tsx'
 
 /**
  * Pilotage du Feu de Camp, côté MJ.
@@ -57,13 +65,7 @@ export function PanneauCampfire({
   // --- Camp en cours : on pilote ---
   if (etat.campfireId && campfire) {
     return (
-      <PilotageCamp
-        etat={etat}
-        campfire={campfire}
-        personnages={personnages}
-        catalog={catalog}
-        session={session}
-      />
+      <PilotageCamp etat={etat} campfire={campfire} personnages={personnages} catalog={catalog} />
     )
   }
 
@@ -190,11 +192,12 @@ function Preparation({
   catalog: Catalog
 }) {
   const investissements = catalog.investissements()
+  const [lancement, setLancement] = useState(false)
 
   function creer() {
-    // La Banque s'ouvre au premier camp de chaque session — c'est
+    // Le camp « initial » est celui qui ouvre la session — c'est
     // `creerBrouillonPourSession` qui le détermine, en regardant les camps déjà
-    // lancés plutôt que le numéro de journée.
+    // lancés pour ce numéro de session. La MJ peut corriger juste après.
     void creerBrouillonPourSession(session.numero).then(enregistrerBrouillon)
   }
 
@@ -222,50 +225,41 @@ function Preparation({
         <span className="puce puce--info">non lancé</span>
       </div>
 
+      {/* Le type du camp commande tout le reste : les phases ouvertes, la
+          Fatigue rendue, et si les gains de Foi sont accessibles. */}
       <div className="rangee">
-        <button
-          type="button"
-          className={`btn ${brouillon.finDeJournee ? '' : 'btn--principal'}`}
-          onClick={() => maj({ finDeJournee: false })}
-        >
-          Repos court
-        </button>
-        <button
-          type="button"
-          className={`btn ${brouillon.finDeJournee ? 'btn--principal' : ''}`}
-          onClick={() => maj({ finDeJournee: true })}
-        >
-          Fin de journée
-        </button>
+        {(['initial', 'repos-court'] as TypeCamp[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`btn ${brouillon.type === t ? 'btn--principal' : ''}`}
+            onClick={() => maj({ type: t, phase: PROFILS_CAMP[t].phases[0] })}
+          >
+            {PROFILS_CAMP[t].libelle}
+          </button>
+        ))}
       </div>
       <p className="tres-discret" style={{ margin: 0 }}>
-        {brouillon.finDeJournee
-          ? 'Rendra le 6th Sens et les Actions Rapides, et lèvera Fardeaux, Serments et Marques journalières.'
-          : 'Rendra la Fatigue et les cristaux épuisés, rien de plus.'}
+        {brouillon.type === 'initial'
+          ? 'Ouvre la session : rend 1 Point de Fatigue, le 6th Sens et les Actions Rapides, lève Fardeaux, Serments et Marques, et donne accès à la Banque, au Brief et aux gains de Foi.'
+          : 'Halte en cours de session : Boutique, Grimoire et Armurerie. Rend les cristaux épuisés, mais aucune Fatigue.'}
       </p>
 
-      <label className="champ">
-        <span className="etiquette">Brief de mission</span>
-        <textarea
-          value={brouillon.brief}
-          onChange={(e) => maj({ brief: e.target.value })}
-          placeholder="Un teaser de la session à venir : les joueuses orienteront leur Grimoire et leur Armurerie dessus."
-        />
-      </label>
+      {brouillon.type === 'initial' && (
+        <label className="champ">
+          <span className="etiquette">Brief de mission</span>
+          <textarea
+            key={brouillon.id}
+            defaultValue={brouillon.brief}
+            onBlur={(e) => maj({ brief: e.target.value })}
+            placeholder="Un teaser de la session à venir : les joueuses orienteront leur Grimoire et leur Armurerie dessus."
+          />
+        </label>
+      )}
 
-      <div className="rangee rangee--entre">
-        <span className="etiquette">Banque</span>
-        <button
-          type="button"
-          className={`btn ${brouillon.debutDeSession ? 'btn--principal' : ''}`}
-          onClick={() => maj({ debutDeSession: !brouillon.debutDeSession })}
-        >
-          {brouillon.debutDeSession ? 'Ouverte' : 'Fermée'}
-        </button>
-      </div>
-
-      {brouillon.debutDeSession && (
+      {brouillon.type === 'initial' && (
         <div className="pile pile--serree">
+          <span className="etiquette">Banque — investissements proposés</span>
           {investissements.length === 0 && (
             <p className="tres-discret" style={{ margin: 0 }}>
               Aucun investissement au catalogue. Ajoutez-en dans l'onglet Réglages.
@@ -307,12 +301,18 @@ function Preparation({
 
       <hr className="separateur" />
 
+      {/* Désactivé pendant l'écriture : deux clics rejoueraient la résolution du
+          camp sur toutes les fiches. */}
       <button
         type="button"
         className="btn btn--principal btn--large"
-        onClick={() => void lancerCampfire(etat, brouillon, personnages)}
+        disabled={lancement}
+        onClick={() => {
+          setLancement(true)
+          void lancerCampfire(etat, brouillon, personnages).finally(() => setLancement(false))
+        }}
       >
-        Lancer le feu de camp
+        {lancement ? 'Lancement…' : 'Lancer le feu de camp'}
       </button>
       <button
         type="button"
@@ -347,10 +347,13 @@ function Offres({
   }
 
   function remplacer(charId: string, index: number, entreeId: string) {
-    const actuelles = brouillon.offres[charId] ?? []
-    const suivantes = [...actuelles]
+    const suivantes = [...(brouillon.offres[charId] ?? [])]
     suivantes[index] = entreeId
-    onMaj({ offres: { ...brouillon.offres, [charId]: suivantes } })
+    // `suivantes` peut contenir des trous (index 2 renseigné sur un tableau
+    // vide) ou deux fois la même entrée : on nettoie avant de persister.
+    onMaj({
+      offres: { ...brouillon.offres, [charId]: [...new Set(suivantes.filter(Boolean))] },
+    })
   }
 
   return (
@@ -402,25 +405,23 @@ function PilotageCamp({
   campfire,
   personnages,
   catalog,
-  session,
 }: {
   etat: EtatTable
   campfire: Campfire
   personnages: Character[]
   catalog: Catalog
-  session: Session | null
 }) {
-  const phases = campfire.debutDeSession
-    ? PHASES_CAMPFIRE
-    : PHASES_CAMPFIRE.filter((p) => p !== 'banque')
+  const [miroir, setMiroir] = useState('')
+  const phases = phasesDuCamp(campfire.type)
+
+  // La joueuse observée : celle choisie, sinon la première de la table.
+  const observee = personnages.find((p) => p.id === miroir) ?? personnages[0]
 
   return (
     <div className="pile">
       <section className="carte pile">
         <div className="carte__titre">
-          <span className="etiquette">
-            Feu de camp — {campfire.finDeJournee ? 'fin de journée' : 'repos court'}
-          </span>
+          <span className="etiquette">Feu de camp — {PROFILS_CAMP[campfire.type].libelle}</span>
           <span className="tres-discret">{LIBELLE_PHASE[campfire.phase]}</span>
         </div>
 
@@ -454,13 +455,51 @@ function PilotageCamp({
         </button>
       </section>
 
+      {/* Le miroir : exactement l'écran de la joueuse choisie, actions
+          neutralisées, avec les contrôles d'édition du camp à leur place. */}
+      {observee && (
+        <section className="carte pile">
+          <div className="carte__titre">
+            <span className="etiquette">Écran de la joueuse</span>
+            <select
+              value={observee.id}
+              onChange={(e) => setMiroir(e.target.value)}
+              style={{ minHeight: 40 }}
+            >
+              {personnages.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nom}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <OngletCampfire
+            char={observee}
+            catalog={catalog}
+            etat={etat}
+            personnages={personnages}
+            campfire={campfire}
+            edition={{ onMajCamp: (patch) => void enregistrerCampfire({ ...campfire, ...patch }) }}
+          />
+        </section>
+      )}
+
       <section className="carte pile pile--serree">
-        <span className="etiquette">Choix des joueuses</span>
+        <span className="etiquette">Où en sont les joueuses</span>
         {personnages.map((char) => {
-          const jetons = session?.jetons[char.id]
-          const offres = (campfire.offres[char.id] ?? [])
-            .map((id) => catalog.entree(id))
-            .filter(Boolean)
+          const investi = char.investissements.find(
+            (i) => i.sessionNumero === campfire.sessionNumero,
+          )
+          const consomme = [
+            char.jetonsCamp.achat === campfire.id ? 'a acheté' : null,
+            char.jetonsCamp.recueillir === campfire.sessionNumero ? 'Recueillir' : null,
+            char.jetonsCamp.fardeau === campfire.sessionNumero ? 'Fardeau' : null,
+            char.jetonsCamp.serment === campfire.sessionNumero ? 'Serment' : null,
+            investi
+              ? `investi (${catalog.investissement(investi.investissementId)?.nom ?? investi.investissementId})`
+              : null,
+          ].filter(Boolean)
 
           return (
             <div key={char.id} className="objet">
@@ -472,17 +511,8 @@ function PilotageCamp({
                   Grimoire {char.grimoire.length}/3 · équipé{' '}
                   {Object.values(char.equipe).filter(Boolean).length}/3
                 </span>
-                <span className="objet__meta">
-                  Offres : {offres.map((e) => e!.nom).join(', ') || 'aucune'}
-                </span>
-                {jetons && (
-                  <span className="objet__meta">
-                    {jetons.achatFaitCeCamp ? 'a acheté · ' : ''}
-                    {jetons.recueillirUtilise ? 'Recueillir · ' : ''}
-                    {jetons.fardeauUtilise ? 'Fardeau · ' : ''}
-                    {jetons.sermentUtilise ? 'Serment · ' : ''}
-                    {jetons.investissementPris ? `investi (${jetons.investissementPris})` : ''}
-                  </span>
+                {consomme.length > 0 && (
+                  <span className="objet__meta">{consomme.join(' · ')}</span>
                 )}
               </span>
             </div>

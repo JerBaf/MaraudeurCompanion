@@ -4,32 +4,25 @@ import { Icone } from '../../components/Icone.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
-import {
-  enregistrerPersonnage,
-  journaliser,
-  majJetons,
-  modifierPersonnage,
-  surCampfire,
-  surSession,
-} from '../../data/repo.ts'
+import { enregistrerPersonnage, journaliser, modifierPersonnage, surCampfire } from '../../data/repo.ts'
 import {
   acheter,
+  entreesAchetables,
   grimoireValide,
-  jetonsSessionVierges,
   peutAcheter,
   peutInvestir,
   peutPrendreFardeau,
-  peutPrendreFardeauDesavantage,
   peutPrendreInvestissement,
   peutPrononcerSerment,
   peutRecueillir,
   prixDe,
+  PROFILS_CAMP,
   resoudrePriseInvestissement,
   TAILLE_GRIMOIRE,
   type ContexteCamp,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
-import { modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
+import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   COMPETENCES,
@@ -41,9 +34,20 @@ import {
   type Campfire,
   type Character,
   type EtatTable,
-  type Session,
   type Sort,
 } from '../../domain/types.ts'
+
+/**
+ * Ce que la MJ peut retoucher sur un camp déjà lancé.
+ *
+ * Sa présence bascule l'écran en **miroir** : la MJ voit exactement ce que voit
+ * la joueuse choisie, actions neutralisées, et dispose à la place des contrôles
+ * d'édition du camp. C'est une seule prop parce que c'est une seule différence —
+ * dupliquer les cinq écrans pour la MJ les aurait fait diverger.
+ */
+export interface EditionCamp {
+  onMajCamp: (patch: Partial<Campfire>) => void
+}
 
 /**
  * Contexte partagé par les vues de phase. Purement de la plomberie d'écran :
@@ -53,13 +57,23 @@ interface ProprietesPhase {
   char: Character
   catalog: Catalog
   campfire: Campfire
-  session: Session | null
   ctx: ContexteCamp
   personnages: Character[]
+  edition?: EditionCamp
+}
+
+/** Construit le contexte de camp d'une joueuse. Tout se dérive de sa fiche et du camp. */
+export function contexteCamp(char: Character, campfire: Campfire): ContexteCamp {
+  return {
+    jetons: char.jetonsCamp,
+    type: campfire.type,
+    campfireId: campfire.id,
+    sessionNumero: campfire.sessionNumero,
+  }
 }
 
 /**
- * Le Feu de Camp, côté joueuse.
+ * Le Feu de Camp, côté joueuse — et, avec `edition`, le miroir de la MJ.
  *
  * La MJ pilote la phase ; cet écran ne montre que celle en cours. C'est ce que
  * demandent les guidelines, et cela garde la table groupée — personne n'achète
@@ -70,64 +84,66 @@ export function OngletCampfire({
   catalog,
   etat,
   personnages,
+  campfire: campfireFourni,
+  edition,
 }: {
   char: Character
   catalog: Catalog
   etat: EtatTable
   personnages: Character[]
+  /** Fourni par l'écran MJ, qui a déjà le camp sous la main. */
+  campfire?: Campfire
+  edition?: EditionCamp
 }) {
-  const [campfire, setCampfire] = useState<Campfire | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
+  const [campfireSuivi, setCampfire] = useState<Campfire | null>(null)
 
   useEffect(
-    () => (etat.campfireId ? surCampfire(etat.campfireId, setCampfire) : undefined),
-    [etat.campfireId],
+    () =>
+      etat.campfireId && !campfireFourni
+        ? surCampfire(etat.campfireId, setCampfire)
+        : undefined,
+    [etat.campfireId, campfireFourni],
   )
-  useEffect(() => (etat.sessionId ? surSession(etat.sessionId, setSession) : undefined), [etat.sessionId])
 
+  const campfire = campfireFourni ?? campfireSuivi
   if (!campfire) return <p className="vide">La MJ n'a pas encore lancé le feu de camp.</p>
 
-  const jetons = session?.jetons[char.id] ?? jetonsSessionVierges()
-  const ctx = {
-    jetons,
-    // Le PDF réserve Recueillir et Serment au premier camp de la journée ;
-    // un camp « fin de journée » clôt la journée écoulée, donc celui-ci l'ouvre.
-    premierCampDuJour: campfire.finDeJournee,
-    debutDeSession: campfire.debutDeSession,
-  }
-
-  const props: ProprietesPhase = { char, catalog, campfire, session, ctx, personnages }
+  const ctx = contexteCamp(char, campfire)
+  const props: ProprietesPhase = { char, catalog, campfire, ctx, personnages, edition }
 
   return (
     <div className="pile">
       <p className="phase-active">
         {LIBELLE_PHASE[campfire.phase]}
-        <span className="tres-discret">
-          {' '}
-          · {campfire.finDeJournee ? 'fin de journée' : 'repos court'}
-        </span>
+        <span className="tres-discret"> · {PROFILS_CAMP[campfire.type].libelle}</span>
       </p>
 
       {campfire.phase === 'banque' && <Banque {...props} />}
-      {campfire.phase === 'brief' && <Brief campfire={campfire} />}
+      {campfire.phase === 'brief' && <Brief campfire={campfire} edition={edition} />}
       {campfire.phase === 'boutique' && <Boutique {...props} />}
       {campfire.phase === 'grimoire' && <Grimoire {...props} />}
-      {campfire.phase === 'armurerie' && <Armurerie char={char} catalog={catalog} />}
+      {campfire.phase === 'armurerie' && <Armurerie char={char} catalog={catalog} edition={edition} />}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function Banque({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
+function Banque({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
   const [message, setMessage] = useState<string | null>(null)
-  const ouvert = peutInvestir(ctx)
+  const ouvert = peutInvestir(ctx, char)
+  const dejaInvesti = char.investissements.some((i) => i.sessionNumero === campfire.sessionNumero)
 
   async function investir(investissementId: string) {
     const inv = catalog.investissement(investissementId)
-    if (!inv || !session) return
+    // Les gardes sont re-vérifiées ici : `disabled` protège l'écran, pas la règle.
+    if (!inv || !ouvert || !peutPrendreInvestissement(char, inv, campfire.sessionNumero).possible) {
+      return
+    }
 
     const { lumens, recit } = resoudrePriseInvestissement(inv, cryptoRng)
+    // Le registre des investissements sert lui-même de jeton : une seule
+    // écriture, donc aucune fenêtre où le gain serait acquis sans la limite.
     await enregistrerPersonnage({
       ...char,
       lumens: Math.max(0, char.lumens + lumens),
@@ -136,10 +152,13 @@ function Banque({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
         { investissementId: inv.id, sessionNumero: campfire.sessionNumero },
       ],
     })
-    await majJetons(session, char.id, { investissementPris: inv.id })
     await journaliser(char.nom, 'investissement', `${char.nom} investit — ${recit}`)
     setMessage(recit)
   }
+
+  const proposables = catalog
+    .investissements()
+    .filter((i) => !campfire.investissementsProposes.includes(i.id))
 
   return (
     <section className="carte pile pile--serree">
@@ -150,9 +169,9 @@ function Banque({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
 
       {!ouvert && (
         <p className="alerte alerte--info">
-          {ctx.jetons.investissementPris
+          {dejaInvesti
             ? 'Vous avez déjà investi cette session.'
-            : "La Banque n'est ouverte qu'au premier feu de camp de la session."}
+            : "La Banque n'est ouverte qu'au feu de camp initial de la session."}
         </p>
       )}
 
@@ -177,33 +196,82 @@ function Banque({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
               detail={`Risque — ${inv.risqueTexte}\nLimite — ${inv.limiteTexte}`}
               indisponible={!possible}
             />
-            <button
-              type="button"
-              className="btn btn--large"
-              style={{ marginTop: 6 }}
-              disabled={!possible}
-              onClick={() => void investir(inv.id)}
-            >
-              {possible ? `Investir ${inv.cout} ʟ` : (verdict.raison ?? 'Indisponible')}
-            </button>
+            {edition ? (
+              <button
+                type="button"
+                className="btn"
+                style={{ marginTop: 6 }}
+                onClick={() =>
+                  edition.onMajCamp({
+                    investissementsProposes: campfire.investissementsProposes.filter((x) => x !== id),
+                  })
+                }
+              >
+                Retirer de la Banque
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--large"
+                style={{ marginTop: 6 }}
+                disabled={!possible}
+                onClick={() => void investir(inv.id)}
+              >
+                {possible ? `Investir ${inv.cout} ʟ` : (verdict.raison ?? 'Indisponible')}
+              </button>
+            )}
           </div>
         )
       })}
+
+      {edition && proposables.length > 0 && (
+        <label className="champ">
+          <span className="etiquette">Proposer un investissement</span>
+          <select
+            value=""
+            onChange={(e) =>
+              e.target.value &&
+              edition.onMajCamp({
+                investissementsProposes: [...campfire.investissementsProposes, e.target.value],
+              })
+            }
+          >
+            <option value="">— ajouter —</option>
+            {proposables.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.nom} — {i.cout} ʟ
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
     </section>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function Brief({ campfire }: { campfire: Campfire }) {
+function Brief({ campfire, edition }: { campfire: Campfire; edition?: EditionCamp }) {
   return (
     <section className="carte pile">
       <span className="etiquette">Brief de mission</span>
-      {campfire.brief.trim() ? (
+
+      {edition ? (
+        // `defaultValue` + `onBlur` : un champ contrôlé sur un document souscrit
+        // écrivait en base à chaque frappe, et le caret sautait au retour du
+        // snapshot. Même parade que les notes de la MJ.
+        <textarea
+          key={campfire.id}
+          rows={4}
+          defaultValue={campfire.brief}
+          onBlur={(e) => edition.onMajCamp({ brief: e.target.value })}
+        />
+      ) : campfire.brief.trim() ? (
         <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{campfire.brief}</p>
       ) : (
         <p className="vide">La MJ n'a rien écrit — elle vous le dira de vive voix.</p>
       )}
+
       <p className="tres-discret" style={{ margin: 0 }}>
         Orientez vos choix de Grimoire et d'Armurerie là-dessus.
       </p>
@@ -213,22 +281,43 @@ function Brief({ campfire }: { campfire: Campfire }) {
 
 // ---------------------------------------------------------------------------
 
-function Boutique({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
+function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
   const [message, setMessage] = useState<string | null>(null)
-  const offres = (campfire.offres[char.id] ?? []).map((id) => catalog.entree(id)).filter(Boolean)
+  const ids = campfire.offres[char.id] ?? []
+  const dejaAchete = char.jetonsCamp.achat === campfire.id
 
   async function acquerir(entreeId: string) {
     const entree = catalog.entree(entreeId)
-    if (!entree || !session) return
+    if (!entree) return
+    const prix = prixDe(entree)
+    if (prix === null || !peutAcheter(ctx, char, prix)) return
+
     try {
-      await enregistrerPersonnage(acheter(char, entree))
-      await majJetons(session, char.id, { achatFaitCeCamp: true })
-      await journaliser(char.nom, 'achat', `${char.nom} acquiert ${entree.nom} (${prixDe(entree)} ʟ).`)
+      // Achat et jeton dans la même écriture : l'ordre précédent créditait
+      // l'objet puis échouait à poser la limite, ce qui rendait les achats
+      // illimités tout en affichant « Achat impossible ».
+      await enregistrerPersonnage({
+        ...acheter(char, entree),
+        jetonsCamp: { ...char.jetonsCamp, achat: campfire.id },
+      })
+      await journaliser(char.nom, 'achat', `${char.nom} acquiert ${entree.nom} (${prix} ʟ).`)
       setMessage(`${entree.nom} est à vous.`)
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Achat impossible.')
     }
   }
+
+  function remplacer(index: number, entreeId: string) {
+    const suivantes = [...ids]
+    if (entreeId) suivantes[index] = entreeId
+    else suivantes.splice(index, 1)
+    // Un même objet deux fois dans la liste n'aurait aucun sens : on dédoublonne.
+    edition?.onMajCamp({
+      offres: { ...campfire.offres, [char.id]: [...new Set(suivantes.filter(Boolean))] },
+    })
+  }
+
+  const candidats = entreesAchetables(char, catalog)
 
   return (
     <section className="carte pile pile--serree">
@@ -237,44 +326,82 @@ function Boutique({ char, catalog, campfire, session, ctx }: ProprietesPhase) {
         <span className="tres-discret">{char.lumens} ʟ · une acquisition par feu de camp</span>
       </div>
 
-      {ctx.jetons.achatFaitCeCamp && (
+      {dejaAchete && (
         <p className="alerte alerte--info">Vous avez déjà fait votre acquisition à ce feu de camp.</p>
       )}
       {message && <p className="alerte alerte--info">{message}</p>}
 
-      {offres.length === 0 && <p className="vide">Rien ne vous est proposé.</p>}
+      {ids.length === 0 && <p className="vide">Rien ne vous est proposé.</p>}
 
-      {offres.map((entree) => {
-        const prix = prixDe(entree!) ?? 0
+      {ids.map((id, index) => {
+        const entree = catalog.entree(id)
+        if (!entree) return null
+        const prix = prixDe(entree) ?? 0
         const possible = peutAcheter(ctx, char, prix)
+
         return (
-          <div key={entree!.id}>
+          <div key={id}>
             <ObjetDetaillable
-              icone={entree!.icone}
-              nom={entree!.nom}
+              icone={entree.icone}
+              nom={entree.nom}
               meta={`${prix} ʟ`}
-              detail={entree!.description ?? (entree!.kind === 'sort' ? entree!.effet : undefined)}
+              detail={entree.description ?? (entree.kind === 'sort' ? entree.effet : undefined)}
               indisponible={!possible}
             />
-            <button
-              type="button"
-              className="btn btn--large"
-              style={{ marginTop: 6 }}
-              disabled={!possible}
-              onClick={() => void acquerir(entree!.id)}
-            >
-              {char.lumens < prix ? 'Lumens insuffisants' : `Acquérir — ${prix} ʟ`}
-            </button>
+            {edition ? (
+              <select
+                value={id}
+                style={{ marginTop: 6 }}
+                onChange={(e) => remplacer(index, e.target.value)}
+              >
+                <option value="">— retirer cette offre —</option>
+                {[entree, ...candidats.filter((c) => c.id !== id)].map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nom} — {prixDe(c)} ʟ
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--large"
+                style={{ marginTop: 6 }}
+                disabled={!possible}
+                onClick={() => void acquerir(id)}
+              >
+                {dejaAchete
+                  ? 'Acquisition déjà faite'
+                  : char.lumens < prix
+                    ? 'Lumens insuffisants'
+                    : `Acquérir — ${prix} ʟ`}
+              </button>
+            )}
           </div>
         )
       })}
+
+      {edition && (
+        <label className="champ">
+          <span className="etiquette">Ajouter une offre</span>
+          <select value="" onChange={(e) => e.target.value && remplacer(ids.length, e.target.value)}>
+            <option value="">— ajouter —</option>
+            {candidats
+              .filter((c) => !ids.includes(c.id))
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nom} — {prixDe(c)} ʟ
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
     </section>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function Grimoire({ char, catalog, session, ctx, personnages }: ProprietesPhase) {
+function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase) {
   const sorts = char.possede.sorts
     .map((id) => catalog.sort(id))
     .filter((s): s is Sort => Boolean(s) && s!.illusion !== true)
@@ -308,7 +435,7 @@ function Grimoire({ char, catalog, session, ctx, personnages }: ProprietesPhase)
               type="button"
               className={`objet ${actif ? 'objet--actif' : ''} ${!actif && plein ? 'objet--indisponible' : ''}`}
               aria-pressed={actif}
-              disabled={!actif && plein}
+              disabled={Boolean(edition) || (!actif && plein)}
               onClick={() => basculer(sort.id)}
               title={sort.effet}
             >
@@ -325,10 +452,47 @@ function Grimoire({ char, catalog, session, ctx, personnages }: ProprietesPhase)
         })}
       </section>
 
-      <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={(t) => void modifierPersonnage(char, t)} autoriserToutChanger />
+      <Passifs
+        char={char}
+        catalog={catalog}
+        vies={VIES_SOULSHIFTER}
+        maj={(t) => void modifierPersonnage(char, t)}
+        autoriserToutChanger={!edition}
+      />
 
-      <GainsDeFoi char={char} session={session} ctx={ctx} personnages={personnages} />
+      {/* Les gains de Foi n'ont lieu qu'au camp initial ; en miroir, la MJ en lit
+          seulement l'état — ce sont des engagements que la joueuse prend elle-même. */}
+      {ctx.type === 'initial' &&
+        (edition ? (
+          <RecapitulatifFoi char={char} ctx={ctx} />
+        ) : (
+          <GainsDeFoi char={char} ctx={ctx} personnages={personnages} />
+        ))}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+function RecapitulatifFoi({ char, ctx }: Pick<ProprietesPhase, 'char' | 'ctx'>) {
+  const restants = [
+    peutRecueillir(ctx) ? 'Recueillir' : null,
+    peutPrendreFardeau(ctx) ? 'Fardeau' : null,
+    peutPrononcerSerment(ctx) ? 'Serment' : null,
+  ].filter(Boolean)
+
+  return (
+    <section className="carte pile pile--serree">
+      <div className="carte__titre">
+        <span className="etiquette">Points de Foi</span>
+        <span className="tres-discret">
+          {char.foi} / {MAX_FOI}
+        </span>
+      </div>
+      <p className="tres-discret" style={{ margin: 0 }}>
+        {restants.length > 0 ? `Encore disponible : ${restants.join(' · ')}.` : 'Tout est consommé.'}
+      </p>
+    </section>
   )
 }
 
@@ -336,46 +500,51 @@ function Grimoire({ char, catalog, session, ctx, personnages }: ProprietesPhase)
 
 function GainsDeFoi({
   char,
-  session,
   ctx,
   personnages,
-}: Pick<ProprietesPhase, 'char' | 'session' | 'ctx' | 'personnages'>) {
+}: Pick<ProprietesPhase, 'char' | 'ctx' | 'personnages'>) {
   const [texte, setTexte] = useState('')
   const [cibleFardeau, setCibleFardeau] = useState('')
   const [message, setMessage] = useState<string | null>(null)
 
-  const ajouterFoi = (n: number) => Math.min(9, char.foi + n)
+  const ajouterFoi = (n: number) => Math.min(MAX_FOI, char.foi + n)
 
+  // Chaque action pose son jeton dans la même écriture que sa récompense : le
+  // jeton retient le numéro de session, ce qui le rend caduc de lui-même à la
+  // suivante — plus rien à réinitialiser.
   async function recueillir() {
-    if (!session || texte.trim().length === 0) return
-    await enregistrerPersonnage({ ...char, foi: ajouterFoi(2) })
-    await majJetons(session, char.id, { recueillirUtilise: true })
+    if (!peutRecueillir(ctx) || texte.trim().length === 0) return
+    await enregistrerPersonnage({
+      ...char,
+      foi: ajouterFoi(2),
+      jetonsCamp: { ...char.jetonsCamp, recueillir: ctx.sessionNumero },
+    })
     await journaliser(char.nom, 'recueillir', `${char.nom} se recueille : « ${texte.trim()} »`)
     setMessage('+2 Points de Foi. Votre texte est parvenu à la MJ.')
     setTexte('')
   }
 
   async function fardeauDesavantage(competence: (typeof COMPETENCES)[number]) {
-    if (!session) return
+    if (!peutPrendreFardeau(ctx)) return
     await enregistrerPersonnage({
       ...char,
       foi: ajouterFoi(3),
       modifiers: [...char.modifiers, modificateurFardeau(competence)],
+      jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
     })
-    await majJetons(session, char.id, { fardeauUtilise: true })
     await journaliser(char.nom, 'fardeau', `${char.nom} prend un fardeau : désavantage en ${LIBELLE_COMPETENCE[competence]}.`)
-    setMessage(`+3 Points de Foi. Désavantage en ${LIBELLE_COMPETENCE[competence]} pour la journée.`)
+    setMessage(`+3 Points de Foi. Désavantage en ${LIBELLE_COMPETENCE[competence]} pour la session.`)
   }
 
   async function fardeauFatigue() {
-    if (!session || !cibleFardeau) return
+    if (!peutPrendreFardeau(ctx) || !cibleFardeau) return
     const couverte = personnages.find((p) => p.id === cibleFardeau)
     await enregistrerPersonnage({
       ...char,
       foi: ajouterFoi(3),
       fatigue: { ...char.fatigue, coches: Math.min(char.fatigue.max, char.fatigue.coches + 1) },
+      jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
     })
-    await majJetons(session, char.id, { fardeauUtilise: true })
     await journaliser(
       char.nom,
       'fardeau',
@@ -385,7 +554,10 @@ function GainsDeFoi({
   }
 
   async function serment() {
-    if (!session) return
+    if (!peutPrononcerSerment(ctx)) return
+    if (!confirm('Trois de vos compétences subiront −4 jusqu’à la fin de la session. Confirmer ?')) {
+      return
+    }
     // La compétence épargnée est tirée par l'app : c'est un des cas où
     // l'impartialité prime sur le plaisir de lancer un dé.
     const epargnee = cryptoRng.pick(COMPETENCES)
@@ -393,8 +565,8 @@ function GainsDeFoi({
       ...char,
       foi: ajouterFoi(4),
       modifiers: [...char.modifiers, modificateurSerment(epargnee)],
+      jetonsCamp: { ...char.jetonsCamp, serment: ctx.sessionNumero },
     })
-    await majJetons(session, char.id, { sermentUtilise: true })
     await journaliser(char.nom, 'serment', `${char.nom} prononce un serment : ${LIBELLE_COMPETENCE[epargnee]} épargnée.`)
     setMessage(`+4 Points de Foi. ${LIBELLE_COMPETENCE[epargnee]} est épargnée, les autres subissent −4.`)
   }
@@ -405,7 +577,9 @@ function GainsDeFoi({
     <section className="carte pile pile--serree">
       <div className="carte__titre">
         <span className="etiquette">Points de Foi</span>
-        <span className="tres-discret">{char.foi} / 9</span>
+        <span className="tres-discret">
+          {char.foi} / {MAX_FOI}
+        </span>
       </div>
 
       {message && <p className="alerte alerte--info">{message}</p>}
@@ -430,7 +604,7 @@ function GainsDeFoi({
           </>
         ) : (
           <p className="tres-discret" style={{ margin: 0 }}>
-            Réservé au premier feu de camp de la journée, une fois par session.
+            Réservé au feu de camp initial, une fois par session.
           </p>
         )}
       </div>
@@ -442,25 +616,21 @@ function GainsDeFoi({
         <span className="objet__nom">Fardeau · +3</span>
         {peutPrendreFardeau(ctx) ? (
           <>
-            {peutPrendreFardeauDesavantage(ctx) && (
-              <>
-                <p className="tres-discret" style={{ margin: 0 }}>
-                  Un désavantage sur une compétence, pour la journée :
-                </p>
-                <div className="rangee">
-                  {COMPETENCES.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className="btn"
-                      onClick={() => void fardeauDesavantage(c)}
-                    >
-                      {LIBELLE_COMPETENCE[c]}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            <p className="tres-discret" style={{ margin: 0 }}>
+              Un désavantage sur une compétence, pour la session :
+            </p>
+            <div className="rangee">
+              {COMPETENCES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="btn"
+                  onClick={() => void fardeauDesavantage(c)}
+                >
+                  {LIBELLE_COMPETENCE[c]}
+                </button>
+              ))}
+            </div>
             <p className="tres-discret" style={{ margin: 0 }}>
               Ou prendre un Point de Fatigue à la place d'une alliée :
             </p>
@@ -503,7 +673,7 @@ function GainsDeFoi({
           <>
             <p className="tres-discret" style={{ margin: 0 }}>
               Une compétence sera tirée au sort et épargnée ; les trois autres subiront −4 jusqu'à
-              la fin de la journée.
+              la fin de la session.
             </p>
             <button type="button" className="btn btn--danger" onClick={() => void serment()}>
               Prononcer le serment
@@ -511,7 +681,7 @@ function GainsDeFoi({
           </>
         ) : (
           <p className="tres-discret" style={{ margin: 0 }}>
-            Réservé au premier feu de camp de la journée, une fois par session.
+            Réservé au feu de camp initial, une fois par session.
           </p>
         )}
       </div>
@@ -521,7 +691,15 @@ function GainsDeFoi({
 
 // ---------------------------------------------------------------------------
 
-function Armurerie({ char, catalog }: { char: Character; catalog: Catalog }) {
+function Armurerie({
+  char,
+  catalog,
+  edition,
+}: {
+  char: Character
+  catalog: Catalog
+  edition?: EditionCamp
+}) {
   return (
     <section className="carte pile pile--serree">
       <div className="carte__titre">
@@ -542,6 +720,7 @@ function Armurerie({ char, catalog }: { char: Character; catalog: Catalog }) {
             <span className="etiquette">{LIBELLE_SLOT[slot]}</span>
             <select
               value={char.equipe[slot] ?? ''}
+              disabled={Boolean(edition)}
               onChange={(e) =>
                 void modifierPersonnage(char, (c) => ({
                   ...c,

@@ -1,24 +1,66 @@
 import type { Catalog } from './catalog.ts'
 import { expireModifiers } from './modifiers.ts'
 import type { Rng } from './random.ts'
-import type {
-  Character,
-  EntreeCatalogue,
-  Investissement,
-  JetonsSession,
+import {
+  PHASES_CAMPFIRE,
+  type Campfire,
+  type Character,
+  type EntreeCatalogue,
+  type Investissement,
+  type JetonsCamp,
+  type PhaseCampfire,
+  type TypeCamp,
 } from './types.ts'
+
+// ---------------------------------------------------------------------------
+// Les deux natures de camp
+// ---------------------------------------------------------------------------
+
+export interface ProfilCamp {
+  libelle: string
+  /** Les phases que ce camp ouvre, dans l'ordre où la MJ les pilote. */
+  phases: PhaseCampfire[]
+  /** Cases de Fatigue rendues à l'ouverture du camp. */
+  fatigueRendue: number
+  /**
+   * Vrai si ce camp marque une frontière de session. Il rend alors le 6th Sens
+   * et les Actions Rapides, lève les Fardeaux, Serments et Marques engagés, et
+   * rouvre les gains de Foi — trois conséquences d'une même bascule, d'où un
+   * seul drapeau plutôt que trois qui pourraient diverger.
+   */
+  frontiereDeSession: boolean
+}
 
 /**
  * Feu de Camp.
  *
- * Décision arrêtée avec la MJ : chaque feu de camp est qualifié **repos court**
- * ou **fin de journée**. Le PDF distingue en effet deux horloges — la Fatigue
- * revient « après un repos à un feu de camp », mais le 6th Sens seulement « à la
- * fin d'une journée, après un feu de camp », de même que l'expiration des
- * Fardeaux et des Serments.
+ * Décision arrêtée avec la MJ : la notion de journée de fiction est abandonnée
+ * au profit de deux natures de camp explicites. Un camp **initial** ouvre la
+ * session — il ne rend qu'un point de Fatigue, mais il restaure le 6th Sens,
+ * lève les effets de la session écoulée et donne accès à la Banque, au Brief et
+ * aux gains de Foi. Un **repos court** est une halte : on y achète, on réétudie
+ * ses cristaux, on refait son Grimoire et son Armurerie, rien d'autre.
+ *
+ * Tout ce qui les sépare tient dans cette table. Ajouter une nature de camp,
+ * c'est ajouter une ligne — aucun écran n'a à connaître la différence.
  */
-export interface OptionsCamp {
-  finDeJournee: boolean
+export const PROFILS_CAMP: Record<TypeCamp, ProfilCamp> = {
+  initial: {
+    libelle: 'Feu de camp initial',
+    phases: ['banque', 'brief', 'boutique', 'grimoire', 'armurerie'],
+    fatigueRendue: 1,
+    frontiereDeSession: true,
+  },
+  'repos-court': {
+    libelle: 'Repos court',
+    phases: ['boutique', 'grimoire', 'armurerie'],
+    fatigueRendue: 0,
+    frontiereDeSession: false,
+  },
+}
+
+export function profilCamp(type: TypeCamp): ProfilCamp {
+  return PROFILS_CAMP[type]
 }
 
 export interface ResultatCamp {
@@ -26,30 +68,36 @@ export interface ResultatCamp {
   effets: string[]
 }
 
-export function resoudreCampPourPersonnage(char: Character, options: OptionsCamp): ResultatCamp {
+export function resoudreCampPourPersonnage(char: Character, type: TypeCamp): ResultatCamp {
+  const profil = PROFILS_CAMP[type]
   const effets: string[] = []
 
   // --- Toujours, quel que soit le type de camp ---
-  const fatigueRendue = char.fatigue.coches
-  if (fatigueRendue > 0) effets.push(`Fatigue restaurée (${fatigueRendue} case(s))`)
-
+  // Les cristaux se réétudient « après un feu de camp », dit le PDF, sans
+  // distinguer : c'est la seule vertu mécanique du repos court.
   const cristauxRendus = char.sortsEpuises.length
   if (cristauxRendus > 0) effets.push(`${cristauxRendus} cristal/cristaux étudiés et réutilisables`)
 
+  const fatigueRendue = Math.min(profil.fatigueRendue, char.fatigue.coches)
+  if (fatigueRendue > 0) effets.push(`Fatigue restaurée (${fatigueRendue} case(s))`)
+
   let suivant: Character = {
     ...char,
-    fatigue: { ...char.fatigue, coches: 0 },
+    fatigue: { ...char.fatigue, coches: char.fatigue.coches - fatigueRendue },
     sortsEpuises: [],
-    modifiers: expireModifiers(char.modifiers, { kind: 'camp', finDeJournee: options.finDeJournee }),
+    modifiers: expireModifiers(char.modifiers, {
+      kind: 'camp',
+      frontiereDeSession: profil.frontiereDeSession,
+    }),
   }
 
-  // --- Uniquement en fin de journée ---
-  if (options.finDeJournee) {
+  // --- Uniquement au camp initial, qui clôt la session écoulée ---
+  if (profil.frontiereDeSession) {
     if (char.sixthSensUtilises > 0) effets.push('6th Sens restauré')
     if (char.actionsRapidesUtilisees > 0) effets.push('Actions Rapides restaurées')
 
     const leves = char.modifiers.length - suivant.modifiers.length
-    if (leves > 0) effets.push(`${leves} effet(s) journalier(s) levé(s) — Fardeau, Serment, Marque`)
+    if (leves > 0) effets.push(`${leves} effet(s) levé(s) — Fardeau, Serment, Marque`)
 
     suivant = { ...suivant, sixthSensUtilises: 0, actionsRapidesUtilisees: 0 }
   }
@@ -57,62 +105,91 @@ export function resoudreCampPourPersonnage(char: Character, options: OptionsCamp
   return { char: suivant, effets }
 }
 
+/**
+ * Comble les champs absents d'un camp lu en base.
+ *
+ * ⚠️ Même piège que `normaliserPersonnage` : un camp écrit avant la refonte
+ * porte `finDeJournee` et `debutDeSession` et ignore `type`. Appliquée dans
+ * `surCampfire` et `surBrouillonCampfire` (`data/repo.ts`), seuls chemins par
+ * lesquels un camp entre dans l'application.
+ *
+ * Contraindre la phase au profil règle au passage une incohérence de l'ancienne
+ * version : la MJ pouvait fermer la Banque d'un brouillon resté en phase
+ * `banque`, et se retrouvait alors sans aucun onglet actif.
+ */
+export function normaliserCampfire(
+  brut: Campfire & { finDeJournee?: boolean; debutDeSession?: boolean },
+): Campfire {
+  const type: TypeCamp = brut.type ?? (brut.debutDeSession ? 'initial' : 'repos-court')
+  const phases = PROFILS_CAMP[type].phases
+
+  return {
+    ...brut,
+    type,
+    phase: phases.includes(brut.phase) ? brut.phase : (phases[0] as PhaseCampfire),
+    brief: brut.brief ?? '',
+    offres: brut.offres ?? {},
+    investissementsProposes: brut.investissementsProposes ?? [],
+    lanceLe: brut.lanceLe ?? null,
+  }
+}
+
+/** L'ordre canonique des phases, restreint à celles que ce camp ouvre. */
+export function phasesDuCamp(type: TypeCamp): PhaseCampfire[] {
+  return PHASES_CAMPFIRE.filter((p) => PROFILS_CAMP[type].phases.includes(p))
+}
+
 // ---------------------------------------------------------------------------
 // Disponibilité des actions de Feu de Camp
 // ---------------------------------------------------------------------------
 
-/**
- * Jetons de session : Recueillir, Fardeau et Serment sont limités à une fois
- * par session ; Recueillir et Serment exigent en plus le **premier** feu de
- * camp de la journée. Le type vit dans `types.ts` (le document de session le
- * transporte).
- */
-export function jetonsSessionVierges(): JetonsSession {
-  return {
-    recueillirUtilise: false,
-    fardeauUtilise: false,
-    sermentUtilise: false,
-    investissementPris: null,
-    achatFaitCeCamp: false,
-  }
+/** Aucune action encore consommée. */
+export function jetonsCampVierges(): JetonsCamp {
+  return { recueillir: null, fardeau: null, serment: null, achat: null }
 }
 
 export interface ContexteCamp {
-  jetons: JetonsSession
-  /** Vrai si aucun feu de camp n'a encore eu lieu dans la journée en cours. */
-  premierCampDuJour: boolean
-  /** La Banque n'est accessible qu'au tout premier camp de la session. */
-  debutDeSession: boolean
-}
-
-export function peutRecueillir(ctx: ContexteCamp): boolean {
-  return !ctx.jetons.recueillirUtilise && ctx.premierCampDuJour
-}
-
-export function peutPrendreFardeau(ctx: ContexteCamp): boolean {
-  return !ctx.jetons.fardeauUtilise
+  jetons: JetonsCamp
+  type: TypeCamp
+  /** Identifiant du camp en cours : c'est lui qui borne la limite d'achat. */
+  campfireId: string
+  sessionNumero: number
 }
 
 /**
- * Le Fardeau « désavantage sur une compétence » est réservé au premier feu de
- * camp de la journée ; l'autre option (prendre un Point de Fatigue à la place
- * d'une autre PJ) reste disponible à tout moment.
+ * Recueillir, Fardeau et Serment sont limités à une fois par session, et le PDF
+ * les réserve au premier feu de camp — c'est-à-dire, dans ce modèle, au camp
+ * initial. La comparaison au numéro de session tient lieu de remise à zéro.
  */
-export function peutPrendreFardeauDesavantage(ctx: ContexteCamp): boolean {
-  return peutPrendreFardeau(ctx) && ctx.premierCampDuJour
+export function peutRecueillir(ctx: ContexteCamp): boolean {
+  return ctx.type === 'initial' && ctx.jetons.recueillir !== ctx.sessionNumero
+}
+
+export function peutPrendreFardeau(ctx: ContexteCamp): boolean {
+  return ctx.type === 'initial' && ctx.jetons.fardeau !== ctx.sessionNumero
 }
 
 export function peutPrononcerSerment(ctx: ContexteCamp): boolean {
-  return !ctx.jetons.sermentUtilise && ctx.premierCampDuJour
+  return ctx.type === 'initial' && ctx.jetons.serment !== ctx.sessionNumero
 }
 
-export function peutInvestir(ctx: ContexteCamp): boolean {
-  return ctx.debutDeSession && ctx.jetons.investissementPris === null
+/**
+ * Un seul investissement par session, et seulement au camp initial.
+ *
+ * Se dérive de `char.investissements`, qui date déjà chaque prise : un jeton
+ * séparé aurait été une seconde source de vérité à tenir synchronisée.
+ */
+export function peutInvestir(ctx: ContexteCamp, char: Character): boolean {
+  return (
+    ctx.type === 'initial' &&
+    !char.investissements.some((i) => i.sessionNumero === ctx.sessionNumero)
+  )
 }
 
 export function peutAcheter(ctx: ContexteCamp, char: Character, prix: number): boolean {
-  // « La maison ne fait pas crédit », et une seule acquisition par feu de camp.
-  return !ctx.jetons.achatFaitCeCamp && char.lumens >= prix
+  // « La maison ne fait pas crédit », et une seule acquisition par feu de camp —
+  // d'où la comparaison à l'identifiant du camp, et non à la session.
+  return ctx.jetons.achat !== ctx.campfireId && char.lumens >= prix
 }
 
 // ---------------------------------------------------------------------------

@@ -301,13 +301,18 @@ describe('Feu de Camp', () => {
     await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
   }
 
+  /** Le brief n'est persisté qu'à la perte du focus, pas à chaque frappe. */
+  function ecrireBrief(texte: string) {
+    const champ = screen.getByPlaceholderText(/teaser de la session/i)
+    fireEvent.change(champ, { target: { value: texte } })
+    fireEvent.blur(champ)
+  }
+
   it('garde la préparation hors de portée des joueuses', async () => {
     await tablePreteAvecPersonnage()
     await prepareUnCamp()
 
-    fireEvent.change(screen.getByPlaceholderText(/teaser de la session/i), {
-      target: { value: 'Une infiltration au Bone-Fire.' },
-    })
+    ecrireBrief('Une infiltration au Bone-Fire.')
 
     // Le brouillon vit dans la collection réservée à la MJ…
     await waitFor(() =>
@@ -326,7 +331,7 @@ describe('Feu de Camp', () => {
     expect(document.body.textContent).not.toContain('infiltration')
   })
 
-  it('restaure la Fatigue au lancement et ouvre l’onglet côté joueuse', async () => {
+  it('rend un seul Point de Fatigue au camp initial et ouvre l’onglet côté joueuse', async () => {
     await tablePreteAvecPersonnage()
 
     // La joueuse encaisse deux Points de Fatigue.
@@ -345,18 +350,33 @@ describe('Feu de Camp', () => {
     sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
 
-    // L'onglet s'ouvre de lui-même, et la Fatigue est revenue.
+    // L'onglet s'ouvre de lui-même, et une seule case est rendue : 3 → 4.
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Feu de camp' })).toBeTruthy())
     fireEvent.click(screen.getByRole('tab', { name: 'Fiche' }))
-    await waitFor(() => expect(screen.getByText('5 restant(s)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('4 restant(s)')).toBeTruthy())
+  })
+
+  it('n’ouvre au repos court que trois phases, et pas le Brief', async () => {
+    await tablePreteAvecPersonnage()
+    await prepareUnCamp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Repos court' }))
+
+    // Le Brief et la Banque disparaissent de la préparation…
+    await waitFor(() => expect(screen.queryByPlaceholderText(/teaser de la session/i)).toBeNull())
+
+    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
+
+    // …comme des onglets de phase que la MJ peut piloter.
+    const onglets = screen.getAllByRole('group', { name: 'Phase du feu de camp' })[0]
+    expect(onglets?.textContent).toBe('BoutiqueGrimoireArmurerie')
   })
 
   it('suit la phase pilotée par la MJ', async () => {
     await tablePreteAvecPersonnage()
     await prepareUnCamp()
-    fireEvent.change(screen.getByPlaceholderText(/teaser de la session/i), {
-      target: { value: 'Une infiltration au Bone-Fire.' },
-    })
+    ecrireBrief('Une infiltration au Bone-Fire.')
     fireEvent.click(screen.getByText('Lancer le feu de camp'))
     await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
 
@@ -368,6 +388,70 @@ describe('Feu de Camp', () => {
     await waitFor(() => expect(screen.getByText(/infiltration au Bone-Fire/)).toBeTruthy())
     // Elle ne peut pas acheter pendant le brief.
     expect(screen.queryByText('Boutique')).toBeNull()
+  })
+
+  /**
+   * La régression qui rendait le lot injouable en production : l'achat était
+   * écrit d'abord, puis le jeton — rangé dans le document de session, que les
+   * règles refusent aux joueuses. L'objet partait, la limite non, et l'écran
+   * affichait « Achat impossible ». Le jeton vit désormais sur la fiche et part
+   * dans la même écriture.
+   */
+  it('débite l’achat et pose la limite en une seule écriture', async () => {
+    await tablePreteAvecPersonnage()
+
+    // La MJ crédite la joueuse pour qu'elle puisse acheter.
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+    const lumens = await screen.findByLabelText('Lumens')
+    fireEvent.change(lumens, { target: { value: '100' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Feu de camp' }))
+    fireEvent.click(await screen.findByText('Ouvrir une nouvelle session'))
+    fireEvent.click(await screen.findByText('Préparer un feu de camp'))
+    await waitFor(() => expect(screen.getByText('non lancé')).toBeTruthy())
+    fireEvent.click(screen.getByText('Tirer les offres'))
+    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Boutique' }))
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    const offres = await screen.findAllByRole('button', { name: /^Acquérir — / })
+    fireEvent.click(offres[0] as HTMLElement)
+
+    // L'objet est acquis, et la limite du camp est bien posée.
+    await waitFor(() => expect(screen.getByText(/est à vous/)).toBeTruthy())
+    expect(screen.queryByText('Achat impossible')).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByText(/déjà fait votre acquisition à ce feu de camp/)).toBeTruthy(),
+    )
+    // Plus aucune offre n'est achetable à ce camp.
+    expect(screen.queryAllByRole('button', { name: /^Acquérir — / })).toHaveLength(0)
+  })
+
+  it('montre à la MJ l’écran de la joueuse, et lui laisse retoucher le brief', async () => {
+    await tablePreteAvecPersonnage()
+    await prepareUnCamp()
+    ecrireBrief('Une infiltration au Bone-Fire.')
+    fireEvent.click(screen.getByText('Lancer le feu de camp'))
+    await waitFor(() => expect(screen.getByText('Terminer le feu de camp')).toBeTruthy())
+
+    // Le miroir affiche la phase en cours pour la joueuse observée.
+    fireEvent.click(screen.getByRole('button', { name: 'Brief de Mission' }))
+    await waitFor(() => expect(screen.getByText('Écran de la joueuse')).toBeTruthy())
+
+    // Et la MJ peut corriger le brief sur un camp déjà lancé.
+    const champ = screen.getByDisplayValue('Une infiltration au Bone-Fire.')
+    fireEvent.change(champ, { target: { value: 'Changement de plan : une évasion.' } })
+    fireEvent.blur(champ)
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText(/Changement de plan/)).toBeTruthy())
   })
 })
 

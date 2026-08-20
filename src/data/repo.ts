@@ -1,7 +1,8 @@
 import { TABLE_ID } from '../config.ts'
 import { SEED } from '../content/seed.ts'
 import {
-  jetonsSessionVierges,
+  normaliserCampfire,
+  PROFILS_CAMP,
   resoudreCampPourPersonnage,
   resoudreInvestissements,
   type BilanInvestissements,
@@ -20,12 +21,12 @@ import type {
   EtatTable,
   EvenementJournal,
   Campfire,
-  JetonsSession,
   ModeleAdversaire,
   ModeTable,
   PhaseCampfire,
   SeuilsAdversaires,
   Session,
+  TypeCamp,
 } from '../domain/types.ts'
 import { store } from '../store/index.ts'
 
@@ -76,7 +77,7 @@ function nouvelIdentifiant(): string {
 // ---------------------------------------------------------------------------
 
 export function etatInitial(): EtatTable {
-  return { mode: 'standard', combat: null, campfireId: null, jour: 1, sessionId: null, overlay: null }
+  return { mode: 'standard', combat: null, campfireId: null, sessionId: null, overlay: null }
 }
 
 /**
@@ -140,11 +141,11 @@ export const surSession = (id: string, cb: (s: Session | null) => void) =>
   store.subscribeDoc<Session>(chemins.session(id), cb)
 
 export const surCampfire = (id: string, cb: (c: Campfire | null) => void) =>
-  store.subscribeDoc<Campfire>(chemins.campfire(id), cb)
+  store.subscribeDoc<Campfire>(chemins.campfire(id), (c) => cb(c && normaliserCampfire(c)))
 
 /** 🔒 Réservé à la MJ par les règles Firestore. */
 export const surBrouillonCampfire = (cb: (c: Campfire | null) => void) =>
-  store.subscribeDoc<Campfire>(chemins.brouillonCampfire, cb)
+  store.subscribeDoc<Campfire>(chemins.brouillonCampfire, (c) => cb(c && normaliserCampfire(c)))
 
 export const surJournal = (cb: (e: EvenementJournal[]) => void) =>
   store.subscribeCollection<EvenementJournal>(chemins.journal, (evts) =>
@@ -446,7 +447,6 @@ export async function ouvrirSession(etat: EtatTable, personnages: readonly Chara
     id: nouvelIdentifiant(),
     numero,
     ouverteLe: Date.now(),
-    jetons: Object.fromEntries(personnages.map((c) => [c.id, jetonsSessionVierges()])),
   }
 
   await store.setDoc(chemins.session(session.id), session)
@@ -462,22 +462,11 @@ export async function ouvrirSession(etat: EtatTable, personnages: readonly Chara
   return { session, bilans }
 }
 
-export async function enregistrerSession(session: Session): Promise<void> {
-  await store.setDoc(chemins.session(session.id), session)
-}
-
-/** Met à jour les jetons d'un personnage dans la session en cours. */
-export async function majJetons(
-  session: Session,
-  characterId: string,
-  patch: Partial<JetonsSession>,
-): Promise<void> {
-  const actuels = session.jetons[characterId] ?? jetonsSessionVierges()
-  await enregistrerSession({
-    ...session,
-    jetons: { ...session.jetons, [characterId]: { ...actuels, ...patch } },
-  })
-}
+// Les jetons de Feu de Camp vivaient ici, dans le document de session, et
+// c'était l'écran des joueuses qui les posait — or les règles réservent
+// l'écriture de `sessions/` à la MJ, si bien qu'en production chaque limite
+// était refusée et jamais enregistrée. Ils sont désormais portés par la fiche,
+// seul document que la joueuse a le droit d'écrire (`Character.jetonsCamp`).
 
 // ---------------------------------------------------------------------------
 // Feu de Camp
@@ -486,24 +475,24 @@ export async function majJetons(
 /**
  * Prépare un brouillon pour la session en cours.
  *
- * La Banque s'ouvre au **premier camp de chaque session**, ce qui se lit en
- * regardant si un camp a déjà été lancé pour ce numéro de session. Se fier au
- * numéro de journée serait faux : une session peut couvrir plusieurs jours de
- * fiction, et la Banque ne se rouvrirait alors jamais.
+ * Le camp **initial** est celui qui ouvre la session, ce qui se lit en regardant
+ * si un camp a déjà été lancé pour ce numéro de session. La MJ peut toujours
+ * corriger la nature du camp depuis son écran ; ce n'est qu'une proposition.
  */
 export async function creerBrouillonPourSession(sessionNumero: number): Promise<Campfire> {
   const camps = await store.getCollection<Campfire>(chemins.campfires)
   const dejaLance = camps.some((c) => c.sessionNumero === sessionNumero && c.lanceLe !== null)
-  return nouveauBrouillon(sessionNumero, !dejaLance)
+  return nouveauBrouillon(sessionNumero, dejaLance ? 'repos-court' : 'initial')
 }
 
-export function nouveauBrouillon(sessionNumero: number, debutDeSession: boolean): Campfire {
+export function nouveauBrouillon(sessionNumero: number, type: TypeCamp): Campfire {
   return {
     id: nouvelIdentifiant(),
     sessionNumero,
-    finDeJournee: false,
-    debutDeSession,
-    phase: debutDeSession ? 'banque' : 'brief',
+    type,
+    // La phase de départ vient du profil : elle ne peut donc pas désigner une
+    // phase que ce camp n'ouvre pas.
+    phase: PROFILS_CAMP[type].phases[0] as PhaseCampfire,
     brief: '',
     offres: {},
     investissementsProposes: [],
@@ -524,9 +513,9 @@ export async function abandonnerBrouillon(): Promise<void> {
  * Publie le brouillon : le camp devient visible et la table y bascule.
  *
  * ⚠️ C'est **ici** que le camp est résolu pour chaque personnage — Fatigue
- * restaurée, cristaux étudiés, effets journaliers levés. Le faire à la
+ * rendue, cristaux étudiés, effets de la session écoulée levés. Le faire à la
  * fermeture effacerait le Serment que la joueuse vient d'engager à la phase
- * Grimoire, alors qu'il vaut pour la journée qui commence.
+ * Grimoire, alors qu'il vaut pour la session qui commence.
  */
 export async function lancerCampfire(
   etat: EtatTable,
@@ -537,27 +526,16 @@ export async function lancerCampfire(
   await store.setDoc(chemins.campfire(campfire.id), campfire)
 
   for (const char of personnages) {
-    const { char: resolu, effets } = resoudreCampPourPersonnage(char, {
-      finDeJournee: campfire.finDeJournee,
-    })
+    const { char: resolu, effets } = resoudreCampPourPersonnage(char, campfire.type)
     await enregistrerPersonnage(resolu)
     if (effets.length > 0) {
       await journaliser('MJ', 'camp', `${char.nom} — ${effets.join(' · ')}`)
     }
   }
 
-  await store.setDoc(chemins.etat, {
-    ...etat,
-    mode: 'campfire',
-    campfireId: campfire.id,
-    jour: campfire.finDeJournee ? etat.jour + 1 : etat.jour,
-  })
+  await store.setDoc(chemins.etat, { ...etat, mode: 'campfire', campfireId: campfire.id })
   await abandonnerBrouillon()
-  await journaliser(
-    'MJ',
-    'camp',
-    campfire.finDeJournee ? 'Feu de camp — fin de journée.' : 'Feu de camp — repos court.',
-  )
+  await journaliser('MJ', 'camp', `Feu de camp — ${PROFILS_CAMP[campfire.type].libelle}.`)
 
   return campfire
 }

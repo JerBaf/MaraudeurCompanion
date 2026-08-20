@@ -231,8 +231,11 @@ export function allModifiers(char: Character, catalog: Catalog): Modifier[] {
 // ---------------------------------------------------------------------------
 
 export type EvenementExpiration =
-  /** Un feu de camp vient d'être résolu. */
-  | { kind: 'camp'; finDeJournee: boolean }
+  /**
+   * Un feu de camp vient d'être résolu. `frontiereDeSession` distingue le camp
+   * initial, qui clôt la session écoulée, d'un simple repos court.
+   */
+  | { kind: 'camp'; frontiereDeSession: boolean }
   /**
    * Le combat vient d'atteindre ce moment de l'horloge. À évaluer à **chaque**
    * changement de sous-groupe, pas seulement au changement de tour.
@@ -252,9 +255,13 @@ export function expireModifiers(mods: readonly Modifier[], ev: EvenementExpirati
         return true
       case 'fin-de-camp':
         return ev.kind !== 'camp'
+      // `fin-de-journee` est l'ancien nom de `fin-de-session` : les deux se
+      // traitent pareil, sans quoi les Serments déjà en base tomberaient dans
+      // aucun cas et le `filter` les effacerait au premier camp venu.
+      case 'fin-de-session':
       case 'fin-de-journee':
-        // Un repos court ne lève ni Fardeau, ni Serment, ni Marque journalière.
-        return !(ev.kind === 'camp' && ev.finDeJournee)
+        // Un repos court ne lève ni Fardeau, ni Serment, ni Marque de session.
+        return !(ev.kind === 'camp' && ev.frontiereDeSession)
       case 'moment-combat': {
         if (ev.kind === 'fin-combat') return false
         if (ev.kind === 'moment') return ev.moment < m.expires.momentFin
@@ -276,14 +283,14 @@ function nouvelId(prefixe: string): string {
   return `${prefixe}:${Date.now().toString(36)}:${compteur}`
 }
 
-/** Fardeau (Foi +3) : désavantage sur une compétence pour la journée. */
+/** Fardeau (Foi +3) : désavantage sur une compétence pour la session. */
 export function modificateurFardeau(competence: Competence): Modifier {
   return {
     id: nouvelId('fardeau'),
     source: { kind: 'fardeau', label: 'Fardeau' },
     target: { kind: 'competence', competence },
     op: { kind: 'desavantage' },
-    expires: { kind: 'fin-de-journee' },
+    expires: { kind: 'fin-de-session' },
   }
 }
 
@@ -294,18 +301,18 @@ export function modificateurSerment(competenceEpargnee: Competence): Modifier {
     source: { kind: 'serment', label: 'Serment' },
     target: { kind: 'competence-sauf', except: competenceEpargnee },
     op: { kind: 'add', value: -4 },
-    expires: { kind: 'fin-de-journee' },
+    expires: { kind: 'fin-de-session' },
   }
 }
 
-/** Marque dépensée par la MJ : désavantage sur une compétence pour la journée. */
+/** Marque dépensée par la MJ : désavantage sur une compétence pour la session. */
 export function modificateurMarque(competence: Competence): Modifier {
   return {
     id: nouvelId('marque'),
     source: { kind: 'marque', label: 'Marque' },
     target: { kind: 'competence', competence },
     op: { kind: 'desavantage' },
-    expires: { kind: 'fin-de-journee' },
+    expires: { kind: 'fin-de-session' },
   }
 }
 

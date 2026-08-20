@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 118 tests — 104 de domaine, 14 de rendu |
+| `npm test` | 126 tests — 109 de domaine, 17 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -34,7 +34,8 @@ Un `git push` sur `main` déclenche GitHub Actions : tests → build → publica
 Les trois lots sont livrés : socle et phase Standard, mode Combat, Feu de Camp.
 Création de personnage, fiche vivante, moteur de modificateurs, secret des cycles,
 combat complet (initiative, adversaires, dégâts partagés, actions alternatives),
-feu de camp en cinq phases, bestiaire, éditeur de catalogue.
+feu de camp (cinq phases au camp initial, trois au repos court), bestiaire, éditeur de
+catalogue.
 
 ### Ce qui reste
 
@@ -153,12 +154,12 @@ refusé aux joueuses par les règles.
 
 ```
 /tables/entre-monde/
-  state/current              public  mode · combat · campfireId · jour · sessionId · overlay
+  state/current              public  mode · combat · campfireId · sessionId · overlay
   characters/{id}            public  la fiche — tout ce que les joueuses peuvent voir
   adversaries/{id}           public  nom · evasion · evasionPublique · degatsSubis · icone
   catalog/{id}               public  classes, sorts, équipements, améliorations, investissements
-  campfires/{id}             public  un camp LANCÉ : phase · brief · offres
-  sessions/{id}              public  numero · jetons par personnage
+  campfires/{id}             lecture publique, écriture MJ — un camp LANCÉ : phase · brief · offres
+  sessions/{id}              lecture publique, écriture MJ — numero · ouverteLe
 
   secrets/{characterId}      🔒 MJ   cyclesTotal · cyclesConsommes · notesMJ
   secrets/adversaires        🔒 MJ   seuils de Fatigue des adversaires en jeu
@@ -218,7 +219,8 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Voie de la Flamme | paliers **cumulatifs** | à 7 brûlures on garde le 6ᵉ Sens du seuil 4 |
 | Illusions du Trickster | **dérivées du passif**, pas possédées | « donne accès à » ≠ « possède » |
 | Marques | plafond **3**, rien d'automatique | la MJ dépense à la main |
-| Feu de camp | qualifié **repos court** ou **fin de journée** | seul le second rend le 6ᵉ Sens et lève Fardeaux/Serments |
+| Feu de camp | qualifié **initial** ou **repos court** ; la notion de journée de fiction est abandonnée | un camp initial ouvre la session : il rend 1 Point de Fatigue, le 6ᵉ Sens et les Actions Rapides, lève Fardeaux/Serments/Marques et ouvre Banque, Brief et gains de Foi. Un repos court ne rend que les cristaux et n'ouvre que Boutique, Grimoire, Armurerie |
+| Jetons de camp | portés par la **fiche**, et datés (n° de session, id de camp) | voir piège n° 8 |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte explicitement par la MJ | c'est là que les investissements rendent leurs comptes |
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |
@@ -226,6 +228,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Combat | la joueuse saisit jet et cible, l'app applique | la MJ peut corriger |
 | Offres de boutique | tirage assisté que la MJ ajuste | 3 offres × 5 joueuses = trop de choix manuels |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |
+| Écran MJ pendant le camp | **miroir** de l'écran d'une joueuse, actions neutralisées, contrôles d'édition à leur place | un seul rendu à maintenir ; permet de retoucher brief et offres camp lancé |
 
 ---
 
@@ -282,13 +285,37 @@ change de document.
 #### Piège n° 4 : le camp se résout à l'ouverture, pas à la fermeture
 
 `lancerCampfire` applique `resoudreCampPourPersonnage` à toutes les fiches — Fatigue
-restaurée, cristaux étudiés, effets journaliers levés.
+rendue, cristaux étudiés, effets de la session écoulée levés.
 
 Le faire à la fermeture **effacerait le Serment que la joueuse vient d'engager à la phase
-Grimoire**, alors qu'il vaut pour la journée qui commence. Arriver au camp clôt la
-journée écoulée ; ce qu'on y engage vaut pour la suivante.
+Grimoire**, alors qu'il vaut pour la session qui commence. Arriver au camp initial clôt la
+session écoulée ; ce qu'on y engage vaut pour la suivante.
 
 Un test garde ce cas (`describe('ordonnancement du Feu de Camp')`).
+
+#### Piège n° 8 : un état écrit par la joueuse doit vivre dans un document qu'elle peut écrire
+
+Les jetons de Feu de Camp — Recueillir, Fardeau, Serment, investissement, acquisition —
+vivaient dans `sessions/{id}`, dont les règles réservent l'écriture à la MJ. C'est pourtant
+l'écran des **joueuses** qui les posait. En local rien ne se voyait (`localStore` n'applique
+aucune règle) ; en production les six écritures étaient refusées, et comme chaque handler
+écrivait la fiche **avant** le jeton, la récompense partait sans la limite : Foi gagnée en
+boucle, achats illimités, « Achat impossible » affiché après un achat réussi.
+
+Deux leçons, l'une de placement, l'autre de forme :
+
+1. **Le document suit le scripteur.** Les jetons sont désormais sur `Character.jetonsCamp`.
+   La joueuse écrit déjà sa fiche : aucune règle à ouvrir, plus de clobber entre joueuses
+   simultanées, et `normaliserPersonnage` couvre le piège n° 2 gratuitement.
+2. **Un jeton porte sa portée dans sa valeur**, pas dans un booléen qu'il faudrait penser à
+   remettre à zéro — c'est ce qui manquait à `achatFaitCeCamp`, jamais réinitialisé, si bien
+   qu'« une acquisition par feu de camp » se comportait en « une par session ». Ils retiennent
+   maintenant *quand* l'action a eu lieu (numéro de session, identifiant de camp) et la
+   disponibilité se dérive. `peutInvestir` va plus loin et ne stocke rien du tout : il lit
+   `char.investissements`, qui date déjà chaque prise.
+
+Corollaire général : **le mode local ne prouve rien sur les permissions**. Avant de livrer un
+chemin d'écriture nouveau côté joueuse, relisez `firebase/firestore.rules`.
 
 #### Piège n° 5 : l'expiration se compte en activations, pas en tours
 
@@ -326,8 +353,8 @@ une entrée. Ne réintroduisez pas d'énumération exclusive.
 
 - **Écritures « dernier arrivé gagne ».** `enregistrerPersonnage` fait un `setDoc` du
   document entier. Deux appareils éditant la même fiche s'écrasent mutuellement.
-  Idem pour `majJetons`, qui réécrit tout le document de session — deux joueuses
-  agissant en même temps au feu de camp peuvent se clobber.
+  (Le cas jumeau au feu de camp a disparu avec le piège n° 8 : chaque joueuse n'écrit
+  plus que sa propre fiche.)
 - **Écritures multiples sans transaction.** `avancerSousGroupe`, `terminerCombat` et
   `lancerCampfire` écrivent N documents en séquence. Une coupure au milieu laisse un
   état partiel.
@@ -348,8 +375,9 @@ Ce sont des interprétations. Si la MJ dit autre chose, elle a raison.
 - **Combustion volontaire** amène à 9 brûlures et les conserve (sinon la manœuvre
   n'aurait aucun intérêt) ; le franchissement **passif** du seuil remet à zéro et le
   dépassement est perdu.
-- **`premierCampDuJour`** est assimilé à `campfire.finDeJournee` côté joueuse : un camp
-  « fin de journée » clôt la journée écoulée, donc il ouvre la suivante.
+- **Les gains de Foi sont réservés au camp initial.** Le PDF les réserve au « premier feu
+  de camp de la journée » ; sans notion de journée, le camp qui ouvre la session en tient
+  lieu. Ils restent limités à une fois par session.
 - **Effet Aléatoire de l'Arcane** : sur un double, `signe` vaut `positif` par
   convention, mais c'est la Cicatrice qui compte.
 - **Le nom d'un adversaire retiré n'est pas réattribué** : trois Carcasses puis un
@@ -392,16 +420,19 @@ Ce sont des interprétations. Si la MJ dit autre chose, elle a raison.
 
 ## 8. Décisions revenues sur elles-mêmes
 
-Trois choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
+Cinq choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
 
 | Sujet | D'abord | Puis | Pourquoi |
 |---|---|---|---|
 | **Voie de la Flamme** | paliers exclusifs, drapeau `VOIE_FLAMME_CUMULATIVE` | liste de seuils cumulatifs `PALIERS_FLAMME` | la MJ les joue cumulatifs ; la liste rend le drapeau inutile et l'ajout d'un palier trivial |
 | **Illusions du Trickster** | ajoutées à `possede.sorts` à la création | **dérivées** du passif via `sortsHorsEmplacement` | un correctif à la création n'atteint pas les fiches existantes ; et « donne accès à » ≠ « possède » |
 | **Cycles (1d4+2)** | tirés par l'app à la création | **saisis par la MJ** sur son écran | tirés côté joueuse, son navigateur en gardait la trace — la console les révélait |
+| **Nature du camp** | deux booléens indépendants, `finDeJournee` et `debutDeSession` | un `type: 'initial' \| 'repos-court'` et une table `PROFILS_CAMP` | les deux booléens pouvaient se contredire (Banque fermée sur un brouillon resté en phase `banque`), et `finDeJournee` valant `false` par défaut verrouillait silencieusement tous les gains de Foi |
+| **Jetons de camp** | booléens dans `Session.jetons` | datés, sur `Character.jetonsCamp` | voir piège n° 8 : mauvais document (écriture refusée aux joueuses) et mauvaise forme (rien ne les réinitialisait) |
 
-Le fil commun de ces trois retours : **préférer le dérivé au stocké**, et **ne jamais
-faire transiter par un appareil ce qu'il ne doit pas savoir**.
+Le fil commun de ces retours : **préférer le dérivé au stocké**, **ne jamais faire transiter
+par un appareil ce qu'il ne doit pas savoir**, et **ranger un état là où celui qui l'écrit a
+le droit d'écrire**.
 
 ---
 
