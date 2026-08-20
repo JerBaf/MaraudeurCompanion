@@ -23,9 +23,9 @@ import {
 import { fatigueRestante } from '../../domain/fatigue.ts'
 import {
   appliquerGainBrulures,
+  basculerCaseBrulure,
   bruluresDisponibles,
   combustionVolontaire,
-  consommerBrulures,
   disponibiliteSort,
   grimoireEffectif,
   resumeSort,
@@ -204,15 +204,11 @@ function OngletFiche({
     maj((c) => ({ ...c, brulures: resultat.brulures }))
   }
 
-  /** Dépenser des brûlures les rend inactives ; la neuvième déclenche la Combustion. */
-  function depenser(nombre: number) {
-    const r = consommerBrulures(char, nombre)
-    setDernierJet(
-      r.combustion
-        ? `${nombre} brûlure(s) dépensée(s) — Combustion ! 1 Point de Fatigue, les marques s'effacent.`
-        : `${nombre} brûlure(s) dépensée(s).`,
-    )
+  /** Un clic fait tourner la case ; la neuvième dépensée déclenche la Combustion. */
+  function basculerCase(index: number) {
+    const r = basculerCaseBrulure(char, index)
     if (r.combustion) {
+      setDernierJet('Combustion ! 1 Point de Fatigue, les marques s’effacent.')
       void journaliser(char.nom, 'combustion', `${char.nom} atteint la Combustion.`)
     }
     maj((c) => ({
@@ -384,34 +380,25 @@ function OngletFiche({
 
       {/* --- Ressources --- */}
       <section className="carte pile">
+        {/* Une pastille tourne sur elle-même : vierge, acquise (orange), puis
+            dépensée (rouge). Deux compteurs sur une seule barre, sans avoir à
+            lire une ligne de chiffres. */}
         <Compteur
           libelle="Brûlures"
           variante="brulures"
           valeur={char.brulures}
+          consommee={char.bruluresConsommees}
           max={SEUIL_COMBUSTION}
-          onChange={(v) => maj((c) => ({ ...c, brulures: v }))}
-          // Les paliers se cumulent : on les liste tous, pas seulement le plus haut.
-          {...(paliers.length > 0 ? { note: paliers.map((p) => p.effet).join(' ') } : {})}
+          onPastille={basculerCase}
+          note={[
+            `${disponibles} disponible(s)`,
+            ...paliers.map((p) => p.effet),
+          ].join(' · ')}
         />
-
-        {/* Les marques acquises portent les paliers ; seule la part non dépensée
-            peut encore payer un sort. D'où deux nombres, et non un seul. */}
-        <p className="tres-discret" style={{ margin: 0 }}>
-          {disponibles} disponible(s) · {char.bruluresConsommees} consommée(s) sur{' '}
-          {SEUIL_COMBUSTION}
-        </p>
 
         <div className="rangee">
           <button type="button" className="btn" onClick={lancerOsselets}>
             Tirer les osselets
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={disponibles < 1}
-            onClick={() => depenser(1)}
-          >
-            Dépenser 1
           </button>
           <button type="button" className="btn btn--danger" onClick={declencherCombustion}>
             Combustion

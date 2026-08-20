@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 145 tests — 123 de domaine, 22 de rendu |
+| `npm test` | 149 tests — 127 de domaine, 22 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -277,6 +277,11 @@ Trois conséquences qu'un seul compteur ne peut pas rendre :
   plus rien à dépenser mais garde ses deux paliers de la Voie de la Flamme.
 - **La Combustion volontaire donne 9 brûlures *dépensables*** (`bruluresConsommees: 0`)
   contre 1 Point de Fatigue. La ramener à « 9 consommées » lui retirerait tout intérêt.
+
+La barre de neuf pastilles porte les deux compteurs à la fois : un clic marque la brûlure
+acquise (orange), un deuxième la marque dépensée (rouge), un troisième l'efface —
+`basculerCaseBrulure` dans `magie.ts`. Les deux compteurs étant des **préfixes**, effacer
+une case efface aussi tout ce qui la suit ; une barre trouée n'aurait pas de sens.
 
 ---
 

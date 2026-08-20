@@ -264,6 +264,42 @@ export function consommerBrulures(char: Character, nombre: number): ResultatCons
   }
 }
 
+export type EtatCaseBrulure = 'vierge' | 'disponible' | 'consommee'
+
+/** L'état d'une case de la barre de brûlures. Les deux compteurs sont des préfixes. */
+export function etatCaseBrulure(char: Character, index: number): EtatCaseBrulure {
+  if (index < char.bruluresConsommees) return 'consommee'
+  if (index < char.brulures) return 'disponible'
+  return 'vierge'
+}
+
+/**
+ * Fait tourner une case de la barre : vierge → disponible → consommée → vierge.
+ *
+ * C'est le geste le plus direct à table — on marque ce qu'on vient de tirer,
+ * puis ce qu'on vient de dépenser, sur la même case. Les deux compteurs restant
+ * des préfixes, retirer une case retire aussi tout ce qui la suit : une barre
+ * trouée n'aurait pas de sens.
+ */
+export function basculerCaseBrulure(char: Character, index: number): ResultatConsommation {
+  const inchange = {
+    brulures: char.brulures,
+    bruluresConsommees: char.bruluresConsommees,
+    combustion: false,
+    fatigueAjoutee: 0,
+  }
+
+  switch (etatCaseBrulure(char, index)) {
+    case 'vierge':
+      return { ...inchange, brulures: Math.min(SEUIL_COMBUSTION, index + 1) }
+    case 'disponible':
+      // Passe par la consommation : c'est elle qui sait reconnaître la neuvième.
+      return consommerBrulures(char, index + 1 - char.bruluresConsommees)
+    case 'consommee':
+      return { ...inchange, brulures: index, bruluresConsommees: index }
+  }
+}
+
 /**
  * Combustion volontaire : la joueuse paie 1 Point de Fatigue pour disposer
  * instantanément des neuf brûlures — et elles sont **toutes dépensables**,

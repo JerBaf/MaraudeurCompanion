@@ -64,8 +64,10 @@ import {
 } from './fatigue.ts'
 import {
   appliquerGainBrulures,
+  basculerCaseBrulure,
   bruluresDisponibles,
   classesDuSort,
+  etatCaseBrulure,
   combustionVolontaire,
   consommerBrulures,
   coutAdditionnel,
@@ -308,6 +310,49 @@ describe('Combustion', () => {
     const char = nouveauPerso('soulshifter', { brulures: 8, bruluresConsommees: 8 })
     expect(bruluresDisponibles(char)).toBe(0)
     expect(paliersFlammeAtteints(char.brulures).map((p) => p.id)).toEqual(['perception', 'fureur'])
+  })
+
+  /**
+   * La barre de brûlures se pilote case par case : un clic marque la brûlure
+   * acquise, un deuxième la marque dépensée, un troisième l'efface.
+   */
+  it('fait tourner une case : vierge, disponible, consommée, vierge', () => {
+    const vide = nouveauPerso('soulshifter', { brulures: 0, bruluresConsommees: 0 })
+    expect(etatCaseBrulure(vide, 0)).toBe('vierge')
+
+    const apresUn = { ...vide, ...basculerCaseBrulure(vide, 0) }
+    expect(apresUn.brulures).toBe(1)
+    expect(etatCaseBrulure(apresUn, 0)).toBe('disponible')
+
+    const apresDeux = { ...apresUn, ...basculerCaseBrulure(apresUn, 0) }
+    expect(apresDeux.bruluresConsommees).toBe(1)
+    expect(etatCaseBrulure(apresDeux, 0)).toBe('consommee')
+
+    const apresTrois = { ...apresDeux, ...basculerCaseBrulure(apresDeux, 0) }
+    expect(apresTrois.brulures).toBe(0)
+    expect(apresTrois.bruluresConsommees).toBe(0)
+    expect(etatCaseBrulure(apresTrois, 0)).toBe('vierge')
+  })
+
+  it('cliquer une case vierge remplit jusqu’à elle', () => {
+    const vide = nouveauPerso('soulshifter', { brulures: 0, bruluresConsommees: 0 })
+    expect(basculerCaseBrulure(vide, 4).brulures).toBe(5)
+  })
+
+  it('consommer la neuvième case déclenche la Combustion', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 9, bruluresConsommees: 8 })
+    const r = basculerCaseBrulure(char, 8)
+    expect(r.combustion).toBe(true)
+    expect(r.fatigueAjoutee).toBe(1)
+    expect(r.brulures).toBe(0)
+  })
+
+  it('effacer une case efface aussi celles qui la suivent', () => {
+    // Les deux compteurs sont des préfixes : une barre trouée n'aurait pas de sens.
+    const char = nouveauPerso('soulshifter', { brulures: 6, bruluresConsommees: 4 })
+    const r = basculerCaseBrulure(char, 1)
+    expect(r.brulures).toBe(1)
+    expect(r.bruluresConsommees).toBe(1)
   })
 
   it('volontaire : paie 1 Fatigue et rend les 9 brûlures dépensables', () => {

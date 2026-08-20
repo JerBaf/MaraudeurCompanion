@@ -388,11 +388,19 @@ textarea {
   border-color: var(--teinte, var(--ambre));
 }
 
+/* Second niveau : la brûlure est acquise mais déjà dépensée. Déclaré après
+   `--pleine`, à spécificité égale, pour l'emporter sur elle. */
+.pastille--epuisee {
+  background: var(--teinte-epuisee, var(--sang));
+  border-color: var(--teinte-epuisee, var(--sang));
+}
+
 .compteur--fatigue {
   --teinte: var(--sang);
 }
 .compteur--brulures {
   --teinte: #d97a2b;
+  --teinte-epuisee: #a32118;
 }
 .compteur--foi {
   --teinte: var(--foi);
