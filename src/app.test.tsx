@@ -452,6 +452,52 @@ describe('outillage de table', () => {
     await waitFor(() => expect(screen.getByText('3 / 9')).toBeTruthy())
   })
 
+  /**
+   * Le libellé du passif était figé au moment de son ajout : composer les
+   * passifs avant de nommer l'objet — l'ordre naturel — laissait un « Objet »
+   * générique sur la fiche de la joueuse.
+   */
+  it('nomme le passif d’après l’objet, même si on le compose avant de le nommer', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Améliorations' }))
+    fireEvent.click(await screen.findByText(/Ajouter — améliorations/))
+
+    // Le passif d'abord…
+    fireEvent.click(await screen.findByText('Ajouter un passif'))
+    fireEvent.change(await screen.findByLabelText('Cible du passif'), {
+      target: { value: 'evasion' },
+    })
+    fireEvent.change(screen.getByLabelText('Valeur du passif'), { target: { value: '2' } })
+
+    // …le nom ensuite.
+    fireEvent.change(screen.getByLabelText('Nom'), { target: { value: 'Peau de pierre' } })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    // La MJ l'accorde — une amélioration ne s'obtenait qu'en boutique.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    fireEvent.click(await screen.findByText('Ilma'))
+    const accorder = await screen.findByLabelText('Accorder une amélioration')
+    const option = within(accorder).getByRole('option', { name: /Peau de pierre/ })
+    fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText('Ilma')).toBeTruthy())
+
+    // Le passif porte le nom de l'amélioration, pas un « Amélioration » générique.
+    const effets = screen.getByText('Effets en cours').closest('section')
+    expect(effets?.textContent).toContain('Peau de pierre')
+    expect(effets?.textContent).not.toContain('Amélioration :')
+
+    const vignette = screen.getByText('Évasion').closest('.vignette')
+    expect(vignette?.textContent).toContain('3')
+  })
+
   it('la joueuse utilise un consommable, qui se détruit', async () => {
     await tablePreteAvecPersonnage()
 

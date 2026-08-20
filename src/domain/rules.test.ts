@@ -103,6 +103,7 @@ import { resoudreDeclencheurs } from './declencheurs.ts'
 import { chargesRestantes, peutUtiliser, rechargerObjet, utiliserObjet } from './objets.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import type {
+  Amelioration,
   Character,
   CoutUsage,
   EntreeCatalogue,
@@ -978,6 +979,42 @@ describe('passifs réactifs', () => {
     expect(r.char.foi).toBe(MAX_FOI)
     // Rien n'a bougé : rien à raconter.
     expect(r.recits).toEqual([])
+  })
+
+  /**
+   * Régression signalée à table : une amélioration qui n'accordait qu'un passif
+   * réactif n'apparaissait nulle part. `effetsActifs` partait des modificateurs,
+   * et un déclencheur n'en produit aucun — il réagit au lieu d'ajuster.
+   */
+  it('apparaît dans les effets en cours, même sans aucun modificateur', () => {
+    const amelioration: Amelioration = {
+      kind: 'amelioration',
+      id: 'pacte-sang',
+      nom: 'Pacte de sang',
+      icone: 'crystal-shine',
+      prix: 80,
+      effetTexte: 'Chaque Marque nourrit la foi.',
+      declencheurs: [{ quand: 'marques', sens: 'augmente', alors: 'foi', delta: 1 }],
+    }
+    const catalogue = createCatalog([...SEED, amelioration])
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [amelioration.id] },
+    })
+
+    const effet = effetsActifs(char, catalogue).find((e) => e.nom === 'Pacte de sang')
+    expect(effet).toBeTruthy()
+    expect(effet?.resume).toContain('Marques')
+    expect(effet?.resume).toContain('Points de Foi')
+  })
+
+  it('disparaît des effets en cours quand l’objet n’est plus porté', () => {
+    const range = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+    })
+    expect(effetsActifs(range, avecSceau).some((e) => e.nom === 'Sceau du Martyr')).toBe(false)
+
+    const porte = portant()
+    expect(effetsActifs(porte, avecSceau).some((e) => e.nom === 'Sceau du Martyr')).toBe(true)
   })
 
   it('additionne deux déclencheurs qui visent la même ressource', () => {

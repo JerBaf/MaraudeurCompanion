@@ -1,4 +1,5 @@
 import type { Catalog } from './catalog.ts'
+import { declencheursActifs, decrireDeclencheur } from './declencheurs.ts'
 import { allModifiers, paliersFlammeAtteints } from './modifiers.ts'
 import { LIBELLE_COMPETENCE, type Character, type Modifier, type VieSoulshifter } from './types.ts'
 
@@ -147,6 +148,24 @@ export function effetsActifs(
   }
 
   // --- Passifs sans modificateur chiffré ---
+
+  // Les passifs réactifs ne produisent aucun modificateur — ils réagissent à un
+  // changement au lieu d'ajuster une valeur. Sans cette boucle, une amélioration
+  // qui n'accorde qu'un déclencheur n'apparaîtrait nulle part.
+  for (const { declencheur, source, provenance, ref } of declencheursActifs(char, catalog)) {
+    const resume = decrireDeclencheur(declencheur)
+    effets.push({
+      id: `declencheur:${ref}:${declencheur.quand}:${declencheur.alors}`,
+      nom: source,
+      origine: provenance === 'equipement' ? 'equipement' : 'choisi',
+      resume,
+      detail:
+        provenance === 'equipement'
+          ? `${resume}\n\nS'applique tant que l'objet est porté.`
+          : `${resume}\n\nAcquis en permanence : une amélioration n'occupe aucun emplacement.`,
+      modificateurs: [],
+    })
+  }
 
   // Dusk Hunter : Overheat agit sur le *gain* de brûlures, pas sur une
   // statistique — il n'existe donc aucun modificateur à afficher.

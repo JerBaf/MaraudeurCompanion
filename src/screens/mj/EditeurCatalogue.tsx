@@ -223,6 +223,27 @@ function resume(e: EntreeCatalogue): string {
   }
 }
 
+/**
+ * Aligne le libellé des passifs sur le nom de l'entrée.
+ *
+ * C'est ce libellé que la joueuse lit dans « Effets en cours ». Il était figé au
+ * moment où le passif était ajouté : renommer l'objet ensuite — ou le nommer
+ * après avoir composé ses passifs, ce qui est l'ordre naturel — laissait un
+ * « Objet » générique sur sa fiche.
+ */
+function avecLibellesAJour(entree: EntreeCatalogue): EntreeCatalogue {
+  const nom = entree.nom.trim()
+  if (entree.kind !== 'equipement' && entree.kind !== 'amelioration') return { ...entree, nom }
+
+  return {
+    ...entree,
+    nom,
+    ...(entree.modificateurs
+      ? { modificateurs: entree.modificateurs.map((m) => ({ ...m, source: { ...m.source, label: nom } })) }
+      : {}),
+  }
+}
+
 function nouvelId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `cat-${Date.now()}`
 }
@@ -624,7 +645,7 @@ function Formulaire({
           type="button"
           className="btn btn--principal"
           style={{ flex: 1 }}
-          onClick={() => onEnregistrer({ ...brouillon, nom: brouillon.nom.trim() })}
+          onClick={() => onEnregistrer(avecLibellesAJour(brouillon))}
           disabled={!brouillon.nom.trim()}
         >
           Enregistrer

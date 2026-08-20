@@ -95,25 +95,42 @@ export function ecrireRessource(
   }
 }
 
+export interface DeclencheurActif {
+  declencheur: Declencheur
+  /** Nom de l'objet ou de l'amélioration qui l'accorde. */
+  source: string
+  /** Sa provenance, pour que l'écran sache qui a le droit de le retirer. */
+  provenance: 'equipement' | 'amelioration'
+  /** Identifiant de l'entrée de catalogue, pour distinguer deux sources homonymes. */
+  ref: string
+}
+
 /** Les déclencheurs en vigueur : équipement porté, améliorations possédées. */
-export function declencheursActifs(
-  char: Character,
-  catalog: Catalog,
-): { declencheur: Declencheur; source: string }[] {
-  const out: { declencheur: Declencheur; source: string }[] = []
+export function declencheursActifs(char: Character, catalog: Catalog): DeclencheurActif[] {
+  const out: DeclencheurActif[] = []
 
   for (const id of Object.values(char.equipe)) {
     if (!id) continue
     const eq = catalog.equipement(id)
-    eq?.declencheurs?.forEach((d) => out.push({ declencheur: d, source: eq.nom }))
+    eq?.declencheurs?.forEach((d) =>
+      out.push({ declencheur: d, source: eq.nom, provenance: 'equipement', ref: eq.id }),
+    )
   }
 
   for (const id of char.possede.ameliorations) {
     const am = catalog.amelioration(id)
-    am?.declencheurs?.forEach((d) => out.push({ declencheur: d, source: am.nom }))
+    am?.declencheurs?.forEach((d) =>
+      out.push({ declencheur: d, source: am.nom, provenance: 'amelioration', ref: am.id }),
+    )
   }
 
   return out
+}
+
+/** Le déclencheur en une phrase, pour l'écran des effets en cours. */
+export function decrireDeclencheur(d: Declencheur): string {
+  const signe = d.delta > 0 ? '+' : ''
+  return `Quand ${LIBELLE_RESSOURCE[d.quand]} ${d.sens} : ${LIBELLE_RESSOURCE[d.alors]} ${signe}${d.delta}`
 }
 
 export interface ResultatDeclencheurs {

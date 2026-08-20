@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 170 tests — 143 de domaine, 27 de rendu |
+| `npm test` | 173 tests — 145 de domaine, 28 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -278,6 +278,11 @@ Trois bornes à ne pas lever :
 - **le résultat reste borné** par les plafonds dérivés — un déclencheur ne fait pas déborder
   une jauge, et quand rien ne bouge il ne raconte rien ;
 - **même régime d'activation que les modificateurs** : objet porté, amélioration possédée.
+
+⚠️ Un déclencheur ne produit **aucun modificateur** — il réagit au lieu d'ajuster. `effetsActifs`
+(`domain/effets.ts`) part des modificateurs : il faut donc l'y ajouter explicitement, sans quoi
+une amélioration qui n'accorde qu'un passif réactif n'apparaît nulle part. Même piège pour tout
+passif futur qui ne passerait pas par le moteur — c'est déjà le cas d'Overheat et d'Illusionniste.
 
 `modifierPersonnage` lit le catalogue dans `catalogueCourant`, un cache alimenté par
 `surCatalogue`. Tant qu'il est nul — avant la première réponse — aucun déclencheur ne part,

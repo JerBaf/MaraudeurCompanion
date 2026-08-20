@@ -46,6 +46,14 @@ export function Inventaire({
     .equipements()
     .filter((e) => !char.possede.equipements.includes(e.id))
 
+  const ameliorations = char.possede.ameliorations
+    .map((id) => catalog.amelioration(id))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+
+  const ameliorationsAccordables = catalog
+    .ameliorations()
+    .filter((a) => !char.possede.ameliorations.includes(a.id))
+
   function basculerSort(id: string) {
     maj((c) => {
       if (c.grimoire.includes(id)) return { ...c, grimoire: c.grimoire.filter((s) => s !== id) }
@@ -56,6 +64,21 @@ export function Inventaire({
 
   function donnerSort(id: string) {
     maj((c) => ({ ...c, possede: { ...c.possede, sorts: [...c.possede.sorts, id] } }))
+  }
+
+  function donnerAmelioration(id: string) {
+    maj((c) => ({
+      ...c,
+      possede: { ...c.possede, ameliorations: [...c.possede.ameliorations, id] },
+    }))
+  }
+
+  function retirerAmelioration(id: string, nom: string) {
+    if (!confirm(`Retirer « ${nom} » à ${char.nom} ? La perte est définitive.`)) return
+    maj((c) => ({
+      ...c,
+      possede: { ...c.possede, ameliorations: c.possede.ameliorations.filter((a) => a !== id) },
+    }))
   }
 
   function donnerEquipement(id: string) {
@@ -239,6 +262,41 @@ export function Inventaire({
           {equipementsAccordables.map((eq) => (
             <option key={eq.id} value={eq.id}>
               {eq.nom} — {LIBELLE_SLOT[eq.slot]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <hr className="separateur" />
+
+      {/* Une amélioration ne s'obtenait qu'en boutique : la MJ ne pouvait pas
+          en accorder une, ni corriger une acquisition. */}
+      <span className="etiquette">Améliorations</span>
+      {ameliorations.length === 0 && <p className="vide">Aucune.</p>}
+      {ameliorations.map((am) => (
+        <div key={am.id} className="objet">
+          <Icone nom={am.icone} taille={28} />
+          <span className="objet__corps">
+            <span className="objet__nom">{am.nom}</span>
+            <span className="objet__meta">{am.effetTexte}</span>
+          </span>
+          <button
+            type="button"
+            className="btn btn--fantome"
+            onClick={() => retirerAmelioration(am.id, am.nom)}
+          >
+            Retirer
+          </button>
+        </div>
+      ))}
+
+      <label className="champ">
+        <span className="etiquette">Accorder une amélioration</span>
+        <select value="" onChange={(e) => e.target.value && donnerAmelioration(e.target.value)}>
+          <option value="">— choisir —</option>
+          {ameliorationsAccordables.map((am) => (
+            <option key={am.id} value={am.id}>
+              {am.nom} — {am.prix} ʟ
             </option>
           ))}
         </select>
