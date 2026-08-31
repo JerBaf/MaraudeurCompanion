@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 
-import { Icone } from '../../components/Icone.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { THEMATIQUES_RECUEIL } from '../../content/recueil.ts'
@@ -21,11 +20,13 @@ import {
   PROFILS_CAMP,
   resoudreFardeauFatigue,
   resoudrePriseInvestissement,
+  resumeEntree,
   TAILLE_GRIMOIRE,
   type ContexteCamp,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { resumeSort } from '../../domain/magie.ts'
+import { detailObjet, resumeEquipement } from '../../domain/objets.ts'
 import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
@@ -33,9 +34,11 @@ import {
   LIBELLE_COMPETENCE,
   LIBELLE_PHASE,
   LIBELLE_SLOT,
+  RARETES,
   SLOTS_EQUIPEMENT,
   type Campfire,
   type Character,
+  type EntreeCatalogue,
   type EtatTable,
   type Sort,
 } from '../../domain/types.ts'
@@ -276,13 +279,24 @@ function Brief({ campfire, edition }: { campfire: Campfire; edition?: EditionCam
       )}
 
       <p className="tres-discret" style={{ margin: 0 }}>
-        Orientez vos choix de Grimoire et d'Armurerie là-dessus.
+        Orientez vos choix de Sorts et d'Armurerie là-dessus.
       </p>
     </section>
   )
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Ce qu'on lit en dépliant une offre : la même description que sur la fiche une
+ * fois l'objet acquis — table d'effets et contrepartie comprises. Acheter à
+ * l'aveugle une arme dont on ne verra la table qu'après coup n'a aucun intérêt.
+ */
+function detailOffre(entree: EntreeCatalogue): string | undefined {
+  if (entree.kind === 'equipement') return detailObjet(entree)
+  if (entree.kind === 'sort') return entree.effet
+  return entree.description
+}
 
 function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
   const [message, setMessage] = useState<string | null>(null)
@@ -347,8 +361,9 @@ function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
             <ObjetDetaillable
               icone={entree.icone}
               nom={entree.nom}
-              meta={`${prix} ʟ`}
-              detail={entree.description ?? (entree.kind === 'sort' ? entree.effet : undefined)}
+              teinte={RARETES[entree.rarete ?? 'commun'].teinte}
+              meta={`${resumeEntree(entree, char, catalog)} · ${prix} ʟ`}
+              detail={detailOffre(entree)}
               indisponible={!possible}
             />
             {edition ? (
@@ -360,7 +375,7 @@ function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
                 <option value="">— retirer cette offre —</option>
                 {[entree, ...candidats.filter((c) => c.id !== id)].map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.nom} — {prixDe(c)} ʟ
+                    {c.nom} — {resumeEntree(c, char, catalog)} · {prixDe(c)} ʟ
                   </option>
                 ))}
               </select>
@@ -392,7 +407,7 @@ function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
               .filter((c) => !ids.includes(c.id))
               .map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.nom} — {prixDe(c)} ʟ
+                  {c.nom} — {resumeEntree(c, char, catalog)} · {prixDe(c)} ʟ
                 </option>
               ))}
           </select>
@@ -422,56 +437,48 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
     <div className="pile">
       <section className="carte pile pile--serree">
         <div className="carte__titre">
-          <span className="etiquette">Grimoire</span>
+          <span className="etiquette">Sorts</span>
           <span className="tres-discret">
             {char.grimoire.length}/{TAILLE_GRIMOIRE} · figé jusqu'au prochain feu de camp
           </span>
         </div>
 
         {sorts.length === 0 && <p className="vide">Aucun sort connu.</p>}
+
+        {/* Une seule ligne par sort : on la touche pour lire l'effet complet, et
+            le bouton de préparation vit sous elle. `ObjetDetaillable` rend cette
+            commande hors de son bouton de dépliage — un bouton dans un bouton
+            n'est pas du HTML valide, d'où la prop `action` plutôt qu'un imbriqué. */}
         {sorts.map((sort) => {
           const actif = char.grimoire.includes(sort.id)
           const plein = char.grimoire.length >= TAILLE_GRIMOIRE
+          const verrouille = Boolean(edition) || (!actif && plein)
+
           return (
-            <button
+            <ObjetDetaillable
               key={sort.id}
-              type="button"
-              className={`objet ${actif ? 'objet--actif' : ''} ${!actif && plein ? 'objet--indisponible' : ''}`}
-              aria-pressed={actif}
-              disabled={Boolean(edition) || (!actif && plein)}
-              onClick={() => basculer(sort.id)}
-              title={sort.effet}
-            >
-              <Icone nom={sort.icone} taille={28} />
-              <span className="objet__corps">
-                <span className="objet__nom">{sort.nom}</span>
-                <span className="objet__meta">{resumeSort(sort, char, catalog)}</span>
-              </span>
-              {actif && <span className="puce puce--ambre">Préparé</span>}
-            </button>
+              icone={sort.icone}
+              nom={sort.nom}
+              meta={resumeSort(sort, char, catalog)}
+              detail={sort.effet}
+              actif={actif}
+              indisponible={!actif && plein}
+              {...(actif ? { puce: <span className="puce puce--ambre">Préparé</span> } : {})}
+              action={
+                <button
+                  type="button"
+                  className={`btn ${actif ? '' : 'btn--principal'}`}
+                  style={{ width: '100%' }}
+                  aria-pressed={actif}
+                  disabled={verrouille}
+                  onClick={() => basculer(sort.id)}
+                >
+                  {actif ? 'Retirer' : plein ? 'Emplacements pleins' : 'Préparer'}
+                </button>
+              }
+            />
           )
         })}
-
-        {/* Les boutons ci-dessus basculent la préparation ; ils ne peuvent pas
-            en plus déplier une description. La consultation vit donc à part. */}
-        {sorts.length > 0 && (
-          <>
-            <hr className="separateur" />
-            <span className="tres-discret">Ce que font vos sorts</span>
-            {sorts.map((sort) => (
-              <ObjetDetaillable
-                key={sort.id}
-                icone={sort.icone}
-                nom={sort.nom}
-                meta={resumeSort(sort, char, catalog)}
-                detail={sort.effet}
-                {...(char.grimoire.includes(sort.id)
-                  ? { puce: <span className="puce puce--ambre">Préparé</span> }
-                  : {})}
-              />
-            ))}
-          </>
-        )}
       </section>
 
       <Passifs
@@ -794,12 +801,9 @@ function Armurerie({
               key={eq.id}
               icone={eq.icone}
               nom={eq.nom}
-              meta={
-                `${LIBELLE_SLOT[eq.slot]}` +
-                (eq.bonusEvasion ? ` · Évasion +${eq.bonusEvasion}` : '') +
-                (eq.materielDeBase ? ' · matériel de base' : '')
-              }
-              detail={eq.description ?? 'Aucune description pour cet objet.'}
+              teinte={RARETES[eq.rarete ?? 'commun'].teinte}
+              meta={resumeEquipement(eq, char)}
+              detail={detailObjet(eq)}
               {...(porte.has(eq.id)
                 ? { puce: <span className="puce puce--ambre">Porté</span> }
                 : {})}

@@ -8,8 +8,8 @@ import { COMPETENCES, LIBELLE_COMPETENCE, type Competence, type Maitrises } from
 /**
  * Création de personnage : un nom, une classe, une répartition de maîtrises.
  *
- * La répartition suit le profil du PDF — deux compétences à +2, une à 0, une à
- * -2 — et l'écran la construit par sélection plutôt que par saisie de nombres :
+ * La répartition suit le profil du PDF — deux compétences à +3, une à 0, une à
+ * -3 — et l'écran la construit par sélection plutôt que par saisie de nombres :
  * on choisit ses deux points forts et son point faible, le reste se déduit.
  * Impossible de se tromper, et c'est plus rapide sur un téléphone.
  */
@@ -120,10 +120,10 @@ export function Creation({ catalog, onCreer, onAnnuler }: Props) {
       <section className="carte pile">
         <div className="carte__titre">
           <span className="etiquette">Maîtrises</span>
-          <span className="tres-discret">deux à +2, une à 0, une à -2</span>
+          <span className="tres-discret">deux à +3, une à 0, une à -3</span>
         </div>
 
-        <span className="tres-discret">Vos deux points forts (+2)</span>
+        <span className="tres-discret">Vos deux points forts (+3)</span>
         <div className="rangee">
           {COMPETENCES.map((c) => (
             <button
@@ -140,7 +140,7 @@ export function Creation({ catalog, onCreer, onAnnuler }: Props) {
         </div>
 
         <span className="tres-discret" style={{ marginTop: 4 }}>
-          Votre point faible (-2)
+          Votre point faible (-3)
         </span>
         <div className="rangee">
           {COMPETENCES.map((c) => (

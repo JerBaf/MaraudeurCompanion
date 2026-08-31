@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { Icone } from './Icone.tsx'
 import { FICTION_ACTIONS } from '../content/duel.ts'
+import { flowDe } from '../domain/duel.ts'
 import { ACTIONS_DUEL, LIBELLE_ACTION_DUEL, type ActionDuel } from '../domain/types.ts'
 
 /**
@@ -21,15 +22,28 @@ import { ACTIONS_DUEL, LIBELLE_ACTION_DUEL, type ActionDuel } from '../domain/ty
  * spectatrices et la MJ.
  */
 
+/**
+ * Grammaire des marques posées sur les sommets. Deux canaux, deux temps :
+ *
+ * | Ce que ça dit                       | Marque              |
+ * |-------------------------------------|---------------------|
+ * | joué au tour d'avant par la joueuse | bordure verte       |
+ * | joué au tour d'avant par le PNJ     | fond rouge sourd    |
+ * | sélection en cours                  | halo blanc, au ras  |
+ * | combo disponible (Flow)             | halo orange, autour |
+ * | combo que menace le PNJ             | halo rouge, autour  |
+ *
+ * **Le trait et le fond disent le passé, les halos disent le présent** : les deux
+ * couches se superposent sans se contredire quand un sommet cumule les rôles —
+ * un Clash, par exemple, laisse le sommet vert *et* rouge.
+ */
 interface Props {
   /** Action sélectionnée mais pas encore verrouillée : allume ses relations. */
   selection?: ActionDuel | null
-  /** Le Flow de la duelliste — sa menace à 2 points. */
-  flowJoueuse?: ActionDuel | null
-  /** Le Flow que menace le PNJ. */
-  flowAdversaire?: ActionDuel | null
-  /** Les deux actions de la dernière manche révélée. */
-  revele?: { joueuse: ActionDuel; adversaire: ActionDuel } | null
+  /** Ce que la duelliste a joué à la manche précédente. */
+  precedenteJoueuse?: ActionDuel | null
+  /** Ce que le PNJ a joué à la manche précédente. */
+  precedenteAdversaire?: ActionDuel | null
   /** Absent = plateau en lecture seule. */
   onChoisir?: (action: ActionDuel) => void
   /** Chrono, score ou résultat, au centre de la figure. */
@@ -109,12 +123,16 @@ const RELATIONS = ACTIONS_DUEL.flatMap((action, i) =>
 
 export function Pentagone({
   selection = null,
-  flowJoueuse = null,
-  flowAdversaire = null,
-  revele = null,
+  precedenteJoueuse = null,
+  precedenteAdversaire = null,
   onChoisir,
   children,
 }: Props) {
+  // Les Flows se déduisent de l'anneau et ne sont donc pas reçus tout faits :
+  // c'est `duel.ts` qui reste seul à savoir dans quel sens il tourne.
+  const combo = flowDe(precedenteJoueuse)
+  const menace = flowDe(precedenteAdversaire)
+
   return (
     <div className="pentagone">
       <svg className="pentagone__figure" viewBox="0 0 100 100" aria-hidden="true">
@@ -153,21 +171,14 @@ export function Pentagone({
         const sommet = SOMMETS[i] as Point
         const fiction = FICTION_ACTIONS[action]
         const marques = [
-          flowJoueuse === action ? 'pentagone__sommet--flow' : '',
-          flowAdversaire === action ? 'pentagone__sommet--menace' : '',
+          precedenteJoueuse === action ? 'pentagone__sommet--precedente-joueuse' : '',
+          precedenteAdversaire === action ? 'pentagone__sommet--precedente-adversaire' : '',
+          menace === action ? 'pentagone__sommet--menace' : '',
+          combo === action ? 'pentagone__sommet--combo' : '',
           selection === action ? 'pentagone__sommet--choisi' : '',
         ]
           .filter(Boolean)
           .join(' ')
-
-        const roleRevele =
-          revele && revele.joueuse === action && revele.adversaire === action
-            ? 'les deux'
-            : revele?.joueuse === action
-              ? 'vous'
-              : revele?.adversaire === action
-                ? 'lui'
-                : null
 
         const commun = {
           className: `pentagone__sommet ${marques}`,
@@ -179,7 +190,6 @@ export function Pentagone({
           <>
             <Icone nom={fiction.icone} taille={26} />
             <span className="pentagone__nom">{LIBELLE_ACTION_DUEL[action]}</span>
-            {roleRevele && <span className="pentagone__revele">{roleRevele}</span>}
           </>
         )
 

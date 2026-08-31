@@ -1,9 +1,11 @@
 import type { Catalog } from './catalog.ts'
-import { sortOuvertA } from './magie.ts'
+import { resumeSort, sortOuvertA } from './magie.ts'
 import { expireModifiers, FOI_DE_DEPART } from './modifiers.ts'
+import { resumeEquipement } from './objets.ts'
 import type { Rng } from './random.ts'
 import {
   PHASES_CAMPFIRE,
+  RARETES,
   type Campfire,
   type Character,
   type EntreeCatalogue,
@@ -381,6 +383,34 @@ export function peutPrendreInvestissement(
 // ---------------------------------------------------------------------------
 // Boutique
 // ---------------------------------------------------------------------------
+
+/**
+ * Ce qu'une entrée annonce d'elle-même en boutique : sa nature, son palier, ses
+ * chiffres. Une joueuse ne peut pas décider d'une acquisition sans savoir si elle
+ * regarde une arme, une armure ou un sort — ni quel tier elle achète.
+ *
+ * Le prix n'y figure pas : l'écran le tient déjà, et il le place où il veut.
+ */
+export function resumeEntree(entree: EntreeCatalogue, char: Character, catalog: Catalog): string {
+  switch (entree.kind) {
+    case 'equipement':
+      return resumeEquipement(entree, char)
+    case 'sort':
+      return [
+        'Sort',
+        entree.rarete && entree.rarete !== 'commun' ? RARETES[entree.rarete].libelle : null,
+        resumeSort(entree, char, catalog),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    case 'amelioration':
+      return `Amélioration · ${entree.effetTexte}`
+    case 'investissement':
+      return `Investissement · ${entree.beneficeTexte}`
+    case 'classe':
+      return 'Classe'
+  }
+}
 
 export function prixDe(entree: EntreeCatalogue): number | null {
   switch (entree.kind) {

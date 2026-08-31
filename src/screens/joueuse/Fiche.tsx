@@ -37,9 +37,9 @@ import {
 } from '../../domain/magie.ts'
 import {
   aDesEffetsActifs,
-  capaciteMax,
-  chargesRestantes,
+  detailObjet,
   peutUtiliser,
+  resumeEquipement,
   utiliserObjet,
 } from '../../domain/objets.ts'
 import { EVASION_DE_BASE, paliersFlammeAtteints } from '../../domain/modifiers.ts'
@@ -349,17 +349,7 @@ function OngletFiche({
             icone={objetOuvert.icone}
             nom={objetOuvert.nom}
             teinte={RARETES[objetOuvert.rarete ?? 'commun'].teinte}
-            meta={
-              [
-                LIBELLE_SLOT[objetOuvert.slot],
-                objetOuvert.bonusEvasion ? `Évasion +${objetOuvert.bonusEvasion}` : null,
-                capaciteMax(objetOuvert) !== null
-                  ? `${chargesRestantes(char, objetOuvert)}/${capaciteMax(objetOuvert)} charge(s)`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            }
+            meta={resumeEquipement(objetOuvert, char)}
             detail={detailObjet(objetOuvert)}
             {...(aDesEffetsActifs(objetOuvert)
               ? {
@@ -655,27 +645,6 @@ function OngletSorts({
 // ---------------------------------------------------------------------------
 
 /**
- * La description d'un objet, augmentée de ce que la joueuse doit savoir avant
- * de s'en servir : sa table d'effets et sa contrepartie.
- */
-function detailObjet(eq: Equipement): string {
-  const lignes = [eq.description ?? 'Aucune description pour cet objet.']
-  const actifs = eq.effetsActifs
-  if (!actifs) return lignes.join('\n')
-
-  if (actifs.faces > 1) {
-    lignes.push('', `Table — 1d${actifs.faces}`)
-    actifs.effets.forEach((e, i) => lignes.push(`${i + 1} · ${e}`))
-  }
-
-  if (actifs.cout.kind === 'charges') lignes.push('', `Recharge — ${actifs.cout.rituel}`)
-  if (actifs.cout.kind === 'consommable') lignes.push('', 'Consommable : détruit une fois épuisé.')
-  if (actifs.cout.kind === 'paiement') lignes.push('', `Contrepartie — ${actifs.cout.description}`)
-
-  return lignes.join('\n')
-}
-
-/**
  * Tout l'équipement possédé, porté ou non — le porté marqué de son emplacement.
  *
  * N'afficher que la réserve obligeait à regarder à deux endroits pour comparer
@@ -704,24 +673,13 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
         {equipements.length === 0 && <p className="vide">Vous ne possédez aucun objet.</p>}
         {equipements.map((eq) => {
           const porteEn = parObjetPorte.get(eq.id)
-          const restantes = chargesRestantes(char, eq)
-          const max = capaciteMax(eq)
 
           return (
             <ObjetDetaillable
               key={eq.id}
               icone={eq.icone}
               nom={eq.nom}
-              meta={
-                [
-                  LIBELLE_SLOT[eq.slot],
-                  eq.bonusEvasion ? `Évasion +${eq.bonusEvasion}` : null,
-                  eq.materielDeBase ? 'matériel de base' : null,
-                  max !== null ? `${restantes}/${max} charge(s)` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')
-              }
+              meta={resumeEquipement(eq, char)}
               detail={detailObjet(eq)}
               {...(porteEn
                 ? { puce: <span className="puce puce--ambre">{LIBELLE_SLOT[porteEn]}</span> }

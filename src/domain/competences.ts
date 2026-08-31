@@ -59,14 +59,14 @@ export function computeToutesCompetences(
 /**
  * Actions Rapides disponibles par jour.
  *
- * Rules_For_Agents.pdf : « 1 si la maîtrise de physique est -2 ou 0 ; 2 si +2 ».
+ * Rules_For_Agents.pdf : « 1 si la maîtrise de physique est -3 ou 0 ; 2 si +3 ».
  * On applique le seuil sur la valeur **effective** (maîtrise + modificateurs)
  * plutôt que sur la maîtrise brute, pour rester cohérent avec l'exigence de
  * modificateurs dynamiques : un Serment qui écrase le Physique retire aussi
  * l'Action Rapide supplémentaire.
  */
 export function actionsRapidesMax(char: Character, catalog: Catalog): number {
-  return computeCompetence(char, catalog, 'physique').total >= 2 ? 2 : 1
+  return computeCompetence(char, catalog, 'physique').total >= 3 ? 2 : 1
 }
 
 export function actionsRapidesRestantes(char: Character, catalog: Catalog): number {

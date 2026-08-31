@@ -15,7 +15,7 @@ import {
   surDuelPrive,
   terminerDuel,
 } from '../../data/repo.ts'
-import { actionScriptee, etatDuel, flowDe, MANCHES_MAX } from '../../domain/duel.ts'
+import { actionScriptee, etatDuel, MANCHES_MAX } from '../../domain/duel.ts'
 import {
   ACTIONS_DUEL,
   LIBELLE_ACTION_DUEL,
@@ -25,13 +25,7 @@ import {
   type DuelPrive,
   type EtatTable,
 } from '../../domain/types.ts'
-import {
-  DerniereManche,
-  derniereRevelation,
-  EnTete,
-  Historique,
-  Issue,
-} from '../joueuse/OngletDuel.tsx'
+import { Chrono, DerniereManche, EnTete, Historique, Issue } from '../joueuse/OngletDuel.tsx'
 
 /**
  * Pilotage du combat rapide, côté MJ.
@@ -288,13 +282,19 @@ function Pilotage({
           {/* Le même plateau que les joueuses, en lecture seule : un seul rendu
               à maintenir, et la MJ voit exactement ce qu'elles voient. */}
           <Pentagone
-            flowJoueuse={flowDe(etatD.precedenteJoueuse)}
-            flowAdversaire={flowDe(etatD.precedenteAdversaire)}
-            revele={derniereRevelation(duel)}
+            precedenteJoueuse={etatD.precedenteJoueuse}
+            precedenteAdversaire={etatD.precedenteAdversaire}
           >
-            <span className="tres-discret">
-              manche {Math.min(etatD.manche, MANCHES_MAX)}/{MANCHES_MAX}
-            </span>
+            {/* Le même décompte que les joueuses, sans `onExpiration` : la MJ
+                regarde le temps filer, c'est `useArbitrage` qui la couvre si le
+                téléphone de la duelliste s'est endormi. */}
+            {ouverte ? (
+              <Chrono key={duel.historique.length} duel={duel} />
+            ) : (
+              <span className="tres-discret">
+                manche {Math.min(etatD.manche, MANCHES_MAX)}/{MANCHES_MAX}
+              </span>
+            )}
           </Pentagone>
 
           {ouverte ? (

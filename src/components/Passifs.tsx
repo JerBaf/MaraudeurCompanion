@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { ObjetDetaillable } from './ObjetDetaillable.tsx'
 import type { Catalog } from '../domain/catalog.ts'
-import { facesDuDeDeVies, vieActive } from '../domain/effets.ts'
+import { detailVie, facesDuDeDeVies, peutTirerUneVie, vieActive } from '../domain/effets.ts'
 import { cryptoRng } from '../domain/random.ts'
 import type { Character, VieSoulshifter } from '../domain/types.ts'
 
@@ -38,7 +39,13 @@ export function Passifs({
 
       {classe.passifMoteur === 'dusk-hexcore' && <Hexcore char={char} maj={maj} />}
       {classe.passifMoteur === 'soulshifter-vies' && (
-        <Vies char={char} vies={vies} catalog={catalog} maj={maj} />
+        <Vies
+          char={char}
+          vies={vies}
+          catalog={catalog}
+          maj={maj}
+          deverrouille={autoriserToutChanger}
+        />
       )}
       {classe.passifMoteur === 'trickster-voie' && (
         <VoieTrickster char={char} maj={maj} deverrouille={autoriserToutChanger} />
@@ -95,23 +102,57 @@ function Vies({
   vies,
   catalog,
   maj,
+  deverrouille,
 }: {
   char: Character
   vies: readonly VieSoulshifter[]
   catalog: Catalog
   maj: (t: (c: Character) => Character) => void
+  /** La MJ passe outre le verrou d'une heure. */
+  deverrouille: boolean
 }) {
   const [dernierTirage, setDernierTirage] = useState<string | null>(null)
+  const [enCours, setEnCours] = useState(false)
+  // Le verrou se lit dans le temps qui passe : l'écran doit se rafraîchir tout
+  // seul pour que le bouton se réarme sans avoir à quitter l'onglet.
+  const [maintenant, setMaintenant] = useState(() => Date.now())
+
   const faces = facesDuDeDeVies(char)
   const connues = char.passifs.viesConnues ?? []
   const active = vieActive(char, vies)
+  const verrou = peutTirerUneVie(char, maintenant)
+  const disponible = deverrouille || verrou.possible
 
-  function tirer() {
-    if (faces === 0) return
-    const face = cryptoRng.int(1, faces)
-    const choisie = connues[face - 1] ?? face
-    setDernierTirage(`d${faces} → ${face}`)
-    maj((c) => ({ ...c, passifs: { ...c.passifs, vieActive: choisie } }))
+  useEffect(() => {
+    if (disponible) return
+    const battement = setInterval(() => setMaintenant(Date.now()), 1000)
+    return () => clearInterval(battement)
+  }, [disponible])
+
+  async function tirer() {
+    // Les gardes de l'écran protègent l'écran, pas la règle : on revérifie.
+    if (faces === 0 || !disponible || enCours) return
+
+    const remplacee = active ? `${active.nom} laissera la place.` : 'Aucune personnalité incarnée.'
+    if (!confirm(`Invoquer une vie passée ? ${remplacee} Le tirage est irréversible.`)) return
+
+    // `enCours` complète le verrou persisté : `maj` transforme la fiche telle
+    // qu'elle est arrivée en prop, donc tant que Firestore n'a pas fait l'écho,
+    // un second appui repartirait d'un `vieTireeA` périmé.
+    setEnCours(true)
+    try {
+      const face = cryptoRng.int(1, faces)
+      const choisie = connues[face - 1] ?? face
+      setDernierTirage(`d${faces} → ${face}`)
+      // Vie et verrou dans la même transformation : la personnalité ne peut pas
+      // changer sans que l'heure ne se remette à courir.
+      maj((c) => ({
+        ...c,
+        passifs: { ...c.passifs, vieActive: choisie, vieTireeA: Date.now() },
+      }))
+    } finally {
+      setEnCours(false)
+    }
   }
 
   return (
@@ -121,30 +162,51 @@ function Vies({
         quelle personnalité reprend le dessus pour l'heure à venir.
       </p>
 
-      <button type="button" className="btn btn--principal btn--large" onClick={tirer} disabled={faces === 0}>
-        Invoquer une vie passée
+      <button
+        type="button"
+        className="btn btn--principal btn--large"
+        onClick={() => void tirer()}
+        disabled={faces === 0 || !disponible || enCours}
+      >
+        {disponible
+          ? 'Invoquer une vie passée'
+          : `Disponible dans ${libelleAttente(verrou.restantMs)}`}
       </button>
 
       {dernierTirage && <p className="alerte alerte--info">{dernierTirage}</p>}
 
-      {active ? (
-        <div className="objet objet--actif">
-          <span className="objet__corps">
-            <span className="objet__nom">{active.nom}</span>
-            {Object.entries(active.precisions).map(([sortId, texte]) => (
-              <span key={sortId} className="objet__meta">
-                {catalog.sort(sortId)?.nom ?? sortId} : {texte}
-              </span>
-            ))}
-          </span>
-        </div>
-      ) : (
+      {/* Toutes les vies connues, et pas seulement celle incarnée : on ne décide
+          pas de lancer un dé sans savoir ce qu'il peut donner. */}
+      {connues.length === 0 ? (
         <p className="tres-discret" style={{ margin: 0 }}>
-          Aucune personnalité incarnée pour l'instant.
+          Aucune vie passée connue pour l'instant.
         </p>
+      ) : (
+        connues.map((face) => {
+          const vie = vies.find((v) => v.face === face)
+          const incarnee = char.passifs.vieActive === face
+          return (
+            <ObjetDetaillable
+              key={face}
+              icone="transform"
+              nom={vie?.nom ?? `Vie n°${face}`}
+              meta={`Face ${face}`}
+              detail={vie ? detailVie(vie, catalog) : 'Personnalité inconnue du catalogue.'}
+              actif={incarnee}
+              {...(incarnee ? { puce: <span className="puce puce--ambre">Incarnée</span> } : {})}
+            />
+          )
+        })
       )}
     </>
   )
+}
+
+/** Le reste du verrou, arrondi à la minute supérieure — sauf la dernière. */
+function libelleAttente(restantMs: number): string {
+  const secondes = Math.ceil(restantMs / 1000)
+  if (secondes < 60) return `${secondes} s`
+  return `${Math.ceil(secondes / 60)} min`
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +220,7 @@ const VOIES_TRICKSTER = [
   {
     id: 'illusionniste' as const,
     nom: 'Illusionniste',
-    effet: 'Ya gat fooled et Mage hand utilisables à volonté, hors Grimoire',
+    effet: 'Ya gat fooled et Mage hand utilisables à volonté, hors emplacements',
   },
 ]
 
@@ -175,8 +237,8 @@ function VoieTrickster({
     <>
       <p className="tres-discret" style={{ margin: 0 }}>
         {deverrouille
-          ? 'La voie se choisit normalement à la phase Grimoire du Feu de Camp.'
-          : 'La voie s’engage à la phase Grimoire du Feu de Camp et vaut jusqu’au suivant.'}
+          ? 'La voie se choisit normalement à la phase Sorts du Feu de Camp.'
+          : 'La voie s’engage à la phase Sorts du Feu de Camp et vaut jusqu’au suivant.'}
       </p>
       {VOIES_TRICKSTER.map((v) => {
         const actif = char.passifs.voieTrickster === v.id

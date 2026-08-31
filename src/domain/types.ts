@@ -19,7 +19,7 @@ export const LIBELLE_COMPETENCE: Record<Competence, string> = {
   social: 'Social',
 }
 
-/** Maîtrise par compétence. Profil type : deux +2, un 0, un -2. */
+/** Maîtrise par compétence. Profil type : deux +3, un 0, un -3. */
 export type Maitrises = Record<Competence, number>
 
 // ---------------------------------------------------------------------------
@@ -168,6 +168,13 @@ export interface EntreeCatalogueBase {
   /** Nom du SVG dans public/icons (sans extension). */
   icone: string
   description?: string
+  /**
+   * Teinte de rareté, façon inventaire de jeu vidéo. Absent = commun.
+   *
+   * Sur la base et non sur le seul équipement : une joueuse à qui l'on propose un
+   * sort en boutique a le même besoin d'en jauger le palier.
+   */
+  rarete?: Rarete
   /** Contenu livré avec l'app, non supprimable depuis l'écran MJ. */
   seed?: boolean
 }
@@ -218,8 +225,6 @@ export interface Equipement extends EntreeCatalogueBase {
   modificateurs?: Omit<Modifier, 'id' | 'expires'>[]
   /** Passifs réactifs, armés tant que l'objet est porté. */
   declencheurs?: Declencheur[]
-  /** Teinte de rareté, façon inventaire de jeu vidéo. Absent = commun. */
-  rarete?: Rarete
   prix?: number
   /**
    * Matériel de base (rations, catalyseur, paquetage) : hors des 3 slots
@@ -341,6 +346,11 @@ export interface EtatPassifs {
   viesConnues?: number[]
   /** Soulshifter — vie actuellement incarnée. */
   vieActive?: number | null
+  /**
+   * Soulshifter — horodatage du dernier tirage, qui porte le verrou d'une heure.
+   * Absent sur les fiches antérieures au verrou : le dé y est disponible.
+   */
+  vieTireeA?: number
 }
 
 /**
@@ -645,7 +655,7 @@ export const LIBELLE_PHASE: Record<PhaseCampfire, string> = {
   banque: 'Banque',
   brief: 'Brief de Mission',
   boutique: 'Boutique',
-  grimoire: 'Grimoire',
+  grimoire: 'Sorts',
   armurerie: 'Armurerie',
 }
 

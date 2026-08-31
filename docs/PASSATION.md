@@ -646,3 +646,39 @@ rouge ce qui la bat. Sans `onChoisir`, le plateau est en lecture seule.
 Les sommets sont de vrais `<button>` HTML posés par-dessus le SVG — cible tactile, focus
 natif, texte à la taille système. Tout est en pourcentage du conteneur, donc la figure
 tient à toutes les largeurs sans média-requête.
+
+#### La grammaire des marques
+
+Deux canaux, deux temps — **le trait et le fond disent le passé, les halos disent le
+présent**. C'est ce qui permet à un sommet de cumuler plusieurs rôles sans que les marques
+ne s'écrasent : un Clash laisse un sommet vert *et* rouge, et une sélection posée sur un
+combo garde ses deux halos.
+
+| Ce que ça dit | Marque | Source |
+|---|---|---|
+| joué au tour d'avant par la joueuse | bordure verte | `etat.precedenteJoueuse` |
+| joué au tour d'avant par le PNJ | fond rouge sourd | `etat.precedenteAdversaire` |
+| sélection en cours | halo blanc, au ras | `selection` |
+| combo à saisir (Flow) | halo orange, autour | `flowDe(precedenteJoueuse)` |
+| combo que le PNJ menace | halo rouge, autour | `flowDe(precedenteAdversaire)` |
+
+Les halos passent par deux variables CSS (`--halo-proche`, `--halo-lointain`) plutôt que
+par des règles composées : chaque marque n'a qu'une propriété à poser. Les deux combos se
+disputent la même couche — `--combo` est déclaré **après** `--menace` à dessein, pour que
+l'occasion à saisir l'emporte sur la menace.
+
+⚠️ Le pentagone reçoit les actions **précédentes**, pas les Flows : il les calcule
+lui-même avec `flowDe`. L'anneau reste ainsi la seule source de vérité.
+
+### Le chrono et la frise
+
+Le `Chrono` (`screens/joueuse/OngletDuel.tsx`) est monté sur les trois écrans. Sans
+`onExpiration` il se contente de décompter : c'est **toujours** le téléphone de la
+duelliste qui verrouille à zéro, jamais celui d'une spectatrice ni celui de la MJ, que
+`useArbitrage` couvre déjà en filet. Il masque aussi l'action armée dans ce mode — ce que
+la duelliste a préparé ne regarde qu'elle.
+
+La `FriseDuel` (`components/FriseDuel.tsx`) remplace l'ancienne liste de phrases : cinq
+cases dans l'ordre — les deux actions face à face, le résultat dessous, les manches à venir
+en creux. Le nombre de cases vient de `MANCHES_MAX`. Le récit de `recitManche` n'est pas
+perdu : il devient l'infobulle de la case et son texte pour les lecteurs d'écran.

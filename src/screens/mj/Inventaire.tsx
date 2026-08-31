@@ -145,7 +145,7 @@ export function Inventaire({
       <hr className="separateur" />
 
       <div className="carte__titre" style={{ marginBottom: 0 }}>
-        <span className="etiquette">Grimoire</span>
+        <span className="etiquette">Sorts</span>
         <span className="tres-discret">
           {char.grimoire.length}/{TAILLE_GRIMOIRE}
         </span>

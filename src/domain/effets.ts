@@ -187,9 +187,9 @@ export function effetsActifs(
       id: 'passif:illusionniste',
       nom: 'Illusionniste',
       origine: 'feu-de-camp',
-      resume: 'Illusions utilisables à volonté, hors Grimoire',
+      resume: 'Illusions utilisables à volonté, hors emplacements',
       detail:
-        'Ya gat fooled et Mage hand sont lançables sans contrepartie et ne consomment aucun des 3 emplacements du Grimoire. La voie se choisit à la phase Grimoire du Feu de Camp.',
+        'Ya gat fooled et Mage hand sont lançables sans contrepartie et ne consomment aucun des 3 emplacements de Sorts. La voie se choisit à la phase Sorts du Feu de Camp.',
       modificateurs: [],
     })
   }
@@ -202,11 +202,7 @@ export function effetsActifs(
       nom: vie ? vie.nom : `Vie n°${char.passifs.vieActive}`,
       origine: 'choisi',
       resume: 'Personnalité incarnée pour l’heure en cours',
-      detail: vie
-        ? Object.entries(vie.precisions)
-            .map(([sortId, texte]) => `${catalog.sort(sortId)?.nom ?? sortId} : ${texte}`)
-            .join('\n')
-        : 'Personnalité inconnue du catalogue.',
+      detail: vie ? detailVie(vie, catalog) : 'Personnalité inconnue du catalogue.',
       modificateurs: [],
     })
   }
@@ -244,6 +240,43 @@ export function vieActive(
 ): VieSoulshifter | null {
   if (char.passifs.vieActive == null) return null
   return vies.find((v) => v.face === char.passifs.vieActive) ?? null
+}
+
+/** Ce qu'une personnalité change aux sorts, une ligne par sort qu'elle recolore. */
+export function detailVie(vie: VieSoulshifter, catalog: Catalog): string {
+  return Object.entries(vie.precisions)
+    .map(([sortId, texte]) => `${catalog.sort(sortId)?.nom ?? sortId} : ${texte}`)
+    .join('\n')
+}
+
+/**
+ * Le délai entre deux invocations : « une fois par heure », dit la classe.
+ *
+ * Le verrou est persisté sur la fiche plutôt que gardé à l'écran : une joueuse
+ * qui recharge sa page ne doit pas retrouver son dé disponible.
+ */
+export const DELAI_VIES_MS = 3_600_000
+
+/**
+ * Peut-on invoquer une vie passée maintenant ?
+ *
+ * `maintenant` est passé en paramètre plutôt que lu ici : le domaine reste pur et
+ * la règle se teste sans avoir à feindre l'horloge.
+ */
+export function peutTirerUneVie(
+  char: Character,
+  maintenant: number,
+): { possible: boolean; restantMs: number } {
+  if (facesDuDeDeVies(char) === 0) return { possible: false, restantMs: 0 }
+
+  // Une fiche antérieure au verrou n'a pas d'horodatage : son dé est disponible.
+  const dernier = char.passifs.vieTireeA
+  if (dernier == null) return { possible: true, restantMs: 0 }
+
+  // Clamp : une horloge d'appareil en retard sur celle qui a écrit le tirage
+  // produirait un reste supérieur au délai, et un décompte qui remonte.
+  const restantMs = Math.min(DELAI_VIES_MS, Math.max(0, dernier + DELAI_VIES_MS - maintenant))
+  return { possible: restantMs === 0, restantMs }
 }
 
 /**

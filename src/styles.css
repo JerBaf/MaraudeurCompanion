@@ -1159,6 +1159,16 @@ textarea {
   background: var(--encre-2);
   color: var(--parchemin);
   text-align: center;
+  /*
+    Deux couches de halo, portées par des variables plutôt que par des règles
+    composées : chaque marque n'a qu'une propriété à poser, et deux marques qui
+    tombent sur le même sommet se superposent au lieu de s'écraser.
+  */
+  --halo-proche: transparent;
+  --halo-lointain: transparent;
+  box-shadow:
+    0 0 0 3px var(--halo-proche),
+    0 0 0 6px var(--halo-lointain);
   transition:
     border-color 120ms ease,
     background 120ms ease,
@@ -1172,38 +1182,40 @@ textarea {
   letter-spacing: 0.01em;
 }
 
-.pentagone__revele {
-  font-size: 0.6rem;
-  color: var(--ambre);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
 button.pentagone__sommet:hover {
   border-color: var(--ambre-sourd);
 }
 
-/* Le Flow de la duelliste : la menace à 2 points, en or. */
-.pentagone__sommet--flow {
-  border-color: var(--ambre);
-  box-shadow: 0 0 0 3px rgb(224 164 76 / 0.22);
+/* --- Le passé : ce qui a été joué à la manche précédente --- */
+
+/* Le coup de la duelliste : au trait, en vert. */
+.pentagone__sommet--precedente-joueuse {
+  border-color: var(--vert);
 }
 
-/* Le Flow que menace le PNJ. Les deux peuvent tomber sur le même sommet. */
+/* Le coup du PNJ : au fond, en rouge — pour qu'un Clash reste lisible sur le
+   même sommet, vert au trait et rouge au fond. */
+.pentagone__sommet--precedente-adversaire {
+  background: rgb(200 85 61 / 0.25);
+}
+
+/* --- Le présent : ce qui se joue à la manche en cours --- */
+
+/* Le combo que le PNJ menace de compléter. */
 .pentagone__sommet--menace {
-  border-color: var(--sang);
-}
-.pentagone__sommet--flow.pentagone__sommet--menace {
-  border-color: var(--ambre);
-  box-shadow:
-    0 0 0 3px rgb(224 164 76 / 0.22),
-    0 0 0 5px rgb(200 85 61 / 0.55);
+  --halo-lointain: rgb(200 85 61 / 0.45);
 }
 
+/* Le combo à saisir : compléter son Flow vaut 2 points. Déclaré après la menace
+   à dessein — les deux se disputent la même couche, et sur un sommet qui cumule
+   les deux rôles c'est l'occasion à saisir qui doit se voir. */
+.pentagone__sommet--combo {
+  --halo-lointain: rgb(224 164 76 / 0.6);
+}
+
+/* La sélection en cours, au ras du sommet pour rester lisible sous un combo. */
 .pentagone__sommet--choisi {
-  background: var(--encre-4);
-  border-color: var(--ambre-vif);
-  box-shadow: 0 0 0 3px rgb(245 192 105 / 0.3);
+  --halo-proche: rgb(239 230 214 / 0.85);
 }
 
 .pentagone__centre {
@@ -1264,39 +1276,143 @@ button.pentagone__sommet:hover {
   border-color: var(--ambre);
 }
 
-/* Une manche de l'historique, révélée. */
-.manche {
+/*
+  La légende du pentagone : quatre pastilles qui rappellent ce que veut dire
+  chaque couleur. La table change de joueuses d'une session à l'autre.
+*/
+.legende-duel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+}
+
+.legende-duel__item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--rayon);
-  border: var(--bordure);
+  gap: 5px;
+  font-size: 0.7rem;
+  color: var(--parchemin-faible);
+}
+
+.legende-duel__item::before {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--encre-4);
   background: var(--encre-2);
 }
 
-.manche--joueuse {
-  border-left: 3px solid var(--ambre);
+.legende-duel__item--joue::before {
+  border-color: var(--vert);
 }
-.manche--adversaire {
-  border-left: 3px solid var(--sang);
+.legende-duel__item--subi::before {
+  background: rgb(200 85 61 / 0.45);
 }
-.manche--clash {
-  border-left: 3px solid var(--oblivion);
+.legende-duel__item--combo::before {
+  box-shadow: 0 0 0 2px rgb(224 164 76 / 0.6);
 }
-
-.manche__numero {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--parchemin-faible);
-  min-width: 22px;
+.legende-duel__item--choisi::before {
+  box-shadow: 0 0 0 2px rgb(239 230 214 / 0.85);
 }
 
-.manche__corps {
-  flex: 1;
-  min-width: 0;
+/*
+  La frise des manches : cinq cases dans l'ordre, celles à venir en creux.
+  Le nombre de colonnes suit `MANCHES_MAX` côté composant, pas la feuille de
+  style — d'où un `1fr` par case plutôt qu'une largeur figée.
+*/
+.frise {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.frise__manche {
+  position: relative;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px;
+  border-radius: var(--rayon);
+  border: var(--bordure);
+  background: var(--encre-2);
+  /* Le trait du haut porte le verdict : c'est la ligne qu'on parcourt du regard. */
+  border-top: 3px solid var(--encre-4);
+}
+
+.frise__manche--joueuse {
+  border-top-color: var(--vert);
+}
+.frise__manche--adversaire {
+  border-top-color: var(--sang);
+}
+.frise__manche--clash {
+  border-top-color: var(--oblivion);
+}
+.frise__manche--ouverte {
+  border-top-color: var(--ambre);
+  background: var(--encre-3);
+}
+.frise__manche--avenir {
+  background: transparent;
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+.frise__numero {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--parchemin-faible);
+}
+
+.frise__coups {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Qui a joué quoi : le vert et le rouge du pentagone, à l'identique. */
+.frise__coup {
+  display: flex;
+  padding: 2px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+.frise__coup--joueuse {
+  border-color: var(--vert);
+}
+.frise__coup--adversaire {
+  background: rgb(200 85 61 / 0.25);
+}
+
+.frise__issue {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--parchemin-doux);
+  text-align: center;
+  line-height: 1.1;
+}
+
+.frise__attente {
+  color: var(--parchemin-faible);
+}
+
+/* Le récit complet reste dans le flux pour qui n'a pas d'infobulle — lecteurs
+   d'écran compris —, sans occuper la case. */
+.frise__lecture {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Le motif du PNJ, sur l'écran MJ seulement. */

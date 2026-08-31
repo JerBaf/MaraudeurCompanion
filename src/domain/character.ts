@@ -10,8 +10,8 @@ import {
   type Maitrises,
 } from './types.ts'
 
-/** Profil de maîtrise type : deux +2, un 0, un -2. */
-export const PROFIL_MAITRISE_TYPE = [2, 2, 0, -2] as const
+/** Profil de maîtrise type : deux +3, un 0, un -3. */
+export const PROFIL_MAITRISE_TYPE = [3, 3, 0, -3] as const
 
 export function maitrisesVierges(): Maitrises {
   return { physique: 0, roublardise: 0, esprit: 0, social: 0 }
@@ -174,11 +174,16 @@ export function appliquerProfil(
   excellentes: [Competence, Competence],
   mediocre: Competence,
 ): Maitrises {
+  // Les valeurs sont lues dans le profil type — deux fortes, une neutre, une
+  // faible, dans cet ordre — et non réécrites ici : `maitrisesSuiventLeProfil`
+  // valide ensuite exactement ce que cette fonction produit.
+  const [forte, , neutre, faible] = PROFIL_MAITRISE_TYPE
+
   const m = maitrisesVierges()
   for (const c of COMPETENCES) {
-    if (excellentes.includes(c)) m[c] = 2
-    else if (c === mediocre) m[c] = -2
-    else m[c] = 0
+    if (excellentes.includes(c)) m[c] = forte
+    else if (c === mediocre) m[c] = faible
+    else m[c] = neutre
   }
   return m
 }

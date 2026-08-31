@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { FriseDuel } from '../../components/FriseDuel.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { Pentagone } from '../../components/Pentagone.tsx'
 import { Rappel } from './RappelsCombat.tsx'
 import { FICTION_ACTIONS, RAPPELS_DUEL } from '../../content/duel.ts'
 import { choisirActionDuel, surDuel } from '../../data/repo.ts'
-import { etatDuel, flowDe, MANCHES_MAX, OBJECTIF_POINTS } from '../../domain/duel.ts'
+import { etatDuel, MANCHES_MAX, OBJECTIF_POINTS } from '../../domain/duel.ts'
 import {
   LIBELLE_ACTION_DUEL,
   type ActionDuel,
@@ -91,9 +92,8 @@ function Duelliste({ duel }: { duel: Duel }) {
         <section className="carte pile">
           <Pentagone
             selection={selection}
-            flowJoueuse={flowDe(etat.precedenteJoueuse)}
-            flowAdversaire={flowDe(etat.precedenteAdversaire)}
-            revele={derniereRevelation(duel)}
+            precedenteJoueuse={etat.precedenteJoueuse}
+            precedenteAdversaire={etat.precedenteAdversaire}
             {...(ouverte ? { onChoisir: (a: ActionDuel) => void toucher(a) } : {})}
           >
             {ouverte ? (
@@ -110,11 +110,13 @@ function Duelliste({ duel }: { duel: Duel }) {
             )}
           </Pentagone>
 
+          <LegendePentagone />
+
           {ouverte && (
             <>
               <p className="discret" style={{ margin: 0, textAlign: 'center' }}>
                 {selection
-                  ? `${LIBELLE_ACTION_DUEL[selection]} — ${FICTION_ACTIONS[selection].fiction} En vert ce qu’elle bat, en rouge ce qui la bat.`
+                  ? `${LIBELLE_ACTION_DUEL[selection]} — ${FICTION_ACTIONS[selection].fiction} Les traits verts partent vers ce qu’elle bat, les rouges viennent de ce qui la bat.`
                   : 'Touchez une action pour la préparer, une seconde fois pour la verrouiller.'}
               </p>
               <button
@@ -170,14 +172,22 @@ function Spectatrice({ duel, duelliste }: { duel: Duel; duelliste: Character | n
       ) : (
         <section className="carte pile">
           <Pentagone
-            flowJoueuse={flowDe(etat.precedenteJoueuse)}
-            flowAdversaire={flowDe(etat.precedenteAdversaire)}
-            revele={derniereRevelation(duel)}
+            precedenteJoueuse={etat.precedenteJoueuse}
+            precedenteAdversaire={etat.precedenteAdversaire}
           >
-            <span className="tres-discret">
-              manche {Math.min(etat.manche, MANCHES_MAX)}/{MANCHES_MAX}
-            </span>
+            {/* Le chrono tourne aussi pour qui regarde : sans lui, la table ne
+                sait pas qu'il reste trois secondes à la duelliste. Sans
+                `onExpiration`, cet appareil se contente de décompter — c'est
+                toujours le téléphone de la duelliste qui verrouille. */}
+            {duel.debutManche !== null ? (
+              <Chrono key={duel.historique.length} duel={duel} />
+            ) : (
+              <span className="tres-discret">
+                manche {Math.min(etat.manche, MANCHES_MAX)}/{MANCHES_MAX}
+              </span>
+            )}
           </Pentagone>
+          <LegendePentagone />
         </section>
       )}
 
@@ -190,15 +200,6 @@ function Spectatrice({ duel, duelliste }: { duel: Duel; duelliste: Character | n
 // ---------------------------------------------------------------------------
 // Morceaux partagés — l'écran MJ les réutilise tels quels
 // ---------------------------------------------------------------------------
-
-/** La dernière manche révélée, pour marquer les deux sommets joués. */
-export function derniereRevelation(
-  duel: Duel,
-): { joueuse: ActionDuel; adversaire: ActionDuel } | null {
-  const derniere = duel.historique[duel.historique.length - 1]
-  if (!derniere || duel.debutManche !== null) return null
-  return { joueuse: derniere.actionJoueuse, adversaire: derniere.actionAdversaire }
-}
 
 export function EnTete({ duel, nomJoueuse }: { duel: Duel; nomJoueuse: string }) {
   const etat = etatDuel(duel.historique)
@@ -257,15 +258,20 @@ function LigneScore({ nom, points, icone }: { nom: string; points: number; icone
  * ⚠️ À zéro, c'est **cet appareil** qui verrouille — la sélection en cours, ou
  * l'action par défaut si la joueuse n'a rien préparé. La garde par `ref` évite
  * qu'un second battement n'écrive deux fois la même manche.
+ *
+ * Sans `onExpiration`, le composant ne fait que décompter : c'est ce que
+ * montent l'écran des spectatrices et celui de la MJ, qui doivent voir le temps
+ * filer sans jamais écrire à la place de la duelliste. `selection` disparaît
+ * avec lui — ce que la duelliste a armé ne regarde qu'elle.
  */
-function Chrono({
+export function Chrono({
   duel,
-  selection,
+  selection = null,
   onExpiration,
 }: {
   duel: Duel
-  selection: ActionDuel | null
-  onExpiration: (action: ActionDuel) => Promise<void>
+  selection?: ActionDuel | null
+  onExpiration?: (action: ActionDuel) => Promise<void>
 }) {
   const [restant, setRestant] = useState(() => restantMs(duel))
 
@@ -282,7 +288,7 @@ function Chrono({
       const courant = dernier.current
       const reste = restantMs(courant.duel)
       setRestant(reste)
-      if (reste > 0 || envoye.current) return
+      if (reste > 0 || envoye.current || !courant.onExpiration) return
       envoye.current = true
       void courant.onExpiration(courant.selection ?? courant.duel.actionParDefaut)
     }, 200)
@@ -294,10 +300,29 @@ function Chrono({
   return (
     <>
       <span className={`chrono ${secondes <= 3 ? 'chrono--urgent' : ''}`}>{secondes}</span>
-      <span className="tres-discret">
-        {selection ? LIBELLE_ACTION_DUEL[selection] : LIBELLE_ACTION_DUEL[duel.actionParDefaut]}
-      </span>
+      {onExpiration && (
+        <span className="tres-discret">
+          {selection ? LIBELLE_ACTION_DUEL[selection] : LIBELLE_ACTION_DUEL[duel.actionParDefaut]}
+        </span>
+      )}
     </>
+  )
+}
+
+/**
+ * La légende des marques du pentagone.
+ *
+ * Le dessin porte la règle, encore faut-il savoir lire ses couleurs — et la table
+ * change de joueuses d'une session à l'autre.
+ */
+export function LegendePentagone() {
+  return (
+    <div className="legende-duel">
+      <span className="legende-duel__item legende-duel__item--joue">votre coup précédent</span>
+      <span className="legende-duel__item legende-duel__item--subi">le sien</span>
+      <span className="legende-duel__item legende-duel__item--combo">combo à 2 points</span>
+      <span className="legende-duel__item legende-duel__item--choisi">votre sélection</span>
+    </div>
   )
 }
 
@@ -328,23 +353,17 @@ export function recitManche(manche: MancheJouee, nomJoueuse: string, nomAdversai
   return `${echange} — ${gagnant} marque ${manche.points}${raison}.`
 }
 
+/**
+ * Le déroulé du duel. Point d'appel de la frise : les trois écrans l'importent
+ * déjà sous ce nom, et c'est le rendu qui a changé, pas ce qu'ils demandent.
+ */
 export function Historique({ duel, nomJoueuse }: { duel: Duel; nomJoueuse: string }) {
-  if (duel.historique.length === 0) return null
-
   return (
-    <section className="carte pile pile--serree">
-      <span className="etiquette">Manches jouées</span>
-      {duel.historique.map((m, i) => (
-        <div key={i} className={`manche manche--${m.issue}`}>
-          <span className="manche__numero">{i + 1}</span>
-          <span className="manche__corps">
-            <span className="objet__nom" style={{ fontSize: '0.9rem' }}>
-              {recitManche(m, nomJoueuse, duel.adversaireNom)}
-            </span>
-          </span>
-        </div>
-      ))}
-    </section>
+    <FriseDuel
+      duel={duel}
+      nomJoueuse={nomJoueuse}
+      recit={(m) => recitManche(m, nomJoueuse, duel.adversaireNom)}
+    />
   )
 }
 

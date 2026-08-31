@@ -19,6 +19,7 @@ import {
   phasesDuCamp,
   prixDe,
   PROFILS_CAMP,
+  resumeEntree,
   tirerOffres,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
@@ -198,7 +199,7 @@ function Preparation({
       <p className="tres-discret" style={{ margin: 0 }}>
         {brouillon.type === 'initial'
           ? `Ouvrira la session ${numeroAnnonce} : investissements réglés, Fatigue rendue d'un point, 6th Sens et Actions Rapides restaurés, Fardeaux, Serments et Marques levés, Points de Foi remis à 2. Donne accès à la Banque, au Brief et aux gains de Foi.`
-          : `Halte au cours de la session ${numeroAnnonce} : Boutique, Grimoire et Armurerie. Rend les cristaux épuisés, mais aucune Fatigue.`}
+          : `Halte au cours de la session ${numeroAnnonce} : Boutique, Sorts et Armurerie. Rend les cristaux épuisés, mais aucune Fatigue.`}
       </p>
 
       {brouillon.type === 'repos-court' && !session && (
@@ -215,7 +216,7 @@ function Preparation({
             key={brouillon.id}
             defaultValue={brouillon.brief}
             onBlur={(e) => maj({ brief: e.target.value })}
-            placeholder="Un teaser de la session à venir : les joueuses orienteront leur Grimoire et leur Armurerie dessus."
+            placeholder="Un teaser de la session à venir : les joueuses orienteront leurs Sorts et leur Armurerie dessus."
           />
         </label>
       )}
@@ -355,7 +356,7 @@ function Offres({
                 <option value="">— vide —</option>
                 {candidats.map((e) => (
                   <option key={e.id} value={e.id}>
-                    {e.nom} — {prixDe(e)} ʟ
+                    {e.nom} — {resumeEntree(e, char, catalog)} · {prixDe(e)} ʟ
                   </option>
                 ))}
               </select>
@@ -484,7 +485,7 @@ function PilotageCamp({
                   {char.nom} — {char.lumens} ʟ · Foi {char.foi}
                 </span>
                 <span className="objet__meta">
-                  Grimoire {char.grimoire.length}/3 · équipé{' '}
+                  Sorts {char.grimoire.length}/3 · équipé{' '}
                   {Object.values(char.equipe).filter(Boolean).length}/3
                 </span>
                 {consomme.length > 0 && (

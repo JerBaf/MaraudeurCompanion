@@ -59,7 +59,14 @@ import {
   computeMarquesMax,
   computeSixthSens,
 } from './competences.ts'
-import { effetsActifs, facesDuDeDeVies, precisionPersonnalite, vieActive } from './effets.ts'
+import {
+  DELAI_VIES_MS,
+  effetsActifs,
+  facesDuDeDeVies,
+  peutTirerUneVie,
+  precisionPersonnalite,
+  vieActive,
+} from './effets.ts'
 import {
   ajusterFatigue,
   cyclesRestants,
@@ -239,7 +246,7 @@ describe('Fardeau et Marque', () => {
 })
 
 describe('Actions Rapides', () => {
-  it('vaut 2 avec un Physique à +2, 1 sinon', () => {
+  it('vaut 2 avec un Physique à +3, 1 sinon', () => {
     expect(actionsRapidesMax(nouveauPerso('trickster'), catalog)).toBe(2)
 
     const faible = nouveauPerso('trickster', {
@@ -627,6 +634,43 @@ describe('précisions de personnalité', () => {
     const char = nouveauPerso('soulshifter', { passifs: { viesConnues: [1, 2], vieActive: null } })
     expect(precisionPersonnalite('element', char, vies)).toBeNull()
     expect(vieActive(char, vies)).toBeNull()
+  })
+
+  /**
+   * « Une fois par heure » vivait en prose : rien n'empêchait de relancer le dé
+   * en rafale, ce qui vidait le passif de son enjeu.
+   */
+  describe('verrou d’une heure', () => {
+    const T = 1_000_000_000_000
+
+    const soulshifter = (vieTireeA?: number) =>
+      nouveauPerso('soulshifter', {
+        passifs: { viesConnues: [1, 2], vieActive: 1, ...(vieTireeA ? { vieTireeA } : {}) },
+      })
+
+    it('laisse tirer une fiche qui n’a encore jamais tiré', () => {
+      expect(peutTirerUneVie(soulshifter(), T)).toEqual({ possible: true, restantMs: 0 })
+    })
+
+    it('refuse le tirage tant que l’heure n’est pas écoulée', () => {
+      const verdict = peutTirerUneVie(soulshifter(T), T + DELAI_VIES_MS - 1)
+      expect(verdict.possible).toBe(false)
+      expect(verdict.restantMs).toBe(1)
+    })
+
+    it('réarme le dé à l’heure pile', () => {
+      expect(peutTirerUneVie(soulshifter(T), T + DELAI_VIES_MS).possible).toBe(true)
+    })
+
+    it('ne propose rien à qui ne connaît aucune vie', () => {
+      const sansVie = nouveauPerso('soulshifter', { passifs: { viesConnues: [] } })
+      expect(peutTirerUneVie(sansVie, T).possible).toBe(false)
+    })
+
+    /** Horloge d'appareil en avance sur celle qui a écrit : pas de décompte qui remonte. */
+    it('plafonne le reste au délai', () => {
+      expect(peutTirerUneVie(soulshifter(T), T - 10 * DELAI_VIES_MS).restantMs).toBe(DELAI_VIES_MS)
+    })
   })
 })
 

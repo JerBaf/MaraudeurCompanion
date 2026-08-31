@@ -90,7 +90,7 @@ export const RAPPELS_COMBAT: RappelRegle[] = [
     id: 'action-rapide',
     titre: 'Action Rapide',
     texte:
-      "Quand une situation exige une réaction immédiate, vous pouvez dépenser une Action Rapide. Vous en avez 2 par jour si votre Physique est à +2, 1 sinon.",
+      "Quand une situation exige une réaction immédiate, vous pouvez dépenser une Action Rapide. Vous en avez 2 par jour si votre Physique est à +3, 1 sinon.",
   },
 ]
 

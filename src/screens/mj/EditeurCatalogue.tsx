@@ -143,11 +143,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
 
       {entrees.map((e) => (
         <div key={e.id} className="objet">
-          <Icone
-            nom={e.icone}
-            taille={28}
-            {...(e.kind === 'equipement' ? { teinte: RARETES[e.rarete ?? 'commun'].teinte } : {})}
-          />
+          <Icone nom={e.icone} taille={28} teinte={RARETES[e.rarete ?? 'commun'].teinte} />
           <span className="objet__corps">
             <span className="objet__nom">{e.nom}</span>
             <span className="objet__meta">{resume(e)}</span>
@@ -180,8 +176,11 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
           entree={edition}
           classes={catalog.classes()}
           onAnnuler={() => setEdition(null)}
-          onEnregistrer={(e) => {
-            void enregistrerEntreeCatalogue(e)
+          // Le formulaire ne se ferme qu'une fois l'écriture acceptée : sinon un
+          // refus de Firestore — que le bandeau d'erreur signale — laissait
+          // croire à un enregistrement réussi, et la saisie était perdue.
+          onEnregistrer={async (e) => {
+            await enregistrerEntreeCatalogue(e)
             setEdition(null)
           }}
         />
@@ -288,7 +287,7 @@ function Formulaire({
   entree: EntreeCatalogue
   classes: Classe[]
   onAnnuler: () => void
-  onEnregistrer: (e: EntreeCatalogue) => void
+  onEnregistrer: (e: EntreeCatalogue) => Promise<void>
 }) {
   const [brouillon, setBrouillon] = useState<EntreeCatalogue>(entree)
   const maj = (patch: Record<string, unknown>) =>
@@ -313,6 +312,22 @@ function Formulaire({
           onChange={(e) => maj({ description: e.target.value })}
           placeholder="Ce que la joueuse lira en touchant l'objet."
         />
+      </label>
+
+      {/* La rareté vaut pour toute entrée du catalogue, sort compris : c'est le
+          palier qu'une joueuse lit en boutique avant de dépenser ses Lumens. */}
+      <label className="champ">
+        <span className="tres-discret">Rareté — donne sa couleur à l'icône</span>
+        <select
+          value={brouillon.rarete ?? 'commun'}
+          onChange={(e) => maj({ rarete: e.target.value as Rarete })}
+        >
+          {(Object.keys(RARETES) as Rarete[]).map((r) => (
+            <option key={r} value={r}>
+              {RARETES[r].libelle}
+            </option>
+          ))}
+        </select>
       </label>
 
       {brouillon.kind === 'equipement' && (
@@ -358,20 +373,6 @@ function Formulaire({
             <span className="tres-discret">
               Matériel de base — hors des 3 emplacements, exclu du Détachement et de la boutique
             </span>
-          </label>
-
-          <label className="champ">
-            <span className="tres-discret">Rareté — donne sa couleur à l'icône</span>
-            <select
-              value={brouillon.rarete ?? 'commun'}
-              onChange={(e) => maj({ rarete: e.target.value as Rarete })}
-            >
-              {(Object.keys(RARETES) as Rarete[]).map((r) => (
-                <option key={r} value={r}>
-                  {RARETES[r].libelle}
-                </option>
-              ))}
-            </select>
           </label>
 
           <EditeurModificateurs
@@ -645,7 +646,7 @@ function Formulaire({
           type="button"
           className="btn btn--principal"
           style={{ flex: 1 }}
-          onClick={() => onEnregistrer(avecLibellesAJour(brouillon))}
+          onClick={() => void onEnregistrer(avecLibellesAJour(brouillon))}
           disabled={!brouillon.nom.trim()}
         >
           Enregistrer

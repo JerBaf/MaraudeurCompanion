@@ -84,16 +84,49 @@ export const firestoreStore: Store = {
   },
 
   async setDoc<T>(chemin: Chemin, valeur: T): Promise<void> {
-    return surveiller(chemin, 'écriture', () => fsSetDoc(doc(db(), chemin), valeur as object))
+    return surveiller(chemin, 'écriture', () =>
+      fsSetDoc(doc(db(), chemin), sansUndefined(valeur) as object),
+    )
   },
 
   async updateDoc(chemin: Chemin, patch: Record<string, unknown>): Promise<void> {
-    return surveiller(chemin, 'écriture', () => fsUpdateDoc(doc(db(), chemin), patch))
+    return surveiller(chemin, 'écriture', () =>
+      fsUpdateDoc(doc(db(), chemin), sansUndefined(patch)),
+    )
   },
 
   async deleteDoc(chemin: Chemin): Promise<void> {
     return surveiller(chemin, 'écriture', () => fsDeleteDoc(doc(db(), chemin)))
   },
+}
+
+/**
+ * Retire, récursivement, les clés dont la valeur est `undefined`.
+ *
+ * Firestore les refuse — `setDoc()` lève « Unsupported field value: undefined ».
+ * Or c'est exactement ce que produisent les écrans d'édition : vider un champ
+ * « Prix » ou décocher une case veut dire « ce champ n'existe pas », et un
+ * `undefined` est la façon la plus directe de l'écrire en JavaScript. La purge
+ * traduit donc l'intention plutôt que d'obliger chaque formulaire à supprimer la
+ * clé lui-même.
+ *
+ * `localStore` sérialise en JSON, ce qui les supprime déjà : les deux
+ * implémentations du `Store` tiennent ainsi le même contrat — **clé absente =
+ * champ absent**, celui que lisent tous les consommateurs (`illusion === true`,
+ * `rarete ?? 'commun'`, `prix ?? null`).
+ *
+ * `null` est conservé : c'est une valeur signifiante (`vieActive: null`,
+ * `equipe.arme: null`), pas une absence.
+ */
+export function sansUndefined<T>(valeur: T): T {
+  if (Array.isArray(valeur)) return valeur.map((v) => sansUndefined(v)) as T
+  if (valeur === null || typeof valeur !== 'object') return valeur
+
+  return Object.fromEntries(
+    Object.entries(valeur)
+      .filter(([, v]) => v !== undefined)
+      .map(([cle, v]) => [cle, sansUndefined(v)]),
+  ) as T
 }
 
 /**

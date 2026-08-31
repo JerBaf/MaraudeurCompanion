@@ -687,7 +687,7 @@ describe('Feu de Camp', () => {
 
     // …comme des onglets de phase que la MJ peut piloter.
     const onglets = screen.getAllByRole('group', { name: 'Phase du feu de camp' })[0]
-    expect(onglets?.textContent).toBe('BoutiqueGrimoireArmurerie')
+    expect(onglets?.textContent).toBe('BoutiqueSortsArmurerie')
   })
 
   it('suit la phase pilotée par la MJ', async () => {
