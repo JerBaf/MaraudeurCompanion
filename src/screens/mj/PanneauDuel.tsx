@@ -221,7 +221,7 @@ function Preparation({
           </span>
           <input
             type="range"
-            min={10}
+            min={5}
             max={15}
             step={1}
             value={Math.round(prive.dureeChoixMs / 1000)}

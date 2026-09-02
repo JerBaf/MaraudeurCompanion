@@ -27,6 +27,7 @@ import {
 import { createCatalog } from './catalog.ts'
 import {
   appliquerProfil,
+  convertirAncienProfil,
   creerPersonnage,
   cyclesNonRenseignes,
   maitrisesSuiventLeProfil,
@@ -60,11 +61,11 @@ import {
   computeSixthSens,
 } from './competences.ts'
 import {
-  DELAI_VIES_MS,
   effetsActifs,
   facesDuDeDeVies,
   peutTirerUneVie,
   precisionPersonnalite,
+  rendreInvocationDeVie,
   vieActive,
 } from './effets.ts'
 import {
@@ -195,6 +196,52 @@ describe('création de personnage', () => {
     expect(cyclesNonRenseignes(vierge)).toBe(true)
     expect(cyclesNonRenseignes(null)).toBe(true)
     expect(cyclesNonRenseignes({ ...vierge, cyclesTotal: 4 })).toBe(false)
+  })
+
+  /**
+   * Les fiches jouées avant le passage à ±3 dorment en base à l'ancienne échelle.
+   * La conversion se fait à la lecture, pas par une migration en masse — mais
+   * elle ne doit toucher que les fiches restées sur le profil type.
+   */
+  describe('conversion des maîtrises ±2 → ±3', () => {
+    it('remonte une fiche restée à l’ancien profil', () => {
+      expect(convertirAncienProfil({ physique: 2, roublardise: 2, esprit: 0, social: -2 })).toEqual({
+        physique: 3,
+        roublardise: 3,
+        esprit: 0,
+        social: -3,
+      })
+    })
+
+    it('laisse intacte une répartition que la MJ a réglée à la main', () => {
+      const arbitrage = { physique: 2, roublardise: 1, esprit: 0, social: -2 }
+      expect(convertirAncienProfil(arbitrage)).toEqual(arbitrage)
+    })
+
+    it('ne retouche pas une fiche déjà à la nouvelle échelle', () => {
+      const neuve = appliquerProfil(['physique', 'social'], 'esprit')
+      expect(convertirAncienProfil(neuve)).toEqual(neuve)
+    })
+
+    it('rend une fiche convertie conforme au profil type', () => {
+      const converti = convertirAncienProfil({
+        physique: -2,
+        roublardise: 2,
+        esprit: 2,
+        social: 0,
+      })
+      expect(maitrisesSuiventLeProfil(converti)).toBe(true)
+    })
+
+    /** Le chemin réel : une fiche lue en base ressort convertie. */
+    it('s’applique à la normalisation d’une fiche', () => {
+      const ancienne = nouveauPerso('trickster')
+      const relue = normaliserPersonnage({
+        ...ancienne,
+        maitrises: { physique: 2, roublardise: 2, esprit: 0, social: -2 },
+      })
+      expect(relue.maitrises).toEqual({ physique: 3, roublardise: 3, esprit: 0, social: -3 })
+    })
   })
 
   it('valide le profil de maîtrise type', () => {
@@ -638,9 +685,10 @@ describe('précisions de personnalité', () => {
 
   /**
    * « Une fois par heure » vivait en prose : rien n'empêchait de relancer le dé
-   * en rafale, ce qui vidait le passif de son enjeu.
+   * en rafale. L'heure étant celle de la **fiction**, le jeton se rend à la main
+   * — un compte à rebours réel se serait trompé dans les deux sens.
    */
-  describe('verrou d’une heure', () => {
+  describe('jeton d’invocation', () => {
     const T = 1_000_000_000_000
 
     const soulshifter = (vieTireeA?: number) =>
@@ -649,27 +697,30 @@ describe('précisions de personnalité', () => {
       })
 
     it('laisse tirer une fiche qui n’a encore jamais tiré', () => {
-      expect(peutTirerUneVie(soulshifter(), T)).toEqual({ possible: true, restantMs: 0 })
+      expect(peutTirerUneVie(soulshifter())).toBe(true)
     })
 
-    it('refuse le tirage tant que l’heure n’est pas écoulée', () => {
-      const verdict = peutTirerUneVie(soulshifter(T), T + DELAI_VIES_MS - 1)
-      expect(verdict.possible).toBe(false)
-      expect(verdict.restantMs).toBe(1)
-    })
-
-    it('réarme le dé à l’heure pile', () => {
-      expect(peutTirerUneVie(soulshifter(T), T + DELAI_VIES_MS).possible).toBe(true)
+    it('consomme le jeton une fois la vie tirée', () => {
+      expect(peutTirerUneVie(soulshifter(T))).toBe(false)
     })
 
     it('ne propose rien à qui ne connaît aucune vie', () => {
-      const sansVie = nouveauPerso('soulshifter', { passifs: { viesConnues: [] } })
-      expect(peutTirerUneVie(sansVie, T).possible).toBe(false)
+      expect(peutTirerUneVie(nouveauPerso('soulshifter', { passifs: { viesConnues: [] } }))).toBe(
+        false,
+      )
     })
 
-    /** Horloge d'appareil en avance sur celle qui a écrit : pas de décompte qui remonte. */
-    it('plafonne le reste au délai', () => {
-      expect(peutTirerUneVie(soulshifter(T), T - 10 * DELAI_VIES_MS).restantMs).toBe(DELAI_VIES_MS)
+    it('rend le jeton quand la MJ l’accorde, sans toucher à la personnalité', () => {
+      const rendu = rendreInvocationDeVie(soulshifter(T))
+      expect(peutTirerUneVie(rendu)).toBe(true)
+      expect(rendu.passifs.vieActive).toBe(1)
+      // La clé doit disparaître, pas valoir `undefined` : Firestore refuse l'un
+      // et pas l'autre (voir `sansUndefined`).
+      expect('vieTireeA' in rendu.passifs).toBe(false)
+    })
+
+    it('reste sans effet sur une fiche qui a déjà son invocation', () => {
+      expect(rendreInvocationDeVie(soulshifter()).passifs).toEqual(soulshifter().passifs)
     })
   })
 })

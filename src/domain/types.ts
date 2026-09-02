@@ -347,8 +347,9 @@ export interface EtatPassifs {
   /** Soulshifter — vie actuellement incarnée. */
   vieActive?: number | null
   /**
-   * Soulshifter — horodatage du dernier tirage, qui porte le verrou d'une heure.
-   * Absent sur les fiches antérieures au verrou : le dé y est disponible.
+   * Soulshifter — instant du dernier tirage. **Sa présence est le jeton
+   * d'invocation consommé** : absent = le dé est disponible. Seule la MJ le
+   * retire, quand l'heure de jeu est passée (voir `peutTirerUneVie`).
    */
   vieTireeA?: number
 }

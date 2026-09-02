@@ -29,6 +29,34 @@ export function maitrisesSuiventLeProfil(m: Maitrises): boolean {
   return valeurs.every((v, i) => v === attendu[i])
 }
 
+/** L'ancien profil, du temps où les maîtrises allaient de -2 à +2. */
+const ANCIEN_PROFIL_MAITRISE = [2, 2, 0, -2] as const
+
+/**
+ * Convertit une fiche restée à l'ancienne échelle ±2 vers la nouvelle, ±3.
+ *
+ * ⚠️ La conversion ne s'applique **qu'aux fiches dont la répartition suit encore
+ * exactement l'ancien profil type** — deux +2, un 0, un -2. Une joueuse que la
+ * MJ a écartée du profil à la main a été mise là volontairement : remonter ses
+ * valeurs effacerait cet arbitrage sans le dire. Le cas échéant, la MJ corrige
+ * depuis son écran, boutons `−` / `+`.
+ *
+ * Les modificateurs ne sont pas touchés : ils s'ajoutent à la maîtrise et gardent
+ * le sens qu'ils avaient (un Fardeau vaut toujours un désavantage).
+ */
+export function convertirAncienProfil(m: Maitrises): Maitrises {
+  const valeurs = COMPETENCES.map((c) => m[c]).sort((a, b) => a - b)
+  const ancien = [...ANCIEN_PROFIL_MAITRISE].sort((a, b) => a - b)
+  if (!valeurs.every((v, i) => v === ancien[i])) return m
+
+  const [forte, , neutre, faible] = PROFIL_MAITRISE_TYPE
+  const converti = maitrisesVierges()
+  for (const c of COMPETENCES) {
+    converti[c] = m[c] > 0 ? forte : m[c] < 0 ? faible : neutre
+  }
+  return converti
+}
+
 export interface DemandeCreation {
   id: string
   nom: string
@@ -120,11 +148,17 @@ export function cyclesNonRenseignes(secret: CharacterSecret | null): boolean {
  *
  * Appliquée dans `surPersonnages` (`data/repo.ts`), seul chemin par lequel une
  * fiche entre dans l'application.
+ *
+ * C'est aussi le bon endroit pour les **conversions de règle** — ainsi
+ * `convertirAncienProfil`, qui fait passer les maîtrises de ±2 à ±3. La fiche
+ * s'affiche corrigée dès la lecture, et la correction se persiste à la première
+ * écriture venue : aucune migration en masse à lancer, et rien à réparer si une
+ * joueuse rejoint la table avec un vieux document.
  */
 export function normaliserPersonnage(brut: Character): Character {
   return {
     ...brut,
-    maitrises: { ...maitrisesVierges(), ...(brut.maitrises ?? {}) },
+    maitrises: convertirAncienProfil({ ...maitrisesVierges(), ...(brut.maitrises ?? {}) }),
     fatigue: brut.fatigue ?? { max: 4, coches: 0 },
     brulures: brut.brulures ?? 0,
     bruluresConsommees: brut.bruluresConsommees ?? 0,

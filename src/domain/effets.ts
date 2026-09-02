@@ -250,33 +250,26 @@ export function detailVie(vie: VieSoulshifter, catalog: Catalog): string {
 }
 
 /**
- * Le délai entre deux invocations : « une fois par heure », dit la classe.
+ * Peut-on invoquer une vie passée ?
  *
- * Le verrou est persisté sur la fiche plutôt que gardé à l'écran : une joueuse
- * qui recharge sa page ne doit pas retrouver son dé disponible.
- */
-export const DELAI_VIES_MS = 3_600_000
-
-/**
- * Peut-on invoquer une vie passée maintenant ?
+ * ⚠️ « Une fois par **heure de jeu** » — et l'heure de jeu, l'application ne la
+ * connaît pas : une halte au feu de camp peut couvrir une nuit de fiction en
+ * trois minutes de table. Un compte à rebours réel se serait donc trompé dans
+ * les deux sens.
  *
- * `maintenant` est passé en paramètre plutôt que lu ici : le domaine reste pur et
- * la règle se teste sans avoir à feindre l'horloge.
+ * L'invocation est un **jeton** : le tirage le consomme, et c'est la MJ qui le
+ * rend quand la fiction a passé l'heure. `vieTireeA` retient l'instant du
+ * dernier tirage — sa présence *est* le jeton consommé, et sa valeur sert à
+ * l'afficher à la MJ.
  */
-export function peutTirerUneVie(
-  char: Character,
-  maintenant: number,
-): { possible: boolean; restantMs: number } {
-  if (facesDuDeDeVies(char) === 0) return { possible: false, restantMs: 0 }
+export function peutTirerUneVie(char: Character): boolean {
+  return facesDuDeDeVies(char) > 0 && char.passifs.vieTireeA == null
+}
 
-  // Une fiche antérieure au verrou n'a pas d'horodatage : son dé est disponible.
-  const dernier = char.passifs.vieTireeA
-  if (dernier == null) return { possible: true, restantMs: 0 }
-
-  // Clamp : une horloge d'appareil en retard sur celle qui a écrit le tirage
-  // produirait un reste supérieur au délai, et un décompte qui remonte.
-  const restantMs = Math.min(DELAI_VIES_MS, Math.max(0, dernier + DELAI_VIES_MS - maintenant))
-  return { possible: restantMs === 0, restantMs }
+/** Rend l'invocation. Réservé à la MJ, seule à savoir où en est l'heure de jeu. */
+export function rendreInvocationDeVie(char: Character): Character {
+  const { vieTireeA: _consomme, ...passifs } = char.passifs
+  return { ...char, passifs }
 }
 
 /**

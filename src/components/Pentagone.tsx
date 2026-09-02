@@ -28,14 +28,17 @@ import { ACTIONS_DUEL, LIBELLE_ACTION_DUEL, type ActionDuel } from '../domain/ty
  * | Ce que ça dit                       | Marque              |
  * |-------------------------------------|---------------------|
  * | joué au tour d'avant par la joueuse | bordure verte       |
- * | joué au tour d'avant par le PNJ     | fond rouge sourd    |
+ * | joué au tour d'avant par le PNJ     | bordure rouge       |
  * | sélection en cours                  | halo blanc, au ras  |
  * | combo disponible (Flow)             | halo orange, autour |
- * | combo que menace le PNJ             | halo rouge, autour  |
  *
- * **Le trait et le fond disent le passé, les halos disent le présent** : les deux
- * couches se superposent sans se contredire quand un sommet cumule les rôles —
- * un Clash, par exemple, laisse le sommet vert *et* rouge.
+ * **Le trait dit le passé, les halos disent le présent** : les deux couches se
+ * superposent sans se contredire quand un sommet cumule les rôles.
+ *
+ * ⚠️ Le Flow que menace le PNJ n'est **pas** marqué, et ce n'est pas un oubli :
+ * un second halo rouge, posé sur un sommet que personne n'a joué, se lisait
+ * comme « voilà son coup » et contredisait la bordure rouge à deux sommets de
+ * là. Le rouge ne dit qu'une chose ici — ce que l'adversaire vient de jouer.
  */
 interface Props {
   /** Action sélectionnée mais pas encore verrouillée : allume ses relations. */
@@ -128,10 +131,9 @@ export function Pentagone({
   onChoisir,
   children,
 }: Props) {
-  // Les Flows se déduisent de l'anneau et ne sont donc pas reçus tout faits :
-  // c'est `duel.ts` qui reste seul à savoir dans quel sens il tourne.
+  // Le Flow se déduit de l'anneau et n'est donc pas reçu tout fait : c'est
+  // `duel.ts` qui reste seul à savoir dans quel sens il tourne.
   const combo = flowDe(precedenteJoueuse)
-  const menace = flowDe(precedenteAdversaire)
 
   return (
     <div className="pentagone">
@@ -173,7 +175,6 @@ export function Pentagone({
         const marques = [
           precedenteJoueuse === action ? 'pentagone__sommet--precedente-joueuse' : '',
           precedenteAdversaire === action ? 'pentagone__sommet--precedente-adversaire' : '',
-          menace === action ? 'pentagone__sommet--menace' : '',
           combo === action ? 'pentagone__sommet--combo' : '',
           selection === action ? 'pentagone__sommet--choisi' : '',
         ]

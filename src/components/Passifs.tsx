@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { ObjetDetaillable } from './ObjetDetaillable.tsx'
 import type { Catalog } from '../domain/catalog.ts'
-import { detailVie, facesDuDeDeVies, peutTirerUneVie, vieActive } from '../domain/effets.ts'
+import {
+  detailVie,
+  facesDuDeDeVies,
+  peutTirerUneVie,
+  rendreInvocationDeVie,
+  vieActive,
+} from '../domain/effets.ts'
 import { cryptoRng } from '../domain/random.ts'
 import type { Character, VieSoulshifter } from '../domain/types.ts'
 
@@ -11,8 +17,14 @@ import type { Character, VieSoulshifter } from '../domain/types.ts'
  *
  * Chaque classe obéit à une contrainte différente, et l'écran la reflète :
  *  - Dusk Hunter : bascule libre, au prix d'un tour d'action en combat ;
- *  - Soulshifter : tirage aléatoire, déclenché par la joueuse, 1×/heure ;
+ *  - Soulshifter : tirage aléatoire, déclenché par la joueuse, 1×/heure de jeu ;
  *  - Trickster : engagement pris au feu de camp, donc verrouillé ici.
+ *
+ * ⚠️ Les deux déverrouillages ne se confondent pas. `autoriserToutChanger` dit
+ * « on est à un moment où la voie du Trickster peut changer » — vrai aussi pour
+ * la joueuse pendant la phase Sorts du camp. `peutAccorder` dit « on est sur
+ * l'écran de la MJ » : rendre son invocation à un Soulshifter est un arbitrage,
+ * jamais un droit de la joueuse.
  */
 export function Passifs({
   char,
@@ -21,12 +33,15 @@ export function Passifs({
   maj,
   /** La MJ peut passer outre le verrou du feu de camp. */
   autoriserToutChanger = false,
+  /** Écran MJ : elle seule rend son invocation à un Soulshifter. */
+  peutAccorder = false,
 }: {
   char: Character
   catalog: Catalog
   vies: readonly VieSoulshifter[]
   maj: (t: (c: Character) => Character) => void
   autoriserToutChanger?: boolean
+  peutAccorder?: boolean
 }) {
   const classe = catalog.classe(char.classeId)
   if (!classe?.passifMoteur) return null
@@ -39,13 +54,7 @@ export function Passifs({
 
       {classe.passifMoteur === 'dusk-hexcore' && <Hexcore char={char} maj={maj} />}
       {classe.passifMoteur === 'soulshifter-vies' && (
-        <Vies
-          char={char}
-          vies={vies}
-          catalog={catalog}
-          maj={maj}
-          deverrouille={autoriserToutChanger}
-        />
+        <Vies char={char} vies={vies} catalog={catalog} maj={maj} peutAccorder={peutAccorder} />
       )}
       {classe.passifMoteur === 'trickster-voie' && (
         <VoieTrickster char={char} maj={maj} deverrouille={autoriserToutChanger} />
@@ -102,32 +111,22 @@ function Vies({
   vies,
   catalog,
   maj,
-  deverrouille,
+  peutAccorder,
 }: {
   char: Character
   vies: readonly VieSoulshifter[]
   catalog: Catalog
   maj: (t: (c: Character) => Character) => void
-  /** La MJ passe outre le verrou d'une heure. */
-  deverrouille: boolean
+  /** Écran MJ : affiche le bouton qui rend l'invocation. */
+  peutAccorder: boolean
 }) {
   const [dernierTirage, setDernierTirage] = useState<string | null>(null)
   const [enCours, setEnCours] = useState(false)
-  // Le verrou se lit dans le temps qui passe : l'écran doit se rafraîchir tout
-  // seul pour que le bouton se réarme sans avoir à quitter l'onglet.
-  const [maintenant, setMaintenant] = useState(() => Date.now())
 
   const faces = facesDuDeDeVies(char)
   const connues = char.passifs.viesConnues ?? []
   const active = vieActive(char, vies)
-  const verrou = peutTirerUneVie(char, maintenant)
-  const disponible = deverrouille || verrou.possible
-
-  useEffect(() => {
-    if (disponible) return
-    const battement = setInterval(() => setMaintenant(Date.now()), 1000)
-    return () => clearInterval(battement)
-  }, [disponible])
+  const disponible = peutTirerUneVie(char)
 
   async function tirer() {
     // Les gardes de l'écran protègent l'écran, pas la règle : on revérifie.
@@ -136,7 +135,7 @@ function Vies({
     const remplacee = active ? `${active.nom} laissera la place.` : 'Aucune personnalité incarnée.'
     if (!confirm(`Invoquer une vie passée ? ${remplacee} Le tirage est irréversible.`)) return
 
-    // `enCours` complète le verrou persisté : `maj` transforme la fiche telle
+    // `enCours` complète le jeton persisté : `maj` transforme la fiche telle
     // qu'elle est arrivée en prop, donc tant que Firestore n'a pas fait l'écho,
     // un second appui repartirait d'un `vieTireeA` périmé.
     setEnCours(true)
@@ -144,8 +143,8 @@ function Vies({
       const face = cryptoRng.int(1, faces)
       const choisie = connues[face - 1] ?? face
       setDernierTirage(`d${faces} → ${face}`)
-      // Vie et verrou dans la même transformation : la personnalité ne peut pas
-      // changer sans que l'heure ne se remette à courir.
+      // Vie et jeton dans la même transformation : la personnalité ne peut pas
+      // changer sans que l'invocation ne soit consommée.
       maj((c) => ({
         ...c,
         passifs: { ...c.passifs, vieActive: choisie, vieTireeA: Date.now() },
@@ -158,8 +157,9 @@ function Vies({
   return (
     <>
       <p className="tres-discret" style={{ margin: 0 }}>
-        Une fois par heure, lancez un d{faces || '?'} — une face par vie connue — pour savoir
-        quelle personnalité reprend le dessus pour l'heure à venir.
+        Une fois par heure de jeu, lancez un d{faces || '?'} — une face par vie connue — pour
+        savoir quelle personnalité reprend le dessus. C'est la MJ qui vous rend l'invocation :
+        l'heure est celle de la fiction, pas celle de la table.
       </p>
 
       <button
@@ -168,10 +168,21 @@ function Vies({
         onClick={() => void tirer()}
         disabled={faces === 0 || !disponible || enCours}
       >
-        {disponible
-          ? 'Invoquer une vie passée'
-          : `Disponible dans ${libelleAttente(verrou.restantMs)}`}
+        {disponible ? 'Invoquer une vie passée' : 'Invocation déjà utilisée'}
       </button>
+
+      {peutAccorder && (
+        <button
+          type="button"
+          className="btn"
+          disabled={disponible}
+          onClick={() => maj(rendreInvocationDeVie)}
+        >
+          {disponible
+            ? 'Invocation déjà disponible'
+            : `Rendre l'invocation${char.passifs.vieTireeA ? ` — tirée à ${heure(char.passifs.vieTireeA)}` : ''}`}
+        </button>
+      )}
 
       {dernierTirage && <p className="alerte alerte--info">{dernierTirage}</p>}
 
@@ -202,11 +213,9 @@ function Vies({
   )
 }
 
-/** Le reste du verrou, arrondi à la minute supérieure — sauf la dernière. */
-function libelleAttente(restantMs: number): string {
-  const secondes = Math.ceil(restantMs / 1000)
-  if (secondes < 60) return `${secondes} s`
-  return `${Math.ceil(secondes / 60)} min`
+/** L'heure de table du dernier tirage, pour que la MJ situe la dernière invocation. */
+function heure(instant: number): string {
+  return new Date(instant).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 // ---------------------------------------------------------------------------

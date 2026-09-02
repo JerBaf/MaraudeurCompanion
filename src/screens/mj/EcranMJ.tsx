@@ -466,8 +466,16 @@ function DetailPersonnage({
 
       <hr className="separateur" />
 
-      {/* La MJ n'est pas soumise au verrou du feu de camp sur la voie du Trickster. */}
-      <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} autoriserToutChanger />
+      {/* La MJ n'est pas soumise au verrou du feu de camp sur la voie du Trickster,
+          et c'est ici qu'elle rend son invocation à un Soulshifter. */}
+      <Passifs
+        char={char}
+        catalog={catalog}
+        vies={VIES_SOULSHIFTER}
+        maj={maj}
+        autoriserToutChanger
+        peutAccorder
+      />
 
       <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} />
 

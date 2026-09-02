@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 200 tests — 169 de domaine, 31 de rendu |
+| `npm test` | 214 tests — 179 de domaine, 4 de stockage, 31 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -241,6 +241,8 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Pool du Détachement | tous sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base | le PDF exclut explicitement les améliorations |
 | Voie de la Flamme | paliers **cumulatifs** | à 7 brûlures on garde le 6ᵉ Sens du seuil 4 |
 | Illusions du Trickster | **dérivées du passif**, pas possédées | « donne accès à » ≠ « possède » |
+| Invocation du Soulshifter | un **jeton** que le tirage consomme et que la **MJ rend** depuis la fiche | « une fois par heure » parle de l'heure **de fiction**, que l'app ne connaît pas : une halte au camp couvre une nuit en trois minutes de table. Un compte à rebours réel se serait trompé dans les deux sens. `passifs.vieTireeA` porte le jeton (`peutTirerUneVie`, `rendreInvocationDeVie`) |
+| Maîtrises | **+3 / 0 / −3** | remplace le ±2 de la v0. Les fiches restées à l'ancien profil sont converties à la lecture par `convertirAncienProfil` ; une répartition que la MJ a réglée à la main n'est **pas** touchée |
 | Marques | plafond **3**, rien d'automatique | la MJ dépense à la main |
 | Feu de camp | qualifié **initial** ou **repos court** ; la notion de journée de fiction est abandonnée | un camp initial ouvre la session : il rend 1 Point de Fatigue, le 6ᵉ Sens et les Actions Rapides, lève Fardeaux/Serments/Marques et ouvre Banque, Brief et gains de Foi. Un repos court ne rend que les cristaux et n'ouvre que Boutique, Grimoire, Armurerie |
 | Jetons de camp | portés par la **fiche**, et datés (n° de session, id de camp) | voir piège n° 8 |
@@ -657,15 +659,19 @@ combo garde ses deux halos.
 | Ce que ça dit | Marque | Source |
 |---|---|---|
 | joué au tour d'avant par la joueuse | bordure verte | `etat.precedenteJoueuse` |
-| joué au tour d'avant par le PNJ | fond rouge sourd | `etat.precedenteAdversaire` |
+| joué au tour d'avant par le PNJ | bordure rouge | `etat.precedenteAdversaire` |
 | sélection en cours | halo blanc, au ras | `selection` |
 | combo à saisir (Flow) | halo orange, autour | `flowDe(precedenteJoueuse)` |
-| combo que le PNJ menace | halo rouge, autour | `flowDe(precedenteAdversaire)` |
 
 Les halos passent par deux variables CSS (`--halo-proche`, `--halo-lointain`) plutôt que
-par des règles composées : chaque marque n'a qu'une propriété à poser. Les deux combos se
-disputent la même couche — `--combo` est déclaré **après** `--menace` à dessein, pour que
-l'occasion à saisir l'emporte sur la menace.
+par des règles composées : chaque marque n'a qu'une propriété à poser. Sur un Clash — les
+deux ont joué le même coup — le trait ne pouvant porter deux couleurs, le vert le garde et
+le rouge passe au fond.
+
+⚠️ **Le Flow que menace le PNJ n'est pas marqué, et ce n'est pas un oubli.** Il l'a été un
+temps, par un second halo rouge : posé sur un sommet que personne n'avait joué, il se
+lisait comme « voilà son coup » et contredisait la bordure rouge à deux sommets de là. Sur
+le plateau, le rouge ne dit qu'une chose — **ce que l'adversaire vient de jouer**.
 
 ⚠️ Le pentagone reçoit les actions **précédentes**, pas les Flows : il les calcule
 lui-même avec `flowDe`. L'anneau reste ainsi la seule source de vérité.

@@ -1193,22 +1193,22 @@ button.pentagone__sommet:hover {
   border-color: var(--vert);
 }
 
-/* Le coup du PNJ : au fond, en rouge — pour qu'un Clash reste lisible sur le
-   même sommet, vert au trait et rouge au fond. */
+/* Le coup du PNJ : au trait aussi, en rouge. Le rouge ne dit que ça sur le
+   plateau — c'est ce qu'il vient de jouer, jamais ce qu'il pourrait jouer. */
 .pentagone__sommet--precedente-adversaire {
-  background: rgb(200 85 61 / 0.25);
+  border-color: var(--sang);
+}
+
+/* Clash : les deux ont joué le même coup. Le trait ne peut pas porter deux
+   couleurs, alors le vert le garde et le rouge passe au fond. */
+.pentagone__sommet--precedente-joueuse.pentagone__sommet--precedente-adversaire {
+  border-color: var(--vert);
+  background: rgb(200 85 61 / 0.3);
 }
 
 /* --- Le présent : ce qui se joue à la manche en cours --- */
 
-/* Le combo que le PNJ menace de compléter. */
-.pentagone__sommet--menace {
-  --halo-lointain: rgb(200 85 61 / 0.45);
-}
-
-/* Le combo à saisir : compléter son Flow vaut 2 points. Déclaré après la menace
-   à dessein — les deux se disputent la même couche, et sur un sommet qui cumule
-   les deux rôles c'est l'occasion à saisir qui doit se voir. */
+/* Le combo à saisir : compléter son Flow vaut 2 points. */
 .pentagone__sommet--combo {
   --halo-lointain: rgb(224 164 76 / 0.6);
 }
@@ -1308,7 +1308,7 @@ button.pentagone__sommet:hover {
   border-color: var(--vert);
 }
 .legende-duel__item--subi::before {
-  background: rgb(200 85 61 / 0.45);
+  border-color: var(--sang);
 }
 .legende-duel__item--combo::before {
   box-shadow: 0 0 0 2px rgb(224 164 76 / 0.6);
@@ -1389,7 +1389,7 @@ button.pentagone__sommet:hover {
   border-color: var(--vert);
 }
 .frise__coup--adversaire {
-  background: rgb(200 85 61 / 0.25);
+  border-color: var(--sang);
 }
 
 .frise__issue {
