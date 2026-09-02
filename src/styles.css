@@ -1155,7 +1155,14 @@ textarea {
   gap: 2px;
   padding: 8px 2px;
   border-radius: var(--rayon-l);
-  border: 1px solid var(--encre-4);
+  /*
+    Bordure de 3px sur **tous** les sommets, y compris ceux que rien ne marque.
+    Deux raisons : le trait du coup précédent doit peser autant que le halo du
+    combo, sinon un liseré d'un pixel se noie dedans quand les deux tombent sur
+    le même sommet ; et une épaisseur uniforme garantit que colorer un sommet ne
+    décale jamais son libellé.
+  */
+  border: 3px solid var(--encre-4);
   background: var(--encre-2);
   color: var(--parchemin);
   text-align: center;
@@ -1163,16 +1170,28 @@ textarea {
     Deux couches de halo, portées par des variables plutôt que par des règles
     composées : chaque marque n'a qu'une propriété à poser, et deux marques qui
     tombent sur le même sommet se superposent au lieu de s'écraser.
+
+    Le premier anneau n'est pas une marque mais une **respiration** : opaque et
+    couleur de la carte, il détache toujours les halos du trait. Sans lui, le
+    halo doré du combo venait mourir contre la bordure rouge du coup adverse —
+    deux oranges voisins qui se lisaient comme une seule bande — chaque fois que
+    l'adversaire jouait le coup qui ouvre notre Flow. Il doit rester opaque : un
+    anneau transparent ne masque rien, il laisse passer celui du dessous.
+
+    L'`outline` reste libre à dessein : les sommets sont de vrais boutons, et
+    c'est elle qui porte leur focus clavier.
   */
   --halo-proche: transparent;
   --halo-lointain: transparent;
   box-shadow:
-    0 0 0 3px var(--halo-proche),
-    0 0 0 6px var(--halo-lointain);
+    0 0 0 2px var(--encre-2),
+    0 0 0 5px var(--halo-proche),
+    0 0 0 8px var(--halo-lointain);
   transition:
     border-color 120ms ease,
     background 120ms ease,
-    box-shadow 120ms ease;
+    box-shadow 120ms ease,
+    filter 120ms ease;
 }
 
 .pentagone__nom {
@@ -1182,8 +1201,15 @@ textarea {
   letter-spacing: 0.01em;
 }
 
+/*
+  Le survol éclaircit le sommet au lieu de lui repeindre le trait ou le fond.
+  À 3px, un trait ambre effaçait le vert ou le rouge du coup précédent sous le
+  curseur de la duelliste ; et un `:hover` l'emporte de toute façon en
+  spécificité sur les règles de marquage. Un filtre, lui, se compose avec elles
+  au lieu de les remplacer — quelle que soit la marque, elle survit au survol.
+*/
 button.pentagone__sommet:hover {
-  border-color: var(--ambre-sourd);
+  filter: brightness(1.2);
 }
 
 /* --- Le passé : ce qui a été joué à la manche précédente --- */
@@ -1295,12 +1321,14 @@ button.pentagone__sommet:hover {
   color: var(--parchemin-faible);
 }
 
+/* Les pastilles reprennent l'épaisseur du plateau : une légende qui ne pèse pas
+   le même poids que ce qu'elle explique n'aide personne. */
 .legende-duel__item::before {
   content: '';
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  border: 1px solid var(--encre-4);
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  border: 2px solid var(--encre-4);
   background: var(--encre-2);
 }
 
@@ -1311,10 +1339,14 @@ button.pentagone__sommet:hover {
   border-color: var(--sang);
 }
 .legende-duel__item--combo::before {
-  box-shadow: 0 0 0 2px rgb(224 164 76 / 0.6);
+  box-shadow:
+    0 0 0 1px var(--encre-2),
+    0 0 0 3px rgb(224 164 76 / 0.6);
 }
 .legende-duel__item--choisi::before {
-  box-shadow: 0 0 0 2px rgb(239 230 214 / 0.85);
+  box-shadow:
+    0 0 0 1px var(--encre-2),
+    0 0 0 3px rgb(239 230 214 / 0.85);
 }
 
 /*
@@ -1383,7 +1415,7 @@ button.pentagone__sommet:hover {
   display: flex;
   padding: 2px;
   border-radius: 5px;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
 }
 .frise__coup--joueuse {
   border-color: var(--vert);
