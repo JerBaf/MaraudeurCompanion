@@ -4,7 +4,6 @@ import { Icone } from '../../components/Icone.tsx'
 import {
   definirInitiative,
   enregistrerAdversaire,
-  enregistrerPersonnage,
   journaliser,
   modifierPersonnage,
 } from '../../data/repo.ts'
@@ -313,13 +312,15 @@ function ActionsAlternatives({
       return
     }
 
-    await enregistrerPersonnage({
-      ...allie,
+    // Écriture sur la fiche d'une autre, mais par `modifierPersonnage` : c'est
+    // un événement de fiction chez l'alliée, et il doit armer ses passifs.
+    await modifierPersonnage(allie, (c) => ({
+      ...c,
       modifiers: [
-        ...allie.modifiers,
+        ...c.modifiers,
         modificateurDiversion(echeanceDiversion(combat, sousGroupeAllie), char.nom),
       ],
-    })
+    }))
     await journaliser(char.nom, 'diversion', `${char.nom} fait diversion pour ${allie.nom} (+1 PE).`)
     setMessage(`Diversion pour ${allie.nom} : +1 Point d'Énergie pour sa prochaine action.`)
     setChoix(null)

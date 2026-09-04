@@ -1,21 +1,12 @@
 import type { Catalog } from './catalog.ts'
 import {
-  agreger,
-  allModifiers,
   cibleCompetence,
-  EVASION_DE_BASE,
-  MAX_FOI,
-  MAX_MARQUES,
-  netAvantage,
-  SEUIL_COMBUSTION,
-  type Agregat,
-} from './modifiers.ts'
-import {
-  COMPETENCES,
-  type Character,
-  type Competence,
-  type ModifierTarget,
-} from './types.ts'
+  cibleElement,
+  descripteur,
+  type ElementVariable,
+} from './elements.ts'
+import { agreger, allModifiers, netAvantage, type Agregat } from './modifiers.ts'
+import { COMPETENCES, type Character, type Competence } from './types.ts'
 
 /** Valeur affichée d'une compétence, avec de quoi expliquer d'où elle vient. */
 export interface ValeurCompetence {
@@ -73,13 +64,86 @@ export function actionsRapidesRestantes(char: Character, catalog: Catalog): numb
   return Math.max(0, actionsRapidesMax(char, catalog) - char.actionsRapidesUtilisees)
 }
 
+/**
+ * La valeur d'un Élément Variable qui n'est pas une jauge : une statistique
+ * entièrement recalculée à partir d'une base et des modificateurs qui la visent.
+ *
+ * La base et le plancher sont lus dans `ELEMENTS_VARIABLES` : ajouter une
+ * statistique dérivée ne demande plus d'écrire une fonction de plus ici.
+ */
+export function valeurElement(char: Character, catalog: Catalog, element: ElementVariable) {
+  const d = descripteur(element)
+  const base = d.baseValeur ?? 0
+  const agregat = agreger(allModifiers(char, catalog), (m) => cibleElement(m.target, element, 'valeur'))
+  return {
+    base,
+    bonus: agregat.bonus,
+    total: Math.max(d.plancherValeur ?? Number.NEGATIVE_INFINITY, base + agregat.bonus),
+    agregat,
+  }
+}
+
 /** Évasion : 1 de base pour toute joueuse, plus l'armure et les esquives en cours. */
 export function computeEvasion(char: Character, catalog: Catalog) {
-  const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === 'evasion')
+  return valeurElement(char, catalog, { kind: 'evasion' })
+}
+
+/** Points d'Énergie bonus sur les Attaques Armées (Overdrive, Faire diversion). */
+export function computeBonusEnergieAttaque(char: Character, catalog: Catalog) {
+  const { bonus, agregat } = valeurElement(char, catalog, { kind: 'energie-attaque' })
+  return { bonus, agregat }
+}
+
+// ---------------------------------------------------------------------------
+// Emplacements
+// ---------------------------------------------------------------------------
+
+/*
+ * Trois comptes qui étaient des constantes, et qu'un passif peut désormais
+ * faire varier. Ils vivent ici plutôt que dans `campfire.ts` parce qu'ils se
+ * calculent comme l'Évasion — une base, plus ce que les objets et passifs en
+ * font — et que rien n'en est stocké.
+ */
+
+/** Sorts préparables au Grimoire. */
+export function tailleGrimoire(char: Character, catalog: Catalog): number {
+  return valeurElement(char, catalog, { kind: 'slots-grimoire' }).total
+}
+
+/** Offres tirées pour cette joueuse à la Boutique. */
+export function tailleOffres(char: Character, catalog: Catalog): number {
+  return valeurElement(char, catalog, { kind: 'slots-boutique' }).total
+}
+
+/** Investissements proposés à la Banque. */
+export function tailleInvestissements(char: Character, catalog: Catalog): number {
+  return valeurElement(char, catalog, { kind: 'slots-investissement' }).total
+}
+
+// ---------------------------------------------------------------------------
+// Plafonds
+// ---------------------------------------------------------------------------
+
+/**
+ * Le plafond d'un Élément Variable : sa base, plus ce que les objets et passifs
+ * en font. Rien n'est stocké — une dague qui coûte un Point de Fatigue rend la
+ * case dès qu'on la range.
+ *
+ * La base et le plancher sont lus dans `ELEMENTS_VARIABLES` : ajouter un
+ * élément plafonnable ne demande plus d'écrire une fonction de plus ici.
+ * `char.fatigue.max` n'est donc pas la vérité mais la **base**, celle que la
+ * classe a fixée à la création.
+ */
+export function plafondElement(char: Character, catalog: Catalog, element: ElementVariable) {
+  const d = descripteur(element)
+  if (!d.plafondBase) throw new Error(`« ${d.libelle} » n'a pas de plafond.`)
+
+  const base = d.plafondBase(char)
+  const agregat = agreger(allModifiers(char, catalog), (m) => cibleElement(m.target, element, 'plafond'))
   return {
-    base: EVASION_DE_BASE,
+    base,
     bonus: agregat.bonus,
-    total: EVASION_DE_BASE + agregat.bonus,
+    max: Math.max(d.plafondPlancher ?? 0, base + agregat.bonus),
     agregat,
   }
 }
@@ -89,11 +153,10 @@ export function computeEvasion(char: Character, catalog: Catalog) {
  * d'où le clamp : redescendre de palier ne doit jamais produire un reste négatif.
  */
 export function computeSixthSens(char: Character, catalog: Catalog) {
-  const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === 'sixth-sens')
-  const max = Math.max(0, char.sixthSensBase + agregat.bonus)
+  const { base, bonus, max, agregat } = plafondElement(char, catalog, { kind: 'sixth-sens' })
   return {
-    base: char.sixthSensBase,
-    bonus: agregat.bonus,
+    base,
+    bonus,
     max,
     utilises: char.sixthSensUtilises,
     restants: Math.max(0, max - char.sixthSensUtilises),
@@ -101,53 +164,19 @@ export function computeSixthSens(char: Character, catalog: Catalog) {
   }
 }
 
-/** Points d'Énergie bonus sur les Attaques Armées (Overdrive, Faire diversion). */
-export function computeBonusEnergieAttaque(char: Character, catalog: Catalog) {
-  const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === 'energie-attaque')
-  return { bonus: agregat.bonus, agregat }
-}
-
-// ---------------------------------------------------------------------------
-// Plafonds de ressource
-// ---------------------------------------------------------------------------
-
-/**
- * Les quatre plafonds se calculent comme le 6th Sens : une base, plus ce que
- * les objets et passifs en font. Rien n'est stocké — une dague qui coûte un
- * Point de Fatigue rend la case dès qu'on la range.
- *
- * `char.fatigue.max` n'est donc plus la vérité mais la **base**, celle que la
- * classe a fixée à la création.
- */
-function plafond(
-  char: Character,
-  catalog: Catalog,
-  cible: ModifierTarget['kind'],
-  base: number,
-  plancher: number,
-) {
-  const agregat = agreger(allModifiers(char, catalog), (m) => m.target.kind === cible)
-  return {
-    base,
-    bonus: agregat.bonus,
-    max: Math.max(plancher, base + agregat.bonus),
-    agregat,
-  }
-}
-
 /** Plancher à 1 : un personnage sans aucune case ne pourrait plus rien encaisser. */
 export function computeFatigueMax(char: Character, catalog: Catalog) {
-  return plafond(char, catalog, 'fatigue-max', char.fatigue.max, 1)
+  return plafondElement(char, catalog, { kind: 'fatigue' })
 }
 
 export function computeFoiMax(char: Character, catalog: Catalog) {
-  return plafond(char, catalog, 'foi-max', MAX_FOI, 0)
+  return plafondElement(char, catalog, { kind: 'foi' })
 }
 
 export function computeMarquesMax(char: Character, catalog: Catalog) {
-  return plafond(char, catalog, 'marques-max', MAX_MARQUES, 0)
+  return plafondElement(char, catalog, { kind: 'marques' })
 }
 
 export function computeBruluresMax(char: Character, catalog: Catalog) {
-  return plafond(char, catalog, 'brulures-max', SEUIL_COMBUSTION, 0)
+  return plafondElement(char, catalog, { kind: 'brulures' })
 }

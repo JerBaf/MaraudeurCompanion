@@ -1,9 +1,11 @@
+import { COUT_GRATUIT, coutDe, fixe, variable } from '../domain/couts.ts'
 import type {
   Classe,
   EntreeCatalogue,
   Equipement,
   Investissement,
   Sort,
+  TypeMagique,
   VieSoulshifter,
 } from '../domain/types.ts'
 
@@ -30,8 +32,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'fire-ray',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'sang',
-    cout: { kind: 'brulures-variable' },
+    magieId: 'sang',
+    cout: coutDe(variable('brulures', { min: 1 })),
     de: null,
     duree: 'Instantané',
     effet:
@@ -44,8 +46,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'heat-haze',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'sang',
-    cout: { kind: 'brulures', valeur: 1 },
+    magieId: 'sang',
+    cout: coutDe(fixe('brulures', 1)),
     de: null,
     duree: '1 minute',
     effet:
@@ -58,8 +60,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'healing',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'miracle',
-    cout: { kind: 'foi', valeur: 3 },
+    magieId: 'miracle',
+    cout: coutDe(fixe('foi', 3)),
     de: null,
     duree: 'Instantané',
     effet:
@@ -72,8 +74,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'lightning-arc',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'miracle',
-    cout: { kind: 'foi', valeur: 2 },
+    magieId: 'miracle',
+    cout: coutDe(fixe('foi', 2)),
     de: null,
     duree: '1 heure',
     effet:
@@ -88,8 +90,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'time-trap',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'sang',
-    cout: { kind: 'brulures-variable' },
+    magieId: 'sang',
+    cout: coutDe(variable('brulures', { min: 1 })),
     de: null,
     duree: 'X secondes',
     effet:
@@ -102,8 +104,8 @@ const SORTS_DUSK: Sort[] = [
     icone: 'eclipse',
     seed: true,
     classeId: 'dusk-hunter',
-    magie: 'miracle',
-    cout: { kind: 'marques-variable', max: 3 },
+    magieId: 'miracle',
+    cout: coutDe(variable('marques', { max: 3 })),
     de: null,
     duree: 'X minutes',
     effet:
@@ -123,8 +125,8 @@ const SORTS_SOULSHIFTER: Sort[] = [
     icone: 'ghost-ally',
     seed: true,
     classeId: 'soulshifter',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: '10 minutes',
     effet:
@@ -137,8 +139,8 @@ const SORTS_SOULSHIFTER: Sort[] = [
     icone: 'orbital',
     seed: true,
     classeId: 'soulshifter',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: 'Instantané',
     effet:
@@ -151,8 +153,8 @@ const SORTS_SOULSHIFTER: Sort[] = [
     icone: 'dorsal-scales',
     seed: true,
     classeId: 'soulshifter',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: '10 minutes',
     effet: "S'imprègne de l'essence de la personnalité en cours.",
@@ -164,8 +166,8 @@ const SORTS_SOULSHIFTER: Sort[] = [
     icone: 'third-eye',
     seed: true,
     classeId: 'soulshifter',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: '10 minutes',
     effet: 'Utilise la personnalité en cours pour augmenter ses sens.',
@@ -215,12 +217,12 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'magic-swirl',
     seed: true,
     classeId: 'trickster',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: null,
     duree: '1 minute',
     effet: 'Crée une illusion sensorielle mineure.',
-    illusion: true,
+    requiertPassif: 'illusionniste',
   },
   {
     kind: 'sort',
@@ -229,13 +231,13 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'glowing-hands',
     seed: true,
     classeId: 'trickster',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: null,
     duree: '10 minutes',
     effet:
       "Crée une main magique capable de se déplacer à une portée Moyenne. Elle peut soulever jusqu'à dix kilogrammes et répond aux commandes de son invocateur.",
-    illusion: true,
+    requiertPassif: 'illusionniste',
   },
   {
     kind: 'sort',
@@ -244,8 +246,8 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'transform',
     seed: true,
     classeId: 'trickster',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: '1 heure',
     effet:
@@ -258,8 +260,8 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'beast-eye',
     seed: true,
     classeId: 'trickster',
-    magie: 'arcane',
-    cout: { kind: 'aucun' },
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
     de: '1d6',
     duree: '1 heure',
     effet:
@@ -272,8 +274,8 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'explosion-rays',
     seed: true,
     classeId: 'trickster',
-    magie: 'miracle',
-    cout: { kind: 'foi-plus-variable', base: 1 },
+    magieId: 'miracle',
+    cout: coutDe(fixe('foi', 1), variable('foi')),
     de: null,
     duree: '1 heure',
     effet:
@@ -286,8 +288,8 @@ const SORTS_TRICKSTER: Sort[] = [
     icone: 'firework-rocket',
     seed: true,
     classeId: 'trickster',
-    magie: 'miracle',
-    cout: { kind: 'foi', valeur: 2 },
+    magieId: 'miracle',
+    cout: coutDe(fixe('foi', 2)),
     de: null,
     duree: '1 minute',
     effet:
@@ -313,6 +315,51 @@ const CLASSES: Classe[] = [
       "Il y a des moments où les événements sont trop terribles et le monde trop cruel pour survivre. Et c'est alors que l'homme se brise. De lui ne restent que les cendres de ce qu'il a été, et le brasier incandescent de sa vengeance qui vient illuminer le crépuscule de sa vie. Pour pallier ce qui lui a été arraché, il a recours aux technologies les plus obscures et se voit attribuer un Hexcore.",
     passifTexte:
       "Les Dusk Hunter peuvent alterner entre deux configurations du Hexcore. Overheat : chaque fois qu'une source devrait générer X brûlures, elle en génère X+1. Overdrive : toutes les Attaques Armées ont un bonus de +1 Point d'Énergie. Changer de configuration prend un tour de combat.",
+    choix: [
+      {
+        id: 'hexcore',
+        libelle: 'Configuration du Hexcore',
+        // Bascule libre : le PDF la paie d'un tour de combat, pas d'un verrou.
+        verrou: 'libre',
+        options: [
+          {
+            id: 'overdrive',
+            nom: 'Overdrive',
+            effet: "+1 Point d'Énergie à toutes les Attaques Armées",
+            passifs: [
+              {
+                id: 'overdrive',
+                libelle: 'Overdrive',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte: "+1 Point d'Énergie à toutes les Attaques Armées",
+                  operations: [
+                    {
+                      kind: 'ajuster',
+                      cible: { element: { kind: 'energie-attaque' }, aspect: 'valeur' },
+                      op: { kind: 'add', value: 1 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: 'overheat',
+            nom: 'Overheat',
+            /*
+             * ⚠️ **Sans passif, et à dessein.** Overheat transforme le *gain*
+             * de brûlures (X → X+1), ce qui n'est ni un ajustement de valeur ni
+             * une réaction : une réaction s'armerait sur tout mouvement du
+             * compteur, or la barre de brûlures sert aussi de bloc-notes —
+             * cocher une case pour noter son total en offrirait une gratuite.
+             * La mécanique reste dans `gainBrulureEffectif` (`brulures.ts`).
+             */
+            effet: 'Toute source de X brûlures en génère X+1',
+          },
+        ],
+      },
+    ],
     sortsIds: ['burst', 'heat-track', 'first-aid', 'prey-impulse'],
   },
   {
@@ -343,6 +390,57 @@ const CLASSES: Classe[] = [
       "Le Trickster incarne l'essence même de la magie, celle qui transforme toute illusion en moment enchanteur. Que ce soit avec des tours, des acolytes ou par ses mots, il peut retourner n'importe quelle situation en usant simplement de sa malice.",
     passifTexte:
       "Le Trickster choisit sa voie à la phase Sorts du Feu de Camp. Conteur : le coût en Points de Foi des sorts « Word: » est réduit de 1. Illusionniste : les illusions (Ya gat fooled, Mage hand) sont utilisables à volonté, sans contrepartie et hors des 3 emplacements.",
+    choix: [
+      {
+        id: 'voie',
+        libelle: 'Voie du Trickster',
+        // Engagée au Feu de Camp, et valable jusqu'au suivant.
+        verrou: 'feu-de-camp',
+        options: [
+          {
+            id: 'conteur',
+            nom: 'Conteur',
+            effet: 'Le coût en Points de Foi des sorts « Word: » est réduit de 1',
+            passifs: [
+              {
+                id: 'conteur',
+                libelle: 'Conteur',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte: 'Le coût en Points de Foi des sorts « Word: » est réduit de 1',
+                  operations: [
+                    {
+                      kind: 'ajuster',
+                      cible: {
+                        element: {
+                          kind: 'cout-sort',
+                          // Le rabais porte sur la Foi, et sur elle seule : sans
+                          // ce filtre il déborderait sur les coûts en brûlures.
+                          filtre: { magieId: 'miracle', prefixeNom: 'Word:', element: 'foi' },
+                        },
+                        aspect: 'valeur',
+                      },
+                      op: { kind: 'add', value: -1 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: 'illusionniste',
+            nom: 'Illusionniste',
+            /*
+             * Sans passif chiffré : la voie ne modifie aucune valeur, elle
+             * débloque des sorts. C'est `Sort.requiertPassif` qui porte le lien,
+             * si bien qu'ajouter une illusion au catalogue la rend aussitôt
+             * disponible — sans toucher ni à la classe, ni au code.
+             */
+            effet: 'Ya gat fooled et Mage hand utilisables à volonté, hors emplacements',
+          },
+        ],
+      },
+    ],
     // Les illusions ne figurent pas ici : la voie Illusionniste y donne accès
     // en permanence, elles sont dérivées du catalogue et non possédées.
     sortsIds: ['polymorph', 'tame', 'word-baboum', 'word-crackers'],
@@ -474,9 +572,58 @@ const INVESTISSEMENTS: Investissement[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Types magiques
+// ---------------------------------------------------------------------------
+
+/**
+ * Les trois types magiques d'origine.
+ *
+ * ⚠️ **Leurs identifiants sont ceux que `Sort.magie` portait** — `arcane`,
+ * `sang`, `miracle` — pour que les sorts déjà en base s'y rattachent sans
+ * conversion. Les renommer délierait tout le contenu existant.
+ *
+ * La MJ peut en créer d'autres depuis son écran : c'est ce que le champ
+ * `cristal` rend possible sans toucher au code, là où la mécanique de l'Hexite
+ * était câblée sur le seul Arcane.
+ */
+const TYPES_MAGIQUES: TypeMagique[] = [
+  {
+    kind: 'type-magique',
+    id: 'arcane',
+    nom: 'Arcane',
+    icone: 'crystal-shine',
+    seed: true,
+    description:
+      "La magie des cristaux d'Hexite. Un jet de d6 en décide la puissance, et le cristal s'épuise sur un 1 ou un 2.",
+    deParDefaut: '1d6',
+    cristal: true,
+  },
+  {
+    kind: 'type-magique',
+    id: 'sang',
+    nom: 'Magie du Sang',
+    icone: 'fire-ray',
+    seed: true,
+    description:
+      'La magie qui se paie en brûlures. Neuf marques consommées, et c’est la Combustion.',
+    elementCoutParDefaut: 'brulures',
+  },
+  {
+    kind: 'type-magique',
+    id: 'miracle',
+    nom: 'Miracle',
+    icone: 'healing',
+    seed: true,
+    description: 'La magie de la Lumière, qui se paie en Points de Foi.',
+    elementCoutParDefaut: 'foi',
+  },
+]
+
+// ---------------------------------------------------------------------------
 
 export const SEED: EntreeCatalogue[] = [
   ...CLASSES,
+  ...TYPES_MAGIQUES,
   ...SORTS_DUSK,
   ...SORTS_SOULSHIFTER,
   ...SORTS_TRICKSTER,

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { Catalog } from '../domain/catalog.ts'
 import { decrireModificateur, effetsActifs, LIBELLE_ORIGINE, type EffetActif } from '../domain/effets.ts'
+import { dissiperEffet, estPoseParUnSort } from '../domain/lancement.ts'
 import type { Character, VieSoulshifter } from '../domain/types.ts'
 
 /**
@@ -16,10 +17,16 @@ export function Effets({
   char,
   catalog,
   vies,
+  maj,
 }: {
   char: Character
   catalog: Catalog
   vies?: readonly VieSoulshifter[]
+  /**
+   * Absent en lecture seule ; présent, il autorise la dissipation des effets
+   * posés par un sort.
+   */
+  maj?: (t: (c: Character) => Character) => void
 }) {
   const effets = effetsActifs(char, catalog, vies)
 
@@ -41,14 +48,35 @@ export function Effets({
         <span className="tres-discret">{effets.length} · touchez pour le détail</span>
       </div>
       {effets.map((e) => (
-        <LigneEffet key={e.id} effet={e} />
+        <LigneEffet
+          key={e.id}
+          effet={e}
+          {...(maj ? { onDissiper: (id: string) => maj((c) => dissiperEffet(c, id)) } : {})}
+        />
       ))}
     </section>
   )
 }
 
-function LigneEffet({ effet }: { effet: EffetActif }) {
+function LigneEffet({
+  effet,
+  onDissiper,
+}: {
+  effet: EffetActif
+  onDissiper?: (modifierId: string) => void
+}) {
   const [ouvert, setOuvert] = useState(false)
+
+  /*
+   * Seuls les effets posés par un sort se dissipent à la main.
+   *
+   * ⚠️ C'est la contrepartie assumée de l'absence d'horloge de fiction : un
+   * sort « pendant 1 heure » ne peut pas expirer tout seul, et il vaut mieux
+   * laisser la joueuse déclarer que l'heure est passée que faire semblant de la
+   * compter. Un Fardeau ou un Serment, eux, ne se retirent pas d'un clic — ce
+   * sont des engagements, levés au feu de camp.
+   */
+  const dissipables = effet.modificateurs.filter(estPoseParUnSort)
 
   return (
     <div>
@@ -74,6 +102,15 @@ function LigneEffet({ effet }: { effet: EffetActif }) {
                 <li key={m.id}>{decrireModificateur(m)}</li>
               ))}
             </ul>
+          )}
+          {onDissiper && dissipables.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--fantome"
+              onClick={() => dissipables.forEach((m) => onDissiper(m.id))}
+            >
+              Dissiper
+            </button>
           )}
         </div>
       )}

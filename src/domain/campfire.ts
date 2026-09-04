@@ -1,4 +1,6 @@
 import type { Catalog } from './catalog.ts'
+import { tailleGrimoire, tailleOffres } from './competences.ts'
+import { ELEMENTS_VARIABLES } from './elements.ts'
 import { resumeSort, sortOuvertA } from './magie.ts'
 import { expireModifiers, FOI_DE_DEPART } from './modifiers.ts'
 import { resumeEquipement } from './objets.ts'
@@ -409,6 +411,10 @@ export function resumeEntree(entree: EntreeCatalogue, char: Character, catalog: 
       return `Investissement · ${entree.beneficeTexte}`
     case 'classe':
       return 'Classe'
+    case 'type-magique':
+      return 'Type magique'
+    case 'dossier':
+      return 'Dossier'
   }
 }
 
@@ -439,14 +445,14 @@ function dejaPossede(char: Character, entree: EntreeCatalogue): boolean {
 
 /**
  * Ce que la boutique peut proposer à cette joueuse : tout ce qui porte un prix
- * et qu'elle ne possède pas déjà. Les illusions en sont exclues — un passif y
- * donne accès, elles ne s'achètent pas.
+ * et qu'elle ne possède pas déjà. Les sorts qu'un passif de classe débloque en
+ * sont exclus : il y « donne accès », ils ne s'achètent pas.
  */
 export function entreesAchetables(char: Character, catalog: Catalog): EntreeCatalogue[] {
   return catalog
     .toutes()
     .filter((e) => prixDe(e) !== null)
-    .filter((e) => !(e.kind === 'sort' && e.illusion === true))
+    .filter((e) => !(e.kind === 'sort' && e.requiertPassif !== undefined))
     // Un sort réservé à d'autres classes n'a rien à faire dans sa boutique ;
     // un sort sans classe déclarée reste ouvert à tout le monde.
     .filter((e) => !(e.kind === 'sort' && !sortOuvertA(e, char.classeId)))
@@ -454,12 +460,18 @@ export function entreesAchetables(char: Character, catalog: Catalog): EntreeCata
     .filter((e) => !dejaPossede(char, e))
 }
 
-/** Tire des offres distinctes pour une joueuse. Renvoie moins que `taille` si le catalogue est court. */
+/**
+ * Tire des offres distinctes pour une joueuse. Renvoie moins que `taille` si le
+ * catalogue est court.
+ *
+ * `taille` se dérive par défaut de `slots-boutique` : un passif qui l'augmente
+ * fait tirer une offre de plus, sans que cet appel ait à le savoir.
+ */
 export function tirerOffres(
   char: Character,
   catalog: Catalog,
   rng: Rng,
-  taille = 3,
+  taille = tailleOffres(char, catalog),
 ): string[] {
   const pool = [...entreesAchetables(char, catalog)]
   const offres: string[] = []
@@ -493,8 +505,19 @@ export function acheter(char: Character, entree: EntreeCatalogue): Character {
 // Grimoire et Armurerie
 // ---------------------------------------------------------------------------
 
-export const TAILLE_GRIMOIRE = 3
+/**
+ * Nombre d'emplacements de Grimoire **de base**.
+ *
+ * Ce n'est plus la vérité : un passif peut en accorder un de plus. Le compte
+ * effectif se lit par `tailleGrimoire` (`competences.ts`), et cette constante
+ * ne sert plus qu'à la création d'un personnage — qui n'a encore aucun passif.
+ */
+export const TAILLE_GRIMOIRE = ELEMENTS_VARIABLES['slots-grimoire'].baseValeur ?? 3
 
-export function grimoireValide(sorts: readonly string[]): boolean {
-  return sorts.length <= TAILLE_GRIMOIRE && new Set(sorts).size === sorts.length
+export function grimoireValide(
+  sorts: readonly string[],
+  char: Character,
+  catalog: Catalog,
+): boolean {
+  return sorts.length <= tailleGrimoire(char, catalog) && new Set(sorts).size === sorts.length
 }

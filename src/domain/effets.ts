@@ -1,7 +1,14 @@
 import type { Catalog } from './catalog.ts'
-import { declencheursActifs, decrireDeclencheur } from './declencheurs.ts'
-import { allModifiers, paliersFlammeAtteints } from './modifiers.ts'
-import { LIBELLE_COMPETENCE, type Character, type Modifier, type VieSoulshifter } from './types.ts'
+import { decrireCible } from './elements.ts'
+import { allModifiers } from './modifiers.ts'
+import {
+  conditionRemplie,
+  decrirePassif,
+  paliersFlammeAtteints,
+  passifsActifs,
+  type ProvenancePassif,
+} from './passifs.ts'
+import type { Character, Modifier, VieSoulshifter } from './types.ts'
 
 /**
  * Vue unifiée de tout ce qui agit sur un personnage à un instant donné.
@@ -46,34 +53,12 @@ export interface EffetActif {
 // Description des modificateurs
 // ---------------------------------------------------------------------------
 
-export function decrireCible(target: Modifier['target']): string {
-  switch (target.kind) {
-    case 'competence':
-      return LIBELLE_COMPETENCE[target.competence]
-    case 'competence-sauf':
-      return `toutes les compétences sauf ${LIBELLE_COMPETENCE[target.except]}`
-    case 'competence-toutes':
-      return 'toutes les compétences'
-    case 'evasion':
-      return 'Évasion'
-    case 'sixth-sens':
-      return '6th Sens'
-    case 'energie-attaque':
-      return "Points d'Énergie"
-    case 'cout-sort':
-      return target.filtre?.prefixeNom
-        ? `coût des sorts « ${target.filtre.prefixeNom} »`
-        : 'coût des sorts'
-    case 'fatigue-max':
-      return 'Points de Fatigue'
-    case 'foi-max':
-      return 'Points de Foi maximum'
-    case 'marques-max':
-      return 'Marques maximum'
-    case 'brulures-max':
-      return 'Brûlures maximum'
-  }
-}
+/*
+ * `decrireCible` vit avec le vocabulaire qu'elle décrit, dans `elements.ts` :
+ * un élément ajouté au registre s'y nomme tout seul, au lieu de demander une
+ * branche de plus dans un `switch` que rien n'obligeait à tenir à jour.
+ */
+export { decrireCible } from './elements.ts'
 
 export function decrireOperation(op: Modifier['op']): string {
   if (op.kind === 'add') return `${op.value > 0 ? '+' : ''}${op.value}`
@@ -111,12 +96,36 @@ const EXPLICATIONS: Record<string, string> = {
     "Action Alternative : votre jet n'a pas percé l'Évasion adverse, vous avez donc mis cette énergie dans votre garde. Le bonus tombe au tour suivant.",
 }
 
+const ORIGINE_PAR_PROVENANCE: Record<ProvenancePassif, OrigineEffet> = {
+  equipement: 'equipement',
+  amelioration: 'choisi',
+  classe: 'choisi',
+  'type-magique': 'derive',
+  derive: 'derive',
+}
+
+const EXPLICATION_PAR_PROVENANCE: Record<ProvenancePassif, string> = {
+  equipement: "S'applique tant que l'objet est porté.",
+  amelioration: "Acquis en permanence : une amélioration n'occupe aucun emplacement.",
+  classe: 'Accordé par votre classe.',
+  'type-magique': 'Découle du type de magie que vous pratiquez.',
+  derive: 'Découle de votre état, sans que vous l’ayez choisi.',
+}
+
 /**
  * Effets en cours, prêts à être affichés et expliqués.
  *
- * On part des modificateurs réellement appliqués — explicites et dérivés — puis
- * on ajoute les passifs qui n'en produisent aucun mais changent tout de même la
- * règle (Overheat transforme un gain, Illusionniste débloque des sorts).
+ * ⚠️ **Ce point était un piège durable du projet** : la liste partait des
+ * modificateurs, si bien que tout passif n'en produisant pas — une réaction,
+ * Overheat, Illusionniste — devait y être ajouté *à la main*, et l'oubli ne se
+ * voyait nulle part. Un passif réactif accordé par une amélioration n'apparut
+ * ainsi nulle part pendant des semaines.
+ *
+ * Depuis l'unification, la liste part des **passifs** : tout ce que la MJ
+ * compose y figure par construction, qu'il produise un modificateur ou non.
+ * Ne restent en dur que les trois mécaniques qui ne sont pas des passifs —
+ * Overheat transforme un gain, Illusionniste débloque des sorts, la vie du
+ * Soulshifter recolore des sorts.
  */
 export function effetsActifs(
   char: Character,
@@ -125,9 +134,39 @@ export function effetsActifs(
 ): EffetActif[] {
   const effets: EffetActif[] = []
 
-  // --- Regroupement des modificateurs par source ---
+  // --- Les passifs en vigueur, chiffrés ou non ---
+  const modsParPassif = new Map<string, Modifier[]>()
+  for (const m of allModifiers(char, catalog)) {
+    const cle = m.id.startsWith('derive:passif:') ? m.id.split(':').slice(0, 5).join(':') : null
+    if (!cle) continue
+    const liste = modsParPassif.get(cle)
+    if (liste) liste.push(m)
+    else modsParPassif.set(cle, [m])
+  }
+
+  for (const { passif, source, provenance, ref } of passifsActifs(char, catalog)) {
+    if (!conditionRemplie(passif, char)) continue
+
+    const nom = passif.libelle || source
+    const modificateurs = modsParPassif.get(`derive:passif:${ref}:${passif.id}`) ?? []
+    const resume = decrirePassif(passif)
+
+    effets.push({
+      id: `passif:${ref}:${passif.id}`,
+      nom,
+      origine: ORIGINE_PAR_PROVENANCE[provenance],
+      resume,
+      detail: `${passif.effet.texte || resume}\n\n${EXPLICATION_PAR_PROVENANCE[provenance]}`,
+      modificateurs,
+    })
+  }
+
+  // --- Les modificateurs qui ne viennent d'aucun passif ---
+  // Fardeau, Serment, Marque, Esquive, Diversion, ajustements de la MJ, bonus
+  // d'Évasion d'une armure : de la monnaie d'exécution, pas du contenu.
   const groupes = new Map<string, Modifier[]>()
   for (const m of allModifiers(char, catalog)) {
+    if (m.id.startsWith('derive:passif:')) continue
     const cle = `${m.source.kind}|${m.source.label}`
     const liste = groupes.get(cle)
     if (liste) liste.push(m)
@@ -144,26 +183,6 @@ export function effetsActifs(
       resume: modificateurs.map(decrireModificateur).join(' · '),
       detail: EXPLICATIONS[nom] ?? modificateurs.map(decrireModificateur).join('\n'),
       modificateurs,
-    })
-  }
-
-  // --- Passifs sans modificateur chiffré ---
-
-  // Les passifs réactifs ne produisent aucun modificateur — ils réagissent à un
-  // changement au lieu d'ajuster une valeur. Sans cette boucle, une amélioration
-  // qui n'accorde qu'un déclencheur n'apparaîtrait nulle part.
-  for (const { declencheur, source, provenance, ref } of declencheursActifs(char, catalog)) {
-    const resume = decrireDeclencheur(declencheur)
-    effets.push({
-      id: `declencheur:${ref}:${declencheur.quand}:${declencheur.alors}`,
-      nom: source,
-      origine: provenance === 'equipement' ? 'equipement' : 'choisi',
-      resume,
-      detail:
-        provenance === 'equipement'
-          ? `${resume}\n\nS'applique tant que l'objet est porté.`
-          : `${resume}\n\nAcquis en permanence : une amélioration n'occupe aucun emplacement.`,
-      modificateurs: [],
     })
   }
 
@@ -207,13 +226,16 @@ export function effetsActifs(
     })
   }
 
-  // Voie de la Flamme : les paliers atteints produisent chacun leur modificateur
-  // (déjà regroupés plus haut). On explicite ici d'où ils viennent, en rappelant
-  // qu'ils se cumulent — un palier franchi ne remplace pas le précédent.
+  // Voie de la Flamme : les paliers figurent déjà dans la liste — ce sont des
+  // passifs à seuil comme les autres. On précise seulement d'où ils viennent,
+  // en rappelant qu'ils se cumulent : un palier franchi ne remplace pas le
+  // précédent.
   for (const palier of paliersFlammeAtteints(char.brulures)) {
-    const existant = effets.find((e) => e.nom === palier.nom)
+    const existant = effets.find((e) => e.id === `passif:voie-flamme:${palier.id}`)
+    const seuil =
+      palier.declenchement.kind === 'permanent' ? palier.declenchement.condition?.seuil : undefined
     if (existant) {
-      existant.detail = `Vous portez ${char.brulures} brûlures, ce qui atteint le seuil de ${palier.seuil}. ${palier.effet} Les paliers de la Voie de la Flamme se cumulent : vous conservez les bonus des seuils inférieurs.`
+      existant.detail = `Vous portez ${char.brulures} brûlures, ce qui atteint le seuil de ${seuil}. ${palier.effet.texte} Les paliers de la Voie de la Flamme se cumulent : vous conservez les bonus des seuils inférieurs.`
     }
   }
 

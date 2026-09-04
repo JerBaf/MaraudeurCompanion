@@ -5,6 +5,12 @@
  * C'est volontaire : les règles du jeu se testent sans navigateur ni réseau.
  */
 
+// Import de type uniquement : `elements.ts` importe des valeurs d'ici
+// (`COMPETENCES`, `LIBELLE_COMPETENCE`), et un `import type` s'efface à la
+// compilation — le cycle n'existe donc pas à l'exécution.
+import type { Cout } from './couts.ts'
+import type { Cible, ElementVariable } from './elements.ts'
+
 // ---------------------------------------------------------------------------
 // Compétences
 // ---------------------------------------------------------------------------
@@ -54,31 +60,6 @@ export const LIBELLE_SLOT: Record<SlotEquipement, string> = {
 // ---------------------------------------------------------------------------
 // Modificateurs — le cœur du système
 // ---------------------------------------------------------------------------
-
-/**
- * Ce qu'un modificateur affecte.
- *
- * `competence-sauf` existe pour le Serment : « toutes les compétences sauf celle
- * tirée au sort subissent -4 ». L'exprimer en une seule entrée plutôt qu'en trois
- * évite d'avoir à les recalculer si la compétence épargnée change.
- */
-export type ModifierTarget =
-  | { kind: 'competence'; competence: Competence }
-  | { kind: 'competence-sauf'; except: Competence }
-  | { kind: 'competence-toutes' }
-  | { kind: 'evasion' }
-  | { kind: 'sixth-sens' }
-  | { kind: 'energie-attaque' }
-  | { kind: 'cout-sort'; filtre?: { magie?: Magie; prefixeNom?: string } }
-  /**
-   * Les plafonds de ressource. Une dague qui « retire un Point de Fatigue »
-   * abaisse la grille, elle ne coche pas une case : ranger l'objet doit rendre
-   * la case aussitôt, ce qu'un plafond dérivé fait tout seul.
-   */
-  | { kind: 'fatigue-max' }
-  | { kind: 'foi-max' }
-  | { kind: 'marques-max' }
-  | { kind: 'brulures-max' }
 
 export type ModifierOp =
   | { kind: 'add'; value: number }
@@ -135,7 +116,8 @@ export interface Modifier {
     /** Libellé affiché à la joueuse : « Serment », « Cotte de mailles »… */
     label: string
   }
-  target: ModifierTarget
+  /** Ce qu'il ajuste : un Élément Variable, sous l'aspect valeur ou plafond. */
+  target: Cible
   op: ModifierOp
   expires: ModifierExpiry
   /** Rempli quand une joueuse pose un modificateur sur une autre (Faire diversion). */
@@ -147,8 +129,13 @@ export interface Modifier {
 // ---------------------------------------------------------------------------
 
 /**
- * Les coûts observés dans Classes.pdf couvrent exactement ces six formes.
- * `*-variable` = la joueuse choisit X au lancement (Burst, Word: Baboum, Sundown).
+ * Les six formes de coût de sort d'avant l'unification.
+ *
+ * ⚠️ **Ancien format, conservé pour la seule relecture.** `Sort.cout` est
+ * désormais un `Cout` générique, qui les couvre toutes et sait en plus exprimer
+ * un « OU ». `normaliserEntree` (`catalog.ts`) fait la conversion à la lecture :
+ * des sorts écrits sous cette forme dorment en base, et l'amorçage ne les
+ * réécrira jamais.
  */
 export type CoutSort =
   | { kind: 'aucun' }
@@ -157,6 +144,164 @@ export type CoutSort =
   | { kind: 'brulures'; valeur: number }
   | { kind: 'brulures-variable' }
   | { kind: 'marques-variable'; max: number }
+
+// ---------------------------------------------------------------------------
+// Effets et Actifs
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce qu'une opération fait à sa cible.
+ *
+ * ⚠️ **Plus riche que `ModifierOp`, et c'est voulu.** `set` et `add-x` n'ont de
+ * sens qu'au moment où l'effet s'applique : `agreger` somme les `add` en un
+ * scalaire, où un `set` dépendrait de l'ordre et un `add-x` n'aurait pas encore
+ * de X. Un passif permanent, qui se compile en `Modifier`, n'accepte donc que
+ * les trois opérations de `ModifierOp`.
+ */
+export type OperationValeur =
+  | { kind: 'add'; value: number }
+  /** Le X payé au lancement. Réservé aux effets déclenchés. */
+  | { kind: 'add-x' }
+  | { kind: 'set'; value: number }
+  | { kind: 'avantage' }
+  | { kind: 'desavantage' }
+
+/**
+ * Une opération concrète : ce que le moteur applique vraiment.
+ *
+ * Où elle atterrit ne se choisit pas, cela se déduit de la cible : une jauge
+ * (Foi, Lumens, Marques…) reçoit une **écriture immédiate**, une statistique
+ * calculée ou un plafond reçoit un **modificateur**. Voir `estEcritureDirecte`
+ * dans `passifs.ts`.
+ */
+export type Operation = {
+  kind: 'ajuster'
+  cible: Cible
+  op: OperationValeur
+  /**
+   * Quand l'effet cesse, s'il devient un modificateur.
+   *
+   * ⚠️ **L'application n'a aucune horloge de fiction** : elle ne saura jamais
+   * qu'une heure en jeu s'est écoulée. `Sort.duree` reste donc du texte lu à
+   * table, et seule cette échéance — parmi celles que le moteur sait tenir —
+   * est appliquée. Absente, l'effet dure jusqu'à ce qu'on le dissipe.
+   */
+  expire?: ModifierExpiry
+}
+
+/**
+ * Un Effet : ce qui se produit.
+ *
+ * `texte` est toujours là — c'est ce qu'on lit à table. Un effet **abstrait**
+ * n'a que lui : matérialiser un avion en papier ne change aucune valeur que
+ * l'application tienne. Un effet **concret** porte en plus des opérations que
+ * le moteur applique.
+ */
+export interface Effet {
+  texte: string
+  /** Absent ou vide = effet abstrait, que la MJ arbitre à table. */
+  operations?: Operation[]
+}
+
+// ---------------------------------------------------------------------------
+// Passifs
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce qui arme un passif réactif.
+ *
+ * `chez` porte la portée : « Obtenez une brûlure chaque fois qu'un allié prend
+ * une brûlure » se lit `{ element: brulures, sens: 'augmente', chez: 'un-allie' }`.
+ */
+export interface ConditionReaction {
+  element: ElementVariable
+  sens: 'augmente' | 'diminue'
+  chez: 'soi' | 'un-allie' | 'quiconque'
+}
+
+export type Declenchement =
+  /**
+   * En vigueur tant que la source l'est — objet porté, amélioration possédée.
+   * `condition` le suspend en dessous d'un seuil : c'est ce qui permet
+   * d'exprimer « +1 6th Sens à partir de 4 brûlures » sans l'écrire en dur.
+   */
+  | { kind: 'permanent'; condition?: { element: ElementVariable; seuil: number } }
+  /** Armé par un changement d'Élément Variable. */
+  | { kind: 'reaction'; quand: ConditionReaction }
+
+/**
+ * Un Passif : un changement qui se produit sans que la joueuse l'actionne.
+ *
+ * Un seul type pour les deux régimes qui coexistaient — les `modificateurs`,
+ * qui ajustaient une valeur en permanence, et les `declencheurs`, qui
+ * réagissaient à un changement. Ils ne différaient que par leur déclenchement,
+ * jamais par leur effet : les réunir, c'est permettre à une réaction d'accorder
+ * un bonus d'Évasion, ce qu'aucun des deux ne savait faire.
+ */
+export interface Passif {
+  id: string
+  /** Ce que la joueuse lit dans ses effets en cours. */
+  libelle: string
+  declenchement: Declenchement
+  effet: Effet
+}
+
+/** Une table d'effets. Une seule face rend l'effet déterministe. */
+export interface TableAleatoire {
+  /** 1, 4, 6, 8… : la table se lance au d{faces}. */
+  faces: number
+  /** Un effet par face, dans l'ordre des résultats. */
+  entrees: Effet[]
+}
+
+/** Comment un Actif épuisé retrouve ses utilisations. */
+export type Recharge =
+  /** Un geste de fiction que la MJ valide : bain de pleine lune, sang de Carcasse. */
+  | { kind: 'rituel'; description: string }
+  /** Payer pour tout récupérer d'un coup. */
+  | { kind: 'cout'; cout: Cout }
+  /**
+   * Rien ne le recharge. À zéro, l'objet reste en inventaire, marqué et
+   * inutilisable : c'est à la MJ ou à la joueuse de l'en retirer.
+   */
+  | { kind: 'aucune' }
+
+export interface Usages {
+  max: number
+  recharge: Recharge
+}
+
+/**
+ * Un Actif : ce qu'on déclenche volontairement.
+ *
+ * Vaut pour l'Attaque Spéciale d'une arme comme pour une potion ou le
+ * lancement d'un sort. Un Actif se borne par un **coût**, par un **nombre
+ * d'utilisations**, ou par les deux — un Actif sans l'un ni l'autre est
+ * simplement gratuit et illimité.
+ */
+export interface Actif {
+  id: string
+  nom: string
+  cout?: Cout
+  usages?: Usages
+  table: TableAleatoire
+}
+
+/** Ce qu'une entrée de catalogue peut faire faire volontairement à sa porteuse. */
+export interface PorteurActifs {
+  actifs?: Actif[]
+}
+
+/**
+ * Ce qu'une entrée de catalogue accorde et déclenche.
+ *
+ * ⚠️ `Sort` reçoit `PorteurActifs` mais **pas** `passifs` : décision actée en
+ * `docs/PASSATION.md` §5 — un passif permanent se modélise par une amélioration,
+ * ce qui évite un troisième régime d'activation (sort connu ? préparé ? lancé ?).
+ */
+export interface PorteurEffets extends PorteurActifs {
+  passifs?: Passif[]
+}
 
 // ---------------------------------------------------------------------------
 // Catalogue — contenu éditable, jamais codé en dur dans les écrans
@@ -177,10 +322,55 @@ export interface EntreeCatalogueBase {
   rarete?: Rarete
   /** Contenu livré avec l'app, non supprimable depuis l'écran MJ. */
   seed?: boolean
+  /**
+   * Dossier de rangement, ou absent pour « non classé ».
+   *
+   * Un seul par entrée : le dossier « ALL » n'est jamais stocké, il se dérive.
+   */
+  dossierId?: string
+  /**
+   * Date de création, pour le tri. Absente sur tout ce qui a été écrit avant
+   * son existence : ces entrées se trient comme les plus anciennes.
+   */
+  creeLe?: number
 }
 
-export interface Classe extends EntreeCatalogueBase {
+/**
+ * Un choix de classe : des options mutuellement exclusives, dont la joueuse
+ * retient une.
+ *
+ * Généralise les configurations d'Hexcore du Dusk Hunter et les voies du
+ * Trickster, jusqu'ici deux champs codés en dur avec chacun sa liste. Créer une
+ * classe complète depuis l'écran MJ demandait de pouvoir les écrire en données.
+ */
+export interface ChoixClasse {
+  id: string
+  libelle: string
+  /**
+   * Quand le choix peut changer.
+   *
+   * ⚠️ **Ce verrou porte une règle, pas une commodité d'écran.** La voie du
+   * Trickster s'engage au Feu de Camp et vaut jusqu'au suivant ; l'Hexcore du
+   * Dusk Hunter se bascule quand on veut, au prix d'un tour. Les datifier sans
+   * ce champ déverrouillerait silencieusement la voie du Trickster.
+   */
+  verrou: 'libre' | 'feu-de-camp'
+  options: OptionChoixClasse[]
+}
+
+export interface OptionChoixClasse {
+  id: string
+  nom: string
+  /** Ce que l'option fait, en toutes lettres. */
+  effet: string
+  /** Ce qu'elle accorde mécaniquement. Vide pour une option purement narrative. */
+  passifs?: Passif[]
+}
+
+export interface Classe extends EntreeCatalogueBase, PorteurEffets {
   kind: 'classe'
+  /** Choix offerts par la classe, résolus dans `Character.passifs.choix`. */
+  choix?: ChoixClasse[]
   /** Points de Fatigue de départ. Dusk Hunter 5, Soulshifter 4, Trickster 4. */
   fatigueMax: number
   /** Points de 6th Sens de base. Défaut 1 (Rules_For_Agents.pdf). */
@@ -190,13 +380,38 @@ export interface Classe extends EntreeCatalogueBase {
   /** Sorts fournis d'office par la classe. */
   sortsIds: string[]
   /** Identifiant du comportement de passif câblé dans le moteur, si la classe en a un. */
+  /**
+   * Comportement de passif câblé dans le moteur, si la classe en a un.
+   *
+   * ⚠️ **Il n'en reste qu'un : `soulshifter-vies`.** Un dé dont les faces sont
+   * les vies connues, un jeton d'invocation rendu par la MJ, des précisions par
+   * sort — rien de cela ne se ramène à un choix parmi des options.
+   *
+   * `dusk-hexcore` et `trickster-voie` sont passés en données (`choix`) et ne
+   * servent plus qu'à poser le défaut à la création. Les deux valeurs restent
+   * acceptées : des fiches de classe en base les portent encore.
+   */
   passifMoteur?: 'dusk-hexcore' | 'trickster-voie' | 'soulshifter-vies'
 }
 
-export interface Sort extends EntreeCatalogueBase {
+export interface Sort extends EntreeCatalogueBase, PorteurActifs {
   kind: 'sort'
-  magie: Magie
-  cout: CoutSort
+  /**
+   * Identifiant de son type magique — une entrée `TypeMagique` du catalogue.
+   *
+   * Les trois types d'origine gardent leurs identifiants historiques
+   * (`arcane`, `sang`, `miracle`), si bien que les sorts déjà en base s'y
+   * rattachent sans conversion.
+   */
+  magieId: string
+  /** ⚠️ **Ancien nom**, du temps où les types magiques étaient une union fermée. */
+  magie?: Magie
+  /**
+   * Ce qu'il faut payer pour le lancer. `{ branches: [] }` = gratuit.
+   *
+   * Un sort gratuit doit avoir un dé : sans coût ni aléa, rien ne le borne.
+   */
+  cout: Cout
   /** '1d6', '1d4'… ou null quand le sort ne demande aucun jet. */
   de: string | null
   duree: string
@@ -210,20 +425,30 @@ export interface Sort extends EntreeCatalogueBase {
   classesIds?: string[]
   /** Ancien nom, au singulier. Conservé pour relire le contenu déjà saisi. */
   classeId?: string
-  /** Illusion d'Illusionniste : gratuite et hors des 3 slots du Grimoire. */
+  /**
+   * Option de classe qui donne accès à ce sort — l'identifiant d'une
+   * `OptionChoixClasse`.
+   *
+   * Le sort est alors utilisable **hors des 3 emplacements** du Grimoire, et
+   * n'apparaît ni en boutique ni au tirage de Détachement : la voie y « donne
+   * accès », elle ne le fait pas posséder. Généralise le drapeau `illusion`,
+   * qui ne savait décrire que le cas de l'Illusionniste.
+   */
+  requiertPassif?: string
+  /** ⚠️ **Ancien champ** — illusion d'Illusionniste. */
   illusion?: boolean
   /** Prix en Lumens s'il peut apparaître en boutique. */
   prix?: number
 }
 
-export interface Equipement extends EntreeCatalogueBase {
+export interface Equipement extends EntreeCatalogueBase, PorteurEffets {
   kind: 'equipement'
   slot: SlotEquipement
   /** Bonus d'Évasion apporté quand l'objet est équipé (armures surtout). */
   bonusEvasion?: number
-  /** Modificateurs accordés tant que l'objet est équipé. */
+  /** ⚠️ **Ancien format** : converti en `passifs` permanents à la lecture. */
   modificateurs?: Omit<Modifier, 'id' | 'expires'>[]
-  /** Passifs réactifs, armés tant que l'objet est porté. */
+  /** ⚠️ **Ancien format** : converti en `passifs` réactifs à la lecture. */
   declencheurs?: Declencheur[]
   prix?: number
   /**
@@ -232,10 +457,8 @@ export interface Equipement extends EntreeCatalogueBase {
    */
   materielDeBase?: boolean
   /**
-   * Effets actifs : la table qu'on lance en utilisant l'objet.
-   *
-   * Vaut pour l'Attaque Spéciale d'une arme comme pour une potion — une table
-   * à une seule face rend simplement l'effet déterministe.
+   * ⚠️ **Ancien format, conservé pour la seule relecture.** Remplacé par
+   * `actifs`, qui en accepte plusieurs par objet. `normaliserEntree` convertit.
    */
   effetsActifs?: EffetsActifs
 }
@@ -256,7 +479,11 @@ export interface Declencheur {
   delta: number
 }
 
-/** Ce que coûte l'usage d'un objet à effets actifs. */
+/**
+ * Ce que coûtait l'usage d'un objet à effets actifs.
+ *
+ * ⚠️ **Ancien format, conservé pour la seule relecture** — voir `Recharge`.
+ */
 export type CoutUsage =
   /** Charges rechargeables par un rituel, que la MJ applique à la main. */
   | { kind: 'charges'; max: number; rituel: string }
@@ -265,10 +492,9 @@ export type CoutUsage =
   /** Ni compteur ni recharge : la contrepartie s'applique à table. */
   | { kind: 'paiement'; description: string }
 
+/** ⚠️ **Ancien format, conservé pour la seule relecture** — voir `Actif`. */
 export interface EffetsActifs {
-  /** 4, 6 ou 8 : la table se lance au d{faces}. */
   faces: number
-  /** Un effet par face, dans l'ordre des résultats. */
   effets: string[]
   cout: CoutUsage
 }
@@ -298,14 +524,49 @@ export interface Investissement extends EntreeCatalogueBase {
   limiteParSession?: number
 }
 
-export interface Amelioration extends EntreeCatalogueBase {
+export interface Amelioration extends EntreeCatalogueBase, PorteurEffets {
   kind: 'amelioration'
   prix: number
   effetTexte: string
-  /** Modificateurs permanents accordés par l'amélioration. */
+  /** ⚠️ **Ancien format** : converti en `passifs` permanents à la lecture. */
   modificateurs?: Omit<Modifier, 'id' | 'expires'>[]
-  /** Passifs réactifs, armés dès que l'amélioration est possédée. */
+  /** ⚠️ **Ancien format** : converti en `passifs` réactifs à la lecture. */
   declencheurs?: Declencheur[]
+}
+
+/**
+ * Un type de magie — Arcane, Sang, Miracle, et ceux que la MJ créera.
+ *
+ * Entrée de catalogue et non plus union fermée : un nouveau type magique se
+ * crée depuis l'écran MJ. Les trois d'origine sont semés sous leurs
+ * identifiants historiques (`arcane`, `sang`, `miracle`) pour que les sorts
+ * déjà en base continuent de s'y rattacher.
+ */
+export interface TypeMagique extends EntreeCatalogueBase, PorteurEffets {
+  kind: 'type-magique'
+  /** L'Élément Variable dans lequel ses sorts se paient d'ordinaire. */
+  elementCoutParDefaut?: string
+  /** Le dé qui lui est associé — « 1d6 » pour l'Arcane. */
+  deParDefaut?: string | null
+  /**
+   * Ses sorts consomment un cristal, épuisable jusqu'au prochain camp.
+   * C'est la mécanique « Hexite épuisé », jusqu'ici câblée sur l'Arcane.
+   */
+  cristal?: boolean
+  teinte?: string
+}
+
+/**
+ * Un dossier de rangement.
+ *
+ * `cible` le limite à une famille : mêler sorts et équipements dans un même
+ * dossier n'aurait pas de sens, les écrans qui les listent étant distincts.
+ * Le dossier « ALL » n'existe pas en base — il se dérive.
+ */
+export interface Dossier extends EntreeCatalogueBase {
+  kind: 'dossier'
+  cible: 'sort' | 'equipement' | 'amelioration'
+  ordre: number
 }
 
 /**
@@ -325,7 +586,14 @@ export const RARETES: Record<Rarete, { libelle: string; teinte: string }> = {
   unique: { libelle: 'Unique', teinte: '#d4af37' },
 }
 
-export type EntreeCatalogue = Classe | Sort | Equipement | Investissement | Amelioration
+export type EntreeCatalogue =
+  | Classe
+  | Sort
+  | Equipement
+  | Investissement
+  | Amelioration
+  | TypeMagique
+  | Dossier
 
 // ---------------------------------------------------------------------------
 // Personnage
@@ -338,9 +606,17 @@ export type EntreeCatalogue = Classe | Sort | Equipement | Investissement | Amel
  * champ, ce qui reste vérifié par le compilateur au lieu de casser silencieusement.
  */
 export interface EtatPassifs {
-  /** Dusk Hunter — configuration Hexcore active. */
+  /**
+   * Options retenues parmi les `choix` de la classe, par identifiant de choix.
+   *
+   * Remplace les champs `hexcore` et `voieTrickster`, qui obligeaient à coder
+   * une classe pour lui donner un passif à options. Ceux-ci s'y replient à la
+   * lecture, comme `classeId` s'est replié dans `classesIds`.
+   */
+  choix?: Record<string, string>
+  /** ⚠️ **Ancien champ** — Dusk Hunter, configuration Hexcore active. */
   hexcore?: 'overheat' | 'overdrive'
-  /** Trickster — voie choisie à la phase Grimoire. */
+  /** ⚠️ **Ancien champ** — Trickster, voie choisie à la phase Grimoire. */
   voieTrickster?: 'conteur' | 'illusionniste'
   /** Soulshifter — vies passées connues (numéros de face du dé). */
   viesConnues?: number[]

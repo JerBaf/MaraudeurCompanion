@@ -1,6 +1,6 @@
 import type { Catalog } from './catalog.ts'
 import { jetonsCampVierges, TAILLE_GRIMOIRE } from './campfire.ts'
-import { FOI_DE_DEPART } from './modifiers.ts'
+import { FOI_DE_DEPART, normaliserCible } from './elements.ts'
 import {
   COMPETENCES,
   type Character,
@@ -184,18 +184,36 @@ export function normaliserPersonnage(brut: Character): Character {
     chargesObjets: brut.chargesObjets ?? {},
     sortsEpuises: brut.sortsEpuises ?? [],
     cicatrices: brut.cicatrices ?? [],
-    passifs: brut.passifs ?? {},
-    modifiers: brut.modifiers ?? [],
+    passifs: normaliserChoixDeClasse(brut.passifs ?? {}),
+    // Les Serments et Fardeaux engagés dorment en base sous l'ancienne forme de
+    // cible (`competence-sauf`, `fatigue-max`…) : sans cette conversion ils
+    // cesseraient de s'appliquer, sans rien signaler.
+    modifiers: (brut.modifiers ?? []).map((m) => ({ ...m, target: normaliserCible(m.target) })),
     claimedBy: brut.claimedBy ?? null,
   }
+}
+
+/**
+ * Replie les deux anciens champs de choix de classe dans `choix`.
+ *
+ * `hexcore` et `voieTrickster` étaient un champ par classe : en ajouter une
+ * demandait de toucher au type. Ils se lisent désormais comme n'importe quel
+ * choix — et les fiches déjà en base les portent encore, d'où cette conversion,
+ * sur le modèle de `classeId` absorbé par `classesIds`.
+ */
+function normaliserChoixDeClasse(passifs: EtatPassifs): EtatPassifs {
+  const choix = { ...(passifs.choix ?? {}) }
+  if (passifs.hexcore && choix.hexcore === undefined) choix.hexcore = passifs.hexcore
+  if (passifs.voieTrickster && choix.voie === undefined) choix.voie = passifs.voieTrickster
+  return { ...passifs, choix }
 }
 
 function passifsInitiaux(moteur: string | undefined): EtatPassifs {
   switch (moteur) {
     case 'dusk-hexcore':
-      return { hexcore: 'overdrive' }
+      return { choix: { hexcore: 'overdrive' } }
     case 'trickster-voie':
-      return { voieTrickster: 'illusionniste' }
+      return { choix: { voie: 'illusionniste' } }
     case 'soulshifter-vies':
       return { viesConnues: [1, 2], vieActive: null }
     default:

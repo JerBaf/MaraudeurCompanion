@@ -292,6 +292,80 @@ describe('outillage de table', () => {
     cleanup()
   }
 
+  /** Ajoute un second personnage à une table déjà amorcée. */
+  async function ajouterPersonnage(nom: string) {
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('button', { name: 'Changer de personnage' }))
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: nom } })
+    fireEvent.click(await screen.findByText('Dusk Hunter'))
+    fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+    fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+    await waitFor(() => expect(screen.getByText(nom)).toBeTruthy())
+    cleanup()
+  }
+
+  /**
+   * Le parcours complet d'une réaction croisée : la MJ compose « quand une
+   * alliée prend une brûlure, gagnez un Point de Foi », et le passif part sur la
+   * fiche de sa porteuse quand *quelqu'un d'autre* bouge la jauge.
+   *
+   * C'est le test qui couvre le câblage : `resoudrePassifs` reçoit le roster
+   * depuis `repo.ts`, et la fiche de l'alliée est écrite en plus de celle de
+   * l'actrice.
+   */
+  it('un passif réactif s’arme sur le geste d’une alliée', async () => {
+    await tablePreteAvecPersonnage()
+    await ajouterPersonnage('Nael')
+
+    // --- La MJ compose l'amélioration ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Améliorations' }))
+    fireEvent.click(await screen.findByText(/Ajouter — améliorations/))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), { target: { value: 'Lien de sang' } })
+    fireEvent.click(screen.getByText('Ajouter un passif'))
+    fireEvent.change(await screen.findByLabelText('Déclenchement'), {
+      target: { value: 'reaction' },
+    })
+    fireEvent.change(screen.getByLabelText('Jauge surveillée'), { target: { value: 'brulures' } })
+    fireEvent.change(screen.getByLabelText('Sens du changement'), { target: { value: 'augmente' } })
+    fireEvent.change(screen.getByLabelText('Chez qui'), { target: { value: 'un-allie' } })
+    fireEvent.change(screen.getByLabelText('Cible du passif'), { target: { value: 'foi|valeur' } })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    // --- Elle l'accorde à Nael ---
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    fireEvent.click(await screen.findByText('Nael'))
+    const accorder = await screen.findByLabelText('Accorder une amélioration')
+    const option = within(accorder).getByRole('option', { name: /Lien de sang/ })
+    fireEvent.change(accorder, { target: { value: (option as HTMLOptionElement).value } })
+    // Le nom apparaît dans l'inventaire de Nael et dans ses effets en cours.
+    await waitFor(() => expect(screen.getAllByText('Lien de sang').length).toBeGreaterThan(0))
+    cleanup()
+
+    // --- Ilma prend une brûlure ---
+    localStorage.removeItem('maraudeur:personnage')
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Brûlures : 1' }))
+    cleanup()
+
+    // --- La Foi de Nael a monté, sans qu'elle ait rien touché ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() => {
+      const ligne = screen.getByText('Nael').closest('button')
+      expect(ligne?.textContent).toContain('Foi 3')
+    })
+  })
+
   /**
    * Le cristal ne s'épuise que sur un sort d'Arcane préparé : c'est le seul qui
    * puisse être lancé, et la joueuse tire son d6 à table — l'app ne fait
@@ -365,7 +439,7 @@ describe('outillage de table', () => {
     // Et un passif composé à la main : avantage en Social.
     fireEvent.click(screen.getByText('Ajouter un passif'))
     fireEvent.change(await screen.findByLabelText('Cible du passif'), {
-      target: { value: 'competence' },
+      target: { value: 'competence|valeur' },
     })
     fireEvent.change(screen.getByLabelText('Compétence visée'), { target: { value: 'social' } })
     fireEvent.change(screen.getByLabelText('Effet du passif'), { target: { value: 'avantage' } })
@@ -418,15 +492,17 @@ describe('outillage de table', () => {
     })
     fireEvent.change(screen.getByLabelText('Emplacement'), { target: { value: 'bibelot' } })
 
-    // « Quand les Marques augmentent, gagne un Point de Foi. »
-    fireEvent.click(screen.getByText('Ajouter un passif réactif'))
-    fireEvent.change(await screen.findByLabelText('Jauge surveillée'), {
-      target: { value: 'marques' },
+    // « Quand les Marques augmentent, gagne un Point de Foi. » Un seul
+    // formulaire : le passif se compose, puis on dit ce qui le déclenche.
+    fireEvent.click(screen.getByText('Ajouter un passif'))
+    fireEvent.change(await screen.findByLabelText('Déclenchement'), {
+      target: { value: 'reaction' },
     })
-    fireEvent.change(screen.getByLabelText('Sens du déclencheur'), {
+    fireEvent.change(screen.getByLabelText('Jauge surveillée'), { target: { value: 'marques' } })
+    fireEvent.change(screen.getByLabelText('Sens du changement'), {
       target: { value: 'augmente' },
     })
-    fireEvent.change(screen.getByLabelText('Jauge affectée'), { target: { value: 'foi' } })
+    fireEvent.change(screen.getByLabelText('Cible du passif'), { target: { value: 'foi|valeur' } })
     fireEvent.click(screen.getByText('Enregistrer'))
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
@@ -469,7 +545,7 @@ describe('outillage de table', () => {
     // Le passif d'abord…
     fireEvent.click(await screen.findByText('Ajouter un passif'))
     fireEvent.change(await screen.findByLabelText('Cible du passif'), {
-      target: { value: 'evasion' },
+      target: { value: 'evasion|valeur' },
     })
     fireEvent.change(screen.getByLabelText('Valeur du passif'), { target: { value: '2' } })
 
@@ -498,7 +574,7 @@ describe('outillage de table', () => {
     expect(vignette?.textContent).toContain('3')
   })
 
-  it('la joueuse utilise un consommable, qui se détruit', async () => {
+  it('la joueuse utilise un objet sans recharge, qui reste au sac une fois vide', async () => {
     await tablePreteAvecPersonnage()
 
     sessionStorage.setItem('maraudeur:role', 'mj')
@@ -511,12 +587,17 @@ describe('outillage de table', () => {
     })
     fireEvent.change(screen.getByLabelText('Emplacement'), { target: { value: 'bibelot' } })
 
-    fireEvent.click(screen.getByText('Ajouter des effets actifs'))
+    fireEvent.click(screen.getByText('Ajouter un effet actif'))
     fireEvent.change(await screen.findByLabelText('Faces'), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText('Contrepartie'), { target: { value: 'consommable' } })
     fireEvent.change(await screen.findByLabelText('Effet'), {
       target: { value: 'Un brouillard vous dérobe aux regards.' },
     })
+    fireEvent.change(screen.getByLabelText('Nom de l’effet actif'), {
+      target: { value: 'Briser le flacon' },
+    })
+    // Une seule charge, et rien qui la rende.
+    fireEvent.change(screen.getByLabelText('Charges'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Recharge'), { target: { value: 'aucune' } })
     fireEvent.click(screen.getByText('Enregistrer'))
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
@@ -547,12 +628,19 @@ describe('outillage de table', () => {
     )
     fireEvent.click(screen.getAllByRole('button', { name: /Potion de brume/ })[1] as HTMLElement)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Utiliser' }))
-    await waitFor(() => expect(screen.getByText(/brouillard vous dérobe/)).toBeTruthy())
+    fireEvent.click(await screen.findByRole('button', { name: 'Briser le flacon' }))
+    // Le texte apparaît aussi dans la description dépliée de l'objet.
+    await waitFor(() => expect(screen.getAllByText(/brouillard vous dérobe/).length).toBeGreaterThan(0))
 
-    // Une seule charge, non rechargeable : l'objet quitte l'inventaire.
+    // Épuisé, il ne part plus — mais il reste au sac : c'est à la MJ ou à la
+    // joueuse de l'en retirer, pas à l'application de le faire disparaître.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Plus de charge' }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    )
     fireEvent.click(screen.getByRole('tab', { name: 'Équipement' }))
-    await waitFor(() => expect(screen.queryByText('Potion de brume')).toBeNull())
+    await waitFor(() => expect(screen.getByText('Potion de brume')).toBeTruthy())
   })
 
   it('la MJ pose un désavantage qui se cumule avec un ajustement chiffré', async () => {

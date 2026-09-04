@@ -8,7 +8,7 @@ import {
   type BilanInvestissements,
 } from '../domain/campfire.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
-import { resoudreDeclencheurs } from '../domain/declencheurs.ts'
+import { resoudrePassifs, type RecitPassif } from '../domain/reactions.ts'
 import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
 import { actionScriptee, etatDuel, issueDuel, jouerManche } from '../domain/duel.ts'
 import { creerPersonnage, normaliserPersonnage, type DemandeCreation } from '../domain/character.ts'
@@ -143,9 +143,25 @@ export const surEtat = (cb: (e: EtatTable | null) => void) => store.subscribeDoc
  * avoir à s'en méfier. Voir `normaliserPersonnage`.
  */
 export const surPersonnages = (cb: (c: Character[]) => void) =>
-  store.subscribeCollection<Character>(chemins.personnages, (bruts) =>
-    cb(bruts.map(normaliserPersonnage)),
-  )
+  store.subscribeCollection<Character>(chemins.personnages, (bruts) => {
+    personnagesCourants = bruts.map(normaliserPersonnage)
+    cb(personnagesCourants)
+  })
+
+/**
+ * Dernier roster reçu.
+ *
+ * Même raison que `catalogueCourant` : une réaction croisée — « gagne une
+ * brûlure quand une alliée en prend une » — doit connaître les autres fiches, et
+ * `modifierPersonnage` ne peut pas s'offrir une lecture réseau à chaque
+ * écriture. Vide tant que la souscription n'a pas répondu, ce qui est le bon
+ * comportement : aucune alliée n'est touchée sur un roster inconnu.
+ *
+ * ⚠️ Volontairement **hors du domaine** : `resoudrePassifs` reçoit le roster en
+ * paramètre. Un cache lu depuis `src/domain/` briserait la règle de couche et
+ * rendrait les règles intestables.
+ */
+let personnagesCourants: Character[] = []
 export const surAdversaires = (cb: (a: Adversaire[]) => void) =>
   store.subscribeCollection<Adversaire>(chemins.adversaires, cb)
 /**
@@ -242,6 +258,20 @@ export async function creerEtEnregistrerPersonnage(
   return char
 }
 
+/**
+ * Écrit une fiche **sans résoudre les passifs réactifs**.
+ *
+ * ⚠️ **Réservé aux écritures en masse et déjà résolues par le domaine** :
+ * résolution d'un camp, expiration des modificateurs, Détachement. Tous les
+ * gestes de fiction — une Marque prise, un achat, un gain de Foi — passent par
+ * `modifierPersonnage`, faute de quoi les réactions partent ou non selon
+ * l'écran qui a bougé la jauge.
+ *
+ * La résolution d'un camp est le cas limite : elle remet la Foi et la Fatigue
+ * de **toute la table** d'un coup. Y armer les réactions ferait partir chaque
+ * passif de chaque joueuse dans la même seconde, sans que personne ne puisse
+ * suivre — c'est une remise à zéro, pas un événement.
+ */
 export async function enregistrerPersonnage(char: Character): Promise<void> {
   await store.setDoc(chemins.personnage(char.id), { ...char, updatedAt: Date.now() })
 }
@@ -260,15 +290,29 @@ export async function modifierPersonnage(
 ): Promise<Character> {
   const apres = transformer(char)
 
-  const { char: reactif, recits } = catalogueCourant
-    ? resoudreDeclencheurs(char, apres, catalogueCourant)
-    : { char: apres, recits: [] as string[] }
+  /*
+   * L'actrice est prise dans `char` — la fiche telle qu'elle est arrivée à
+   * l'écran — et jamais dans le cache : celui-ci peut être plus ancien que la
+   * prop, et repartir de lui perdrait le geste en cours. Les alliées, elles, ne
+   * peuvent venir que du cache.
+   */
+  const { char: reactif, autres, recits } = catalogueCourant
+    ? resoudrePassifs(char, apres, catalogueCourant, personnagesCourants)
+    : { char: apres, autres: [] as Character[], recits: [] as RecitPassif[] }
 
   const suivant = { ...reactif, updatedAt: Date.now() }
   await store.setDoc(chemins.personnage(char.id), suivant)
 
+  // Les alliées touchées par une réaction croisée. Seules celles dont la fiche
+  // a réellement changé figurent ici — `resoudrePassifs` écarte les autres.
+  for (const allie of autres) {
+    await store.setDoc(chemins.personnage(allie.id), { ...allie, updatedAt: Date.now() })
+  }
+
+  // Journalisé sous le nom de **celle chez qui l'effet s'est produit**, et non
+  // de l'actrice : à relire, « Ilma — Points de Foi +1 » doit désigner Ilma.
   for (const recit of recits) {
-    await journaliser(char.nom, 'passif', recit)
+    await journaliser(recit.chez, 'passif', recit.texte)
   }
 
   return suivant

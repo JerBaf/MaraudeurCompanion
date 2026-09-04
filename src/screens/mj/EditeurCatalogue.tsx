@@ -1,29 +1,36 @@
 import { useState } from 'react'
 
-import { EditeurDeclencheurs } from '../../components/EditeurDeclencheurs.tsx'
-import { EditeurModificateurs } from '../../components/EditeurModificateurs.tsx'
+import { EditeurActifs } from '../../components/EditeurActifs.tsx'
+import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
+import { EditeurCout } from '../../components/EditeurCout.tsx'
+import { EditeurPassifs } from '../../components/EditeurPassifs.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { ICONES_DISPONIBLES } from '../../content/icones.ts'
 import { enregistrerEntreeCatalogue, supprimerEntreeCatalogue } from '../../data/repo.ts'
 import { prixDe } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
-import { classesDuSort, sortOuvertA } from '../../domain/magie.ts'
+import { COUT_GRATUIT } from '../../domain/couts.ts'
 import {
-  FACES_TABLE,
-  LIBELLE_MAGIE,
+  dossiersDe,
+  familleRangeable,
+  FILTRES_VIERGES,
+  filtrerEntrees,
+  type FiltresCatalogue as Filtres,
+} from '../../domain/filtres.ts'
+import { classesDuSort, libelleMagie } from '../../domain/magie.ts'
+import {
   RARETES,
   LIBELLE_SLOT,
-  MAGIES,
   SLOTS_EQUIPEMENT,
   type Amelioration,
   type Classe,
-  type CoutUsage,
-  type EffetsActifs,
+  type Dossier,
   type EntreeCatalogue,
   type Equipement,
   type Investissement,
   type Rarete,
   type Sort,
+  type TypeMagique,
 } from '../../domain/types.ts'
 
 /**
@@ -38,47 +45,41 @@ import {
  * le drapeau ne sert plus qu'à les faire revenir lors d'une réinitialisation.
  */
 
-type Onglet = 'equipement' | 'amelioration' | 'investissement' | 'sort'
+type Onglet = 'equipement' | 'amelioration' | 'investissement' | 'sort' | 'dossier'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   equipement: 'Équipements',
   amelioration: 'Améliorations',
   investissement: 'Investissements',
   sort: 'Sorts',
+  dossier: 'Dossiers',
+}
+
+const LIBELLE_CIBLE_DOSSIER: Record<Dossier['cible'], string> = {
+  equipement: 'Des équipements',
+  sort: 'Des sorts',
+  amelioration: 'Des améliorations',
 }
 
 export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
   const [onglet, setOnglet] = useState<Onglet>('equipement')
   const [edition, setEdition] = useState<EntreeCatalogue | null>(null)
-  // Un filtre par axe, remis à zéro en changeant d'onglet : un filtre « armure »
-  // laissé actif ferait croire à un catalogue de sorts vide.
-  const [filtreSlot, setFiltreSlot] = useState('')
-  const [filtreMagie, setFiltreMagie] = useState('')
-  const [filtreClasse, setFiltreClasse] = useState('')
-  const [triPrix, setTriPrix] = useState(false)
+  // Les filtres repartent à zéro en changeant d'onglet : un « armure » laissé
+  // actif ferait croire à un catalogue de sorts vide.
+  const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIERGES)
 
   function changerOnglet(cle: Onglet) {
     setOnglet(cle)
     setEdition(null)
-    setFiltreSlot('')
-    setFiltreMagie('')
-    setFiltreClasse('')
-    setTriPrix(false)
+    setFiltres(FILTRES_VIERGES)
   }
 
-  const entrees = catalog
-    .toutes()
-    .filter((e) => e.kind === onglet)
-    .filter((e) => !(filtreSlot && e.kind === 'equipement' && e.slot !== filtreSlot))
-    .filter((e) => !(filtreMagie && e.kind === 'sort' && e.magie !== filtreMagie))
-    .filter((e) => !(filtreClasse && e.kind === 'sort' && !sortOuvertA(e, filtreClasse)))
-    .sort((a, b) => (triPrix ? (prixDe(a) ?? Infinity) - (prixDe(b) ?? Infinity) : 0))
+  const entrees = filtrerEntrees(catalog.toutes().filter((e) => e.kind === onglet), filtres)
 
   return (
     <section className="carte pile pile--serree">
       <div className="carte__titre">
         <span className="etiquette">Catalogue</span>
-        <span className="tres-discret">{entrees.length} entrée(s)</span>
       </div>
 
       <div className="onglets" role="tablist">
@@ -96,48 +97,13 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
         ))}
       </div>
 
-      {/* Un catalogue de table devient vite long : sans filtres, retrouver une
-          armure parmi trente entrées se fait à l'œil. */}
-      {onglet === 'equipement' && (
-        <div className="rangee">
-          <select value={filtreSlot} onChange={(e) => setFiltreSlot(e.target.value)} style={{ flex: 1 }}>
-            <option value="">Tous les emplacements</option>
-            {SLOTS_EQUIPEMENT.map((s) => (
-              <option key={s} value={s}>
-                {LIBELLE_SLOT[s]}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className={`btn ${triPrix ? 'btn--principal' : ''}`}
-            onClick={() => setTriPrix((t) => !t)}
-          >
-            Trier par prix
-          </button>
-        </div>
-      )}
-
-      {onglet === 'sort' && (
-        <div className="rangee">
-          <select value={filtreMagie} onChange={(e) => setFiltreMagie(e.target.value)} style={{ flex: 1 }}>
-            <option value="">Toutes les magies</option>
-            {MAGIES.map((m) => (
-              <option key={m} value={m}>
-                {LIBELLE_MAGIE[m]}
-              </option>
-            ))}
-          </select>
-          <select value={filtreClasse} onChange={(e) => setFiltreClasse(e.target.value)} style={{ flex: 1 }}>
-            <option value="">Toutes les classes</option>
-            {catalog.classes().map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nom}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <FiltresCatalogue
+        kind={onglet}
+        valeur={filtres}
+        catalog={catalog}
+        total={entrees.length}
+        onChange={setFiltres}
+      />
 
       {entrees.length === 0 && !edition && <p className="vide">Rien pour l'instant.</p>}
 
@@ -146,7 +112,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
           <Icone nom={e.icone} taille={28} teinte={RARETES[e.rarete ?? 'commun'].teinte} />
           <span className="objet__corps">
             <span className="objet__nom">{e.nom}</span>
-            <span className="objet__meta">{resume(e)}</span>
+            <span className="objet__meta">{resume(e, catalog)}</span>
           </span>
           <button type="button" className="btn" onClick={() => setEdition(e)}>
             Modifier
@@ -175,6 +141,8 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
         <Formulaire
           entree={edition}
           classes={catalog.classes()}
+          typesMagiques={catalog.typesMagiques()}
+          dossiers={catalog.dossiers()}
           onAnnuler={() => setEdition(null)}
           // Le formulaire ne se ferme qu'une fois l'écriture acceptée : sinon un
           // refus de Firestore — que le bandeau d'erreur signale — laissait
@@ -188,7 +156,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
         <button
           type="button"
           className="btn btn--principal btn--large"
-          onClick={() => setEdition(vierge(onglet))}
+          onClick={() => setEdition(vierge(onglet, catalog.typesMagiques()))}
         >
           Ajouter — {LIBELLE_ONGLET[onglet].toLowerCase()}
         </button>
@@ -199,7 +167,7 @@ export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
 
 // ---------------------------------------------------------------------------
 
-function resume(e: EntreeCatalogue): string {
+function resume(e: EntreeCatalogue, catalog: Catalog): string {
   const prix = prixDe(e)
   switch (e.kind) {
     case 'equipement':
@@ -216,39 +184,38 @@ function resume(e: EntreeCatalogue): string {
     case 'investissement':
       return `${e.cout} ʟ · ${e.beneficeTexte}`
     case 'sort':
-      return `${LIBELLE_MAGIE[e.magie]}${prix ? ` · ${prix} ʟ` : ' · hors boutique'}`
+      return `${libelleMagie(e.magieId, catalog)}${prix ? ` · ${prix} ʟ` : ' · hors boutique'}`
+    case 'dossier':
+      return `Dossier · ${LIBELLE_CIBLE_DOSSIER[e.cible]}`
     default:
       return ''
   }
 }
 
 /**
- * Aligne le libellé des passifs sur le nom de l'entrée.
+ * Nettoie l'entrée avant écriture.
  *
- * C'est ce libellé que la joueuse lit dans « Effets en cours ». Il était figé au
- * moment où le passif était ajouté : renommer l'objet ensuite — ou le nommer
- * après avoir composé ses passifs, ce qui est l'ordre naturel — laissait un
- * « Objet » générique sur sa fiche.
+ * ⚠️ Il fallait aussi, jusqu'ici, réaligner à la main le libellé de chaque
+ * passif sur le nom de l'entrée : ce libellé était figé au moment de la
+ * saisie, si bien que renommer l'objet ensuite — ou le nommer *après* avoir
+ * composé ses passifs, ce qui est l'ordre naturel — laissait un « Objet »
+ * générique sur la fiche de la joueuse. Le repli est désormais dans le moteur
+ * (`compilerPassif`, `modifiers.ts`), qui relit le nom du porteur à chaque
+ * rendu : il n'y a plus rien à recopier, ni à ne pas oublier de recopier.
  */
-function avecLibellesAJour(entree: EntreeCatalogue): EntreeCatalogue {
-  const nom = entree.nom.trim()
-  if (entree.kind !== 'equipement' && entree.kind !== 'amelioration') return { ...entree, nom }
-
-  return {
-    ...entree,
-    nom,
-    ...(entree.modificateurs
-      ? { modificateurs: entree.modificateurs.map((m) => ({ ...m, source: { ...m.source, label: nom } })) }
-      : {}),
-  }
+function nettoyer(entree: EntreeCatalogue): EntreeCatalogue {
+  return { ...entree, nom: entree.nom.trim() }
 }
 
 function nouvelId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `cat-${Date.now()}`
 }
 
-function vierge(onglet: Onglet): EntreeCatalogue {
-  const base = { id: nouvelId(), nom: '', icone: 'crystal-shine' }
+function vierge(onglet: Onglet, typesMagiques: TypeMagique[]): EntreeCatalogue {
+  // `creeLe` n'est posé qu'ici : les entrées écrites avant son existence n'en
+  // ont pas, et se trient comme les plus anciennes. C'est le comportement
+  // attendu, et il évite d'inventer une date qu'on ne connaît pas.
+  const base = { id: nouvelId(), nom: '', icone: 'crystal-shine', creeLe: Date.now() }
   switch (onglet) {
     case 'equipement':
       return { ...base, kind: 'equipement', slot: 'arme' } as Equipement
@@ -263,12 +230,15 @@ function vierge(onglet: Onglet): EntreeCatalogue {
         risqueTexte: '',
         limiteTexte: '',
       } as Investissement
+    case 'dossier':
+      // Le dossier « ALL » n'est jamais créé : c'est l'absence de filtre.
+      return { ...base, kind: 'dossier', cible: 'equipement', ordre: 0 } as Dossier
     case 'sort':
       return {
         ...base,
         kind: 'sort',
-        magie: 'arcane',
-        cout: { kind: 'aucun' },
+        magieId: typesMagiques[0]?.id ?? 'arcane',
+        cout: COUT_GRATUIT,
         de: null,
         duree: 'Instantané',
         effet: '',
@@ -281,15 +251,25 @@ function vierge(onglet: Onglet): EntreeCatalogue {
 function Formulaire({
   entree,
   classes,
+  typesMagiques,
+  dossiers,
   onAnnuler,
   onEnregistrer,
 }: {
   entree: EntreeCatalogue
   classes: Classe[]
+  typesMagiques: TypeMagique[]
+  dossiers: Dossier[]
   onAnnuler: () => void
   onEnregistrer: (e: EntreeCatalogue) => Promise<void>
 }) {
   const [brouillon, setBrouillon] = useState<EntreeCatalogue>(entree)
+  const famille = familleRangeable(brouillon.kind)
+
+  // Toutes les options de classe, pour désigner celle qui débloque un sort.
+  const optionsDeClasse = classes.flatMap((c) =>
+    (c.choix ?? []).flatMap((ch) => ch.options.map((o) => ({ ...o, classe: c.nom }))),
+  )
   const maj = (patch: Record<string, unknown>) =>
     setBrouillon({ ...brouillon, ...patch } as EntreeCatalogue)
 
@@ -329,6 +309,40 @@ function Formulaire({
           ))}
         </select>
       </label>
+
+      {/* Le rangement : une entrée appartient à zéro ou un dossier. */}
+      {famille && (
+        <label className="champ">
+          <span className="tres-discret">Dossier</span>
+          <select
+            value={brouillon.dossierId ?? ''}
+            onChange={(e) => maj({ dossierId: e.target.value || undefined })}
+          >
+            <option value="">Non classé</option>
+            {dossiersDe({ dossiers: () => dossiers }, famille).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.nom}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {brouillon.kind === 'dossier' && (
+        <label className="champ">
+          <span className="tres-discret">Ce que ce dossier range</span>
+          <select
+            value={brouillon.cible}
+            onChange={(e) => maj({ cible: e.target.value as Dossier['cible'] })}
+          >
+            {(Object.keys(LIBELLE_CIBLE_DOSSIER) as Dossier['cible'][]).map((c) => (
+              <option key={c} value={c}>
+                {LIBELLE_CIBLE_DOSSIER[c]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {brouillon.kind === 'equipement' && (
         <>
@@ -375,21 +389,15 @@ function Formulaire({
             </span>
           </label>
 
-          <EditeurModificateurs
-            valeur={brouillon.modificateurs ?? []}
-            label={brouillon.nom || 'Objet'}
-            source="equipement"
-            onChange={(modificateurs) => maj({ modificateurs })}
+          <EditeurPassifs
+            valeur={brouillon.passifs ?? []}
+            onChange={(passifs) => maj({ passifs })}
           />
 
-          <EditeurDeclencheurs
-            valeur={brouillon.declencheurs ?? []}
-            onChange={(declencheurs) => maj({ declencheurs })}
-          />
-
-          <EditeurEffetsActifs
-            valeur={brouillon.effetsActifs}
-            onChange={(effetsActifs) => maj({ effetsActifs })}
+          <EditeurActifs
+            valeur={brouillon.actifs ?? []}
+            nomPorteur={brouillon.nom}
+            onChange={(actifs) => maj({ actifs })}
           />
         </>
       )}
@@ -416,16 +424,9 @@ function Formulaire({
 
           {/* Une amélioration n'a pas d'emplacement : ses passifs valent dès
               qu'elle est possédée. */}
-          <EditeurModificateurs
-            valeur={brouillon.modificateurs ?? []}
-            label={brouillon.nom || 'Amélioration'}
-            source="passif"
-            onChange={(modificateurs) => maj({ modificateurs })}
-          />
-
-          <EditeurDeclencheurs
-            valeur={brouillon.declencheurs ?? []}
-            onChange={(declencheurs) => maj({ declencheurs })}
+          <EditeurPassifs
+            valeur={brouillon.passifs ?? []}
+            onChange={(passifs) => maj({ passifs })}
           />
         </>
       )}
@@ -531,10 +532,12 @@ function Formulaire({
           <div className="rangee">
             <label className="champ" style={{ flex: 1, minWidth: 120 }}>
               <span className="tres-discret">Magie</span>
-              <select value={brouillon.magie} onChange={(e) => maj({ magie: e.target.value })}>
-                {MAGIES.map((m) => (
-                  <option key={m} value={m}>
-                    {LIBELLE_MAGIE[m]}
+              {/* Les types magiques sont du contenu : en créer un le fait
+                  apparaître ici, sans toucher au code. */}
+              <select value={brouillon.magieId} onChange={(e) => maj({ magieId: e.target.value })}>
+                {typesMagiques.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nom}
                   </option>
                 ))}
               </select>
@@ -567,6 +570,20 @@ function Formulaire({
             <span className="tres-discret">Effet</span>
             <textarea value={brouillon.effet} onChange={(e) => maj({ effet: e.target.value })} />
           </label>
+
+          {/* Le coût d'un sort n'était éditable nulle part : tout sort composé
+              depuis cet écran naissait gratuit, quoi qu'en dise son texte. */}
+          <EditeurCout
+            valeur={brouillon.cout}
+            label="Coût du sort"
+            onChange={(cout) => maj({ cout })}
+          />
+
+          <EditeurActifs
+            valeur={brouillon.actifs ?? []}
+            nomPorteur={brouillon.nom}
+            onChange={(actifs) => maj({ actifs })}
+          />
 
           {/* Rien de coché = ouvert à toutes les classes. C'est la lecture la
               plus permissive, et elle n'oblige à rien renseigner pour un sort
@@ -603,17 +620,24 @@ function Formulaire({
             </div>
           </div>
 
-          <label className="rangee" style={{ gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={brouillon.illusion === true}
-              style={{ minHeight: 0, width: 'auto' }}
-              onChange={(e) => maj({ illusion: e.target.checked || undefined })}
-            />
+          {/* Généralise l'ancienne case « Illusion » : n'importe quelle option
+              de classe peut désormais débloquer un sort, et pas seulement la
+              voie Illusionniste du Trickster. */}
+          <label className="champ">
             <span className="tres-discret">
-              Illusion — accordée par le passif Illusionniste, hors des 3 emplacements et hors
-              boutique
+              Débloqué par un passif de classe — hors des 3 emplacements et hors boutique
             </span>
+            <select
+              value={brouillon.requiertPassif ?? ''}
+              onChange={(e) => maj({ requiertPassif: e.target.value || undefined })}
+            >
+              <option value="">Aucun — sort ordinaire</option>
+              {optionsDeClasse.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nom} ({o.classe})
+                </option>
+              ))}
+            </select>
           </label>
         </>
       )}
@@ -646,7 +670,7 @@ function Formulaire({
           type="button"
           className="btn btn--principal"
           style={{ flex: 1 }}
-          onClick={() => void onEnregistrer(avecLibellesAJour(brouillon))}
+          onClick={() => void onEnregistrer(nettoyer(brouillon))}
           disabled={!brouillon.nom.trim()}
         >
           Enregistrer
@@ -657,144 +681,3 @@ function Formulaire({
 }
 
 // ---------------------------------------------------------------------------
-
-/**
- * Saisie de la table d'effets d'un objet.
- *
- * Le PDF décrit ces pouvoirs pour les armes, mais le même modèle sert à une
- * potion : une table d'une seule face rend l'effet déterministe. Deux
- * contreparties possibles, comme le PDF — des charges qu'un rituel restaure, ou
- * un paiement décrit en toutes lettres —, plus le cas dégénéré du consommable,
- * dont les charges ne se rechargent pas.
- */
-function EditeurEffetsActifs({
-  valeur,
-  onChange,
-}: {
-  valeur: EffetsActifs | undefined
-  onChange: (v: EffetsActifs | undefined) => void
-}) {
-  if (!valeur) {
-    return (
-      <button
-        type="button"
-        className="btn"
-        onClick={() =>
-          onChange({ faces: 6, effets: Array(6).fill(''), cout: { kind: 'charges', max: 3, rituel: '' } })
-        }
-      >
-        Ajouter des effets actifs
-      </button>
-    )
-  }
-
-  const majCout = (cout: CoutUsage) => onChange({ ...valeur, cout })
-
-  return (
-    <div className="champ">
-      <span className="tres-discret">Effets actifs — la table que la joueuse lance</span>
-
-      <div className="rangee">
-        <label className="champ" style={{ flex: 1 }}>
-          <span className="tres-discret">Faces</span>
-          <select
-            value={valeur.faces}
-            onChange={(e) => {
-              const faces = Number(e.target.value)
-              // On conserve les effets déjà saisis : réduire la table puis la
-              // rouvrir ne doit pas effacer le travail de la MJ.
-              onChange({
-                ...valeur,
-                faces,
-                effets: Array.from({ length: faces }, (_, i) => valeur.effets[i] ?? ''),
-              })
-            }}
-          >
-            {FACES_TABLE.map((f) => (
-              <option key={f} value={f}>
-                {f === 1 ? 'Effet unique' : `1d${f}`}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="champ" style={{ flex: 1 }}>
-          <span className="tres-discret">Contrepartie</span>
-          <select
-            value={valeur.cout.kind}
-            onChange={(e) => {
-              const kind = e.target.value as CoutUsage['kind']
-              if (kind === 'charges') majCout({ kind, max: 3, rituel: '' })
-              else if (kind === 'consommable') majCout({ kind, max: 1 })
-              else majCout({ kind: 'paiement', description: '' })
-            }}
-          >
-            <option value="charges">Charges rechargeables</option>
-            <option value="consommable">Consommable</option>
-            <option value="paiement">Paiement</option>
-          </select>
-        </label>
-      </div>
-
-      {valeur.cout.kind !== 'paiement' && (
-        <label className="champ">
-          <span className="tres-discret">Charges</span>
-          <input
-            type="number"
-            min={1}
-            value={valeur.cout.max}
-            onChange={(e) =>
-              majCout({ ...(valeur.cout as { kind: 'charges' | 'consommable' }), max: Math.max(1, Number(e.target.value) || 1) } as CoutUsage)
-            }
-          />
-        </label>
-      )}
-
-      {valeur.cout.kind === 'charges' && (
-        <label className="champ">
-          <span className="tres-discret">Rituel de recharge</span>
-          <input
-            type="text"
-            value={valeur.cout.rituel}
-            placeholder="La tremper dans le sang d'une Carcasse"
-            onChange={(e) => majCout({ kind: 'charges', max: (valeur.cout as { max: number }).max, rituel: e.target.value })}
-          />
-        </label>
-      )}
-
-      {valeur.cout.kind === 'paiement' && (
-        <label className="champ">
-          <span className="tres-discret">Contrepartie, en toutes lettres</span>
-          <input
-            type="text"
-            value={valeur.cout.description}
-            placeholder="Une Marque toutes les trois utilisations"
-            onChange={(e) => majCout({ kind: 'paiement', description: e.target.value })}
-          />
-        </label>
-      )}
-
-      {valeur.effets.map((effet, index) => (
-        <label key={index} className="champ">
-          <span className="tres-discret">
-            {valeur.faces === 1 ? 'Effet' : `Résultat ${index + 1}`}
-          </span>
-          <input
-            type="text"
-            value={effet}
-            onChange={(e) =>
-              onChange({
-                ...valeur,
-                effets: valeur.effets.map((v, i) => (i === index ? e.target.value : v)),
-              })
-            }
-          />
-        </label>
-      ))}
-
-      <button type="button" className="btn btn--fantome" onClick={() => onChange(undefined)}>
-        Retirer les effets actifs
-      </button>
-    </div>
-  )
-}

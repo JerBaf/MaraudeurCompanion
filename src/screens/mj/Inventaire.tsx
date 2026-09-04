@@ -1,12 +1,28 @@
+import { useState } from 'react'
+
+import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
 import { Icone } from '../../components/Icone.tsx'
-import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { tailleGrimoire } from '../../domain/competences.ts'
+import {
+  FILTRES_VIERGES,
+  filtrerEntrees,
+  type FiltresCatalogue as Filtres,
+} from '../../domain/filtres.ts'
 import { resumeSort } from '../../domain/magie.ts'
-import { capaciteMax, chargesRestantes, rechargerObjet } from '../../domain/objets.ts'
+import {
+  actifsDe,
+  capaciteMax,
+  chargesRestantes,
+  estEpuise,
+  rechargerActif,
+  resumeEquipement,
+} from '../../domain/objets.ts'
 import {
   LIBELLE_SLOT,
   SLOTS_EQUIPEMENT,
   type Character,
+  type EntreeCatalogue,
   type Sort,
 } from '../../domain/types.ts'
 
@@ -27,6 +43,9 @@ export function Inventaire({
   catalog: Catalog
   maj: (t: (c: Character) => Character) => void
 }) {
+  // Dérivé, pas constant : un passif peut accorder un emplacement de plus.
+  const slotsGrimoire = tailleGrimoire(char, catalog)
+
   const sortsPossedes = char.possede.sorts
     .map((id) => catalog.sort(id))
     .filter((s): s is Sort => Boolean(s))
@@ -40,7 +59,7 @@ export function Inventaire({
   // les accorder à la main créerait un doublon avec `sortsHorsEmplacement`.
   const sortsAccordables = catalog
     .sorts()
-    .filter((s) => s.illusion !== true && !char.possede.sorts.includes(s.id))
+    .filter((s) => s.requiertPassif === undefined && !char.possede.sorts.includes(s.id))
 
   const equipementsAccordables = catalog
     .equipements()
@@ -57,7 +76,7 @@ export function Inventaire({
   function basculerSort(id: string) {
     maj((c) => {
       if (c.grimoire.includes(id)) return { ...c, grimoire: c.grimoire.filter((s) => s !== id) }
-      if (c.grimoire.length >= TAILLE_GRIMOIRE) return c
+      if (c.grimoire.length >= slotsGrimoire) return c
       return { ...c, grimoire: [...c.grimoire, id] }
     })
   }
@@ -147,14 +166,14 @@ export function Inventaire({
       <div className="carte__titre" style={{ marginBottom: 0 }}>
         <span className="etiquette">Sorts</span>
         <span className="tres-discret">
-          {char.grimoire.length}/{TAILLE_GRIMOIRE}
+          {char.grimoire.length}/{slotsGrimoire}
         </span>
       </div>
 
       {sortsPossedes.length === 0 && <p className="vide">Aucun sort connu.</p>}
       {sortsPossedes.map((sort) => {
         const actif = char.grimoire.includes(sort.id)
-        const plein = char.grimoire.length >= TAILLE_GRIMOIRE
+        const plein = char.grimoire.length >= slotsGrimoire
         return (
           <div key={sort.id} className="rangee">
             <button
@@ -187,44 +206,33 @@ export function Inventaire({
         )
       })}
 
-      <label className="champ">
-        <span className="etiquette">Accorder un sort</span>
-        <select value="" onChange={(e) => e.target.value && donnerSort(e.target.value)}>
-          <option value="">— choisir —</option>
-          {sortsAccordables.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.nom}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Accorder
+        titre="Accorder un sort"
+        kind="sort"
+        candidats={sortsAccordables}
+        catalog={catalog}
+        onChoisir={donnerSort}
+      />
 
       <hr className="separateur" />
 
       <span className="etiquette">Équipement possédé</span>
       {equipements.length === 0 && <p className="vide">Aucun objet.</p>}
       {equipements.map((eq) => {
-        const max = capaciteMax(eq)
-        const restantes = chargesRestantes(char, eq)
+        const epuise = estEpuise(char, eq)
 
         return (
           <div key={eq.id} className="pile pile--serree">
-            <div className="objet">
+            {/* Un objet à bout se signale : ses actifs ne partent plus, mais il
+                reste en inventaire — c'est la MJ ou la joueuse qui l'en retire. */}
+            <div className={epuise ? 'objet objet--indisponible' : 'objet'}>
               <Icone nom={eq.icone} taille={28} />
               <span className="objet__corps">
                 <span className="objet__nom">{eq.nom}</span>
-                <span className="objet__meta">
-                  {[
-                    LIBELLE_SLOT[eq.slot],
-                    eq.materielDeBase ? 'matériel de base' : null,
-                    eq.bonusEvasion ? `Évasion +${eq.bonusEvasion}` : null,
-                    max !== null ? `${restantes}/${max} charge(s)` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
+                <span className="objet__meta">{resumeEquipement(eq, char)}</span>
               </span>
               {equipes.has(eq.id) && <span className="puce puce--ambre">Porté</span>}
+              {epuise && <span className="puce">Épuisé</span>}
               <button
                 type="button"
                 className="btn btn--fantome"
@@ -234,38 +242,39 @@ export function Inventaire({
               </button>
             </div>
 
-            {/* Seule la MJ recharge, et seulement quand la fiction le justifie :
-                le PDF attache un rituel propre à chaque objet. */}
-            {eq.effetsActifs?.cout.kind === 'charges' && (
-              <div className="rangee">
-                <span className="tres-discret" style={{ flex: 1 }}>
-                  Rituel — {eq.effetsActifs.cout.rituel}
-                </span>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={restantes === max}
-                  onClick={() => maj((c) => rechargerObjet(c, eq))}
-                >
-                  Recharger
-                </button>
-              </div>
-            )}
+            {/* Seule la MJ valide un rituel, et seulement quand la fiction le
+                justifie : le PDF en attache un propre à chaque objet. Une
+                recharge payante, elle, se déclenche côté joueuse. */}
+            {actifsDe(eq)
+              .filter((a) => a.usages?.recharge.kind === 'rituel')
+              .map((actif) => (
+                <div key={actif.id} className="rangee">
+                  <span className="tres-discret" style={{ flex: 1 }}>
+                    {actif.nom} — rituel :{' '}
+                    {actif.usages?.recharge.kind === 'rituel' && actif.usages.recharge.description}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={chargesRestantes(char, eq, actif) === capaciteMax(actif)}
+                    onClick={() => maj((c) => rechargerActif(c, catalog, eq, actif).char)}
+                  >
+                    Recharger
+                  </button>
+                </div>
+              ))}
           </div>
         )
       })}
 
-      <label className="champ">
-        <span className="etiquette">Accorder un équipement</span>
-        <select value="" onChange={(e) => e.target.value && donnerEquipement(e.target.value)}>
-          <option value="">— choisir —</option>
-          {equipementsAccordables.map((eq) => (
-            <option key={eq.id} value={eq.id}>
-              {eq.nom} — {LIBELLE_SLOT[eq.slot]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Accorder
+        titre="Accorder un équipement"
+        kind="equipement"
+        candidats={equipementsAccordables}
+        catalog={catalog}
+        onChoisir={donnerEquipement}
+        suffixe={(e) => (e.kind === 'equipement' ? ` — ${LIBELLE_SLOT[e.slot]}` : '')}
+      />
 
       <hr className="separateur" />
 
@@ -290,17 +299,68 @@ export function Inventaire({
         </div>
       ))}
 
-      <label className="champ">
-        <span className="etiquette">Accorder une amélioration</span>
-        <select value="" onChange={(e) => e.target.value && donnerAmelioration(e.target.value)}>
-          <option value="">— choisir —</option>
-          {ameliorationsAccordables.map((am) => (
-            <option key={am.id} value={am.id}>
-              {am.nom} — {am.prix} ʟ
-            </option>
-          ))}
-        </select>
-      </label>
+      <Accorder
+        titre="Accorder une amélioration"
+        kind="amelioration"
+        candidats={ameliorationsAccordables}
+        catalog={catalog}
+        onChoisir={donnerAmelioration}
+        suffixe={(e) => (e.kind === 'amelioration' ? ` — ${e.prix} ʟ` : '')}
+      />
     </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Accorder une entrée du catalogue : on filtre d'abord, on choisit ensuite.
+ *
+ * ⚠️ Ce n'était pas un simple `<select>` de trop. Les trois listes énuméraient
+ * **tout** le catalogue sans le moindre filtre : passé une trentaine
+ * d'entrées, retrouver une armure y devient un défilement à l'aveugle, et le
+ * catalogue d'une table grossit à chaque session.
+ */
+function Accorder({
+  titre,
+  kind,
+  candidats,
+  catalog,
+  onChoisir,
+  suffixe,
+}: {
+  titre: string
+  kind: EntreeCatalogue['kind']
+  candidats: EntreeCatalogue[]
+  catalog: Catalog
+  onChoisir: (id: string) => void
+  /** Ce qu'on ajoute au nom pour reconnaître l'entrée d'un coup d'œil. */
+  suffixe?: (e: EntreeCatalogue) => string
+}) {
+  const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIERGES)
+  const visibles = filtrerEntrees(candidats, filtres)
+
+  return (
+    <div className="champ">
+      <span className="etiquette">{titre}</span>
+
+      <FiltresCatalogue
+        kind={kind}
+        valeur={filtres}
+        catalog={catalog}
+        total={visibles.length}
+        onChange={setFiltres}
+      />
+
+      <select value="" aria-label={titre} onChange={(e) => e.target.value && onChoisir(e.target.value)}>
+        <option value="">— choisir —</option>
+        {visibles.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.nom}
+            {suffixe?.(e) ?? ''}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }

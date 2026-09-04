@@ -10,18 +10,25 @@ import {
   vieActive,
 } from '../domain/effets.ts'
 import { cryptoRng } from '../domain/random.ts'
-import type { Character, VieSoulshifter } from '../domain/types.ts'
+import { optionRetenue } from '../domain/passifs.ts'
+import type { ChoixClasse, Character, VieSoulshifter } from '../domain/types.ts'
 
 /**
  * Contrôles des passifs de classe.
  *
- * Chaque classe obéit à une contrainte différente, et l'écran la reflète :
- *  - Dusk Hunter : bascule libre, au prix d'un tour d'action en combat ;
- *  - Soulshifter : tirage aléatoire, déclenché par la joueuse, 1×/heure de jeu ;
- *  - Trickster : engagement pris au feu de camp, donc verrouillé ici.
+ * Les **choix** de classe — configuration du Hexcore, voie du Trickster — sont
+ * désormais des données : cet écran les rend tous de la même façon, et créer
+ * une classe qui en offre un ne demande plus d'écrire un composant. Chacun
+ * porte son propre verrou (`ChoixClasse.verrou`), parce que la règle diffère :
+ * le Hexcore se bascule quand on veut, au prix d'un tour de combat, tandis que
+ * la voie du Trickster s'engage au Feu de Camp.
+ *
+ * Les vies du Soulshifter restent câblées : un dé dont les faces sont les vies
+ * connues, un jeton d'invocation, des précisions par sort — rien de cela ne se
+ * ramène à un choix parmi des options.
  *
  * ⚠️ Les deux déverrouillages ne se confondent pas. `autoriserToutChanger` dit
- * « on est à un moment où la voie du Trickster peut changer » — vrai aussi pour
+ * « on est à un moment où un choix verrouillé peut changer » — vrai aussi pour
  * la joueuse pendant la phase Sorts du camp. `peutAccorder` dit « on est sur
  * l'écran de la MJ » : rendre son invocation à un Soulshifter est un arbitrage,
  * jamais un droit de la joueuse.
@@ -44,7 +51,8 @@ export function Passifs({
   peutAccorder?: boolean
 }) {
   const classe = catalog.classe(char.classeId)
-  if (!classe?.passifMoteur) return null
+  const choix = classe?.choix ?? []
+  if (!classe || (choix.length === 0 && classe.passifMoteur !== 'soulshifter-vies')) return null
 
   return (
     <section className="carte pile pile--serree">
@@ -52,12 +60,18 @@ export function Passifs({
         <span className="etiquette">Passif — {classe.nom}</span>
       </div>
 
-      {classe.passifMoteur === 'dusk-hexcore' && <Hexcore char={char} maj={maj} />}
+      {choix.map((c) => (
+        <ChoixDeClasse
+          key={c.id}
+          choix={c}
+          char={char}
+          maj={maj}
+          deverrouille={c.verrou === 'libre' || autoriserToutChanger}
+        />
+      ))}
+
       {classe.passifMoteur === 'soulshifter-vies' && (
         <Vies char={char} vies={vies} catalog={catalog} maj={maj} peutAccorder={peutAccorder} />
-      )}
-      {classe.passifMoteur === 'trickster-voie' && (
-        <VoieTrickster char={char} maj={maj} deverrouille={autoriserToutChanger} />
       )}
     </section>
   )
@@ -65,41 +79,54 @@ export function Passifs({
 
 // ---------------------------------------------------------------------------
 
-const CONFIGS_HEXCORE = [
-  {
-    id: 'overdrive' as const,
-    nom: 'Overdrive',
-    effet: "+1 Point d'Énergie à toutes les Attaques Armées",
-  },
-  {
-    id: 'overheat' as const,
-    nom: 'Overheat',
-    effet: 'Toute source de X brûlures en génère X+1',
-  },
-]
+const EXPLICATION_VERROU: Record<ChoixClasse['verrou'], string> = {
+  libre:
+    "Changer prend 5 secondes — l'équivalent d'un tour de combat, pendant lequel vous ne pouvez rien faire d'autre que vous déplacer.",
+  'feu-de-camp': 'Ce choix s’engage à la phase Sorts du Feu de Camp et vaut jusqu’au suivant.',
+}
 
-function Hexcore({ char, maj }: { char: Character; maj: (t: (c: Character) => Character) => void }) {
+function ChoixDeClasse({
+  choix,
+  char,
+  maj,
+  deverrouille,
+}: {
+  choix: ChoixClasse
+  char: Character
+  maj: (t: (c: Character) => Character) => void
+  deverrouille: boolean
+}) {
+  const retenue = optionRetenue(char, choix)
+
   return (
     <>
       <p className="tres-discret" style={{ margin: 0 }}>
-        Changer de configuration prend 5 secondes — l'équivalent d'un tour de combat, pendant
-        lequel vous ne pouvez rien faire d'autre que vous déplacer.
+        {EXPLICATION_VERROU[choix.verrou]}
       </p>
-      {CONFIGS_HEXCORE.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          className={`objet ${char.passifs.hexcore === c.id ? 'objet--actif' : ''}`}
-          aria-pressed={char.passifs.hexcore === c.id}
-          onClick={() => maj((x) => ({ ...x, passifs: { ...x.passifs, hexcore: c.id } }))}
-        >
-          <span className="objet__corps">
-            <span className="objet__nom">{c.nom}</span>
-            <span className="objet__meta">{c.effet}</span>
-          </span>
-          {char.passifs.hexcore === c.id && <span className="puce puce--ambre">Actif</span>}
-        </button>
-      ))}
+      {choix.options.map((o) => {
+        const actif = retenue?.id === o.id
+        return (
+          <button
+            key={o.id}
+            type="button"
+            className={`objet ${actif ? 'objet--actif' : ''} ${deverrouille ? '' : 'objet--indisponible'}`}
+            aria-pressed={actif}
+            disabled={!deverrouille}
+            onClick={() =>
+              maj((c) => ({
+                ...c,
+                passifs: { ...c.passifs, choix: { ...(c.passifs.choix ?? {}), [choix.id]: o.id } },
+              }))
+            }
+          >
+            <span className="objet__corps">
+              <span className="objet__nom">{o.nom}</span>
+              <span className="objet__meta">{o.effet}</span>
+            </span>
+            {actif && <span className="puce puce--ambre">Actif</span>}
+          </button>
+        )
+      })}
     </>
   )
 }
@@ -216,58 +243,4 @@ function Vies({
 /** L'heure de table du dernier tirage, pour que la MJ situe la dernière invocation. */
 function heure(instant: number): string {
   return new Date(instant).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-}
-
-// ---------------------------------------------------------------------------
-
-const VOIES_TRICKSTER = [
-  {
-    id: 'conteur' as const,
-    nom: 'Conteur',
-    effet: 'Le coût en Points de Foi des sorts « Word: » est réduit de 1',
-  },
-  {
-    id: 'illusionniste' as const,
-    nom: 'Illusionniste',
-    effet: 'Ya gat fooled et Mage hand utilisables à volonté, hors emplacements',
-  },
-]
-
-function VoieTrickster({
-  char,
-  maj,
-  deverrouille,
-}: {
-  char: Character
-  maj: (t: (c: Character) => Character) => void
-  deverrouille: boolean
-}) {
-  return (
-    <>
-      <p className="tres-discret" style={{ margin: 0 }}>
-        {deverrouille
-          ? 'La voie se choisit normalement à la phase Sorts du Feu de Camp.'
-          : 'La voie s’engage à la phase Sorts du Feu de Camp et vaut jusqu’au suivant.'}
-      </p>
-      {VOIES_TRICKSTER.map((v) => {
-        const actif = char.passifs.voieTrickster === v.id
-        return (
-          <button
-            key={v.id}
-            type="button"
-            className={`objet ${actif ? 'objet--actif' : ''} ${deverrouille ? '' : 'objet--indisponible'}`}
-            aria-pressed={actif}
-            disabled={!deverrouille}
-            onClick={() => maj((c) => ({ ...c, passifs: { ...c.passifs, voieTrickster: v.id } }))}
-          >
-            <span className="objet__corps">
-              <span className="objet__nom">{v.nom}</span>
-              <span className="objet__meta">{v.effet}</span>
-            </span>
-            {actif && <span className="puce puce--ambre">Actif</span>}
-          </button>
-        )
-      })}
-    </>
-  )
 }

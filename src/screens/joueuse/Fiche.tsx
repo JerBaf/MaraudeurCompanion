@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Avatar } from '../../components/Avatar.tsx'
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
+import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
@@ -11,7 +12,6 @@ import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { journaliser, modifierPersonnage } from '../../data/repo.ts'
-import { TAILLE_GRIMOIRE } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { estSonTour } from '../../domain/combat.ts'
 import { precisionPersonnalite, vieActive } from '../../domain/effets.ts'
@@ -24,8 +24,16 @@ import {
   computeMarquesMax,
   computeSixthSens,
   computeToutesCompetences,
+  tailleGrimoire,
 } from '../../domain/competences.ts'
 import { fatigueRestante } from '../../domain/fatigue.ts'
+import { branchesPayables, coutAUnX, decrireBranche } from '../../domain/couts.ts'
+import {
+  FILTRES_VIERGES,
+  filtrerEntrees,
+  type FiltresCatalogue as Filtres,
+} from '../../domain/filtres.ts'
+import { lancerSort, type DemandeLancement } from '../../domain/lancement.ts'
 import {
   appliquerGainBrulures,
   basculerCaseBrulure,
@@ -33,24 +41,26 @@ import {
   combustionVolontaire,
   disponibiliteSort,
   grimoireEffectif,
+  libelleMagie,
   resumeSort,
+  sortAUnCristal,
 } from '../../domain/magie.ts'
 import {
   aDesEffetsActifs,
+  actifsDe,
   detailObjet,
-  peutUtiliser,
+  raisonsIndisponible,
   resumeEquipement,
-  utiliserObjet,
+  utiliserActif,
 } from '../../domain/objets.ts'
 import { EVASION_DE_BASE, paliersFlammeAtteints } from '../../domain/modifiers.ts'
 import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
-  LIBELLE_MAGIE,
   LIBELLE_SLOT,
-  MAGIES,
   RARETES,
+  type Actif,
   type Adversaire,
   type Character,
   type Equipement,
@@ -209,25 +219,26 @@ function OngletFiche({
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
   const [slotOuvert, setSlotOuvert] = useState<SlotEquipement | null>(null)
-  // Le récit d'usage vit hors de la ligne de l'objet : un consommable disparaît
-  // en même temps qu'il agit, et son effet partirait avec lui.
+  // Le récit d'usage vit hors de la ligne de l'objet : un objet qui s'épuise
+  // change d'état en même temps qu'il agit, et l'effet tiré doit rester lisible.
   const [dernierUsage, setDernierUsage] = useState<string | null>(null)
 
   const idOuvert = slotOuvert ? char.equipe[slotOuvert] : null
   const objetOuvert = idOuvert ? catalog.equipement(idOuvert) : undefined
 
   /** Le dé de la table est lancé ici ; l'écran en donne le résultat et l'effet. */
-  function utiliser(eq: Equipement) {
-    const r = utiliserObjet(char, eq, cryptoRng)
-    const faces = eq.effetsActifs?.faces ?? 1
+  function utiliser(eq: Equipement, actif: Actif) {
+    const r = utiliserActif(char, catalog, eq, actif, cryptoRng)
     setDernierUsage(
-      `${eq.nom} — ` +
+      `${actif.nom} — ` +
         // Une table à une seule entrée est déterministe : le dé n'a rien à dire.
-        (faces > 1 ? `1d${faces} → ${r.de} · ` : '') +
+        (actif.table.faces > 1 ? `1d${actif.table.faces} → ${r.de} · ` : '') +
         r.effet +
-        (r.detruit ? ' Il se consume et disparaît.' : ''),
+        // Combustion, grille de Fatigue pleine : ce que le paiement a entraîné.
+        (r.recits.length ? ` — ${r.recits.join(' · ')}` : '') +
+        (r.restantes === 0 ? ' Il ne lui reste plus de charge.' : ''),
     )
-    void journaliser(char.nom, 'objet', `${char.nom} utilise ${eq.nom} : ${r.effet}`)
+    void journaliser(char.nom, 'objet', `${char.nom} utilise ${actif.nom} : ${r.effet}`)
     maj(() => r.char)
   }
 
@@ -353,15 +364,21 @@ function OngletFiche({
             detail={detailObjet(objetOuvert)}
             {...(aDesEffetsActifs(objetOuvert)
               ? {
+                  // Un bouton par Actif : un objet peut en porter plusieurs,
+                  // chacun avec son coût et ses charges.
                   actionDetail: (
-                    <button
-                      type="button"
-                      className="btn btn--principal"
-                      disabled={!peutUtiliser(char, objetOuvert)}
-                      onClick={() => utiliser(objetOuvert)}
-                    >
-                      {peutUtiliser(char, objetOuvert) ? 'Utiliser' : 'Plus de charge'}
-                    </button>
+                    <div className="rangee">
+                      {actifsDe(objetOuvert).map((actif) => (
+                        <BoutonActif
+                          key={actif.id}
+                          char={char}
+                          catalog={catalog}
+                          eq={objetOuvert}
+                          actif={actif}
+                          onUtiliser={() => utiliser(objetOuvert, actif)}
+                        />
+                      ))}
+                    </div>
                   ),
                 }
               : {})}
@@ -426,7 +443,7 @@ function OngletFiche({
       </section>
 
       {/* --- Effets en cours, passifs compris --- */}
-      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} />
+      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} />
 
       {/* --- Passif de classe --- */}
       <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} />
@@ -502,20 +519,68 @@ function OngletFiche({
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Le bouton d'un Actif, et la raison quand il ne part pas.
+ *
+ * Deux causes distinctes, qu'il serait trompeur de confondre sous un « Plus de
+ * charge » : le compteur est vide, ou le coût n'est pas payable. La seconde se
+ * résout en gagnant des Points de Foi, la première non.
+ */
+function BoutonActif({
+  char,
+  catalog,
+  eq,
+  actif,
+  onUtiliser,
+}: {
+  char: Character
+  catalog: Catalog
+  eq: Equipement
+  actif: Actif
+  onUtiliser: () => void
+}) {
+  const raisons = raisonsIndisponible(char, catalog, eq, actif)
+  const bloque = raisons.chargesEpuisees || raisons.coutImpayable
+
+  const libelle = raisons.chargesEpuisees
+    ? 'Plus de charge'
+    : raisons.coutImpayable
+      ? 'Coût impayable'
+      : actif.nom
+
+  return (
+    <button type="button" className="btn btn--principal" disabled={bloque} onClick={onUtiliser}>
+      {libelle}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
 function LigneSort({
   sort,
   char,
   catalog,
   maj,
+  onLance,
 }: {
   sort: Sort
   char: Character
   catalog: Catalog
   /** Absent en lecture seule ; présent, il autorise la bascule de l'Hexite. */
   maj?: (t: (c: Character) => Character) => void
+  /** Absent hors du Grimoire : on ne lance que ce qu'on a préparé. */
+  onLance?: (demande: DemandeLancement) => void
 }) {
-  const dispo = disponibiliteSort(sort, char, catalog)
+  // Le « X » d'un coût variable : la joueuse décide combien elle dépense, et
+  // l'effet en dépend. Zéro tant qu'elle n'a rien saisi.
+  const [x, setX] = useState(0)
+  const [branche, setBranche] = useState(0)
+
+  const dispo = disponibiliteSort(sort, char, catalog, x)
   const epuise = char.sortsEpuises.includes(sort.id)
+  const payables = branchesPayables(char, catalog, sort.cout, x, sort)
+  const aUnX = coutAUnX(sort.cout)
 
   // La personnalité incarnée par un Soulshifter ne remplace pas l'effet du
   // sort : elle le précise. Les deux s'affichent donc l'un sous l'autre.
@@ -541,7 +606,7 @@ function LigneSort({
       detail={sort.effet}
       indisponible={!dispo.disponible}
       {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
-      {...(maj && sort.magie === 'arcane'
+      {...(maj && sortAUnCristal(sort, catalog)
         ? {
             // Une case à cocher plutôt qu'un bouton : l'Hexite épuisé est un
             // état, pas une action, et la ligne grisée dit le reste.
@@ -555,6 +620,51 @@ function LigneSort({
                 />
                 <span className="tres-discret">Hexite épuisé</span>
               </label>
+            ),
+          }
+        : {})}
+      {...(onLance
+        ? {
+            actionDetail: (
+              <div className="rangee">
+                {/* Le « OU » du coût : une branche par façon de payer, et seules
+                    celles qu'elle peut régler sont proposées. */}
+                {sort.cout.branches.length > 1 && (
+                  <select
+                    value={branche}
+                    aria-label="Payer avec"
+                    style={{ flex: 1 }}
+                    onChange={(e) => setBranche(Number(e.target.value))}
+                  >
+                    {sort.cout.branches.map((b, i) => (
+                      <option key={i} value={i} disabled={!payables.includes(i)}>
+                        {decrireBranche(b)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {aUnX && (
+                  <input
+                    type="number"
+                    min={0}
+                    value={x || ''}
+                    placeholder="X"
+                    aria-label="Valeur de X"
+                    style={{ width: 80 }}
+                    onChange={(e) => setX(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--principal"
+                  disabled={!dispo.disponible}
+                  onClick={() => onLance({ sortId: sort.id, brancheCout: branche, x })}
+                >
+                  {dispo.disponible ? 'Lancer' : 'Indisponible'}
+                </button>
+              </div>
             ),
           }
         : {})}
@@ -589,19 +699,48 @@ function OngletSorts({
     .map((id) => catalog.sort(id))
     .filter((s): s is Sort => Boolean(s))
 
+  const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIERGES)
+  const visibles = filtrerEntrees(connus, filtres) as Sort[]
+  // Dérivé, pas constant : un passif peut accorder un emplacement de plus.
+  const slotsGrimoire = tailleGrimoire(char, catalog)
+
+  // Le récit du lancement vit hors de la ligne du sort : un effet tiré doit
+  // rester lisible même quand le sort redevient indisponible dans la foulée.
+  const [dernierLancement, setDernierLancement] = useState<string | null>(null)
+
+  function lancer(demande: DemandeLancement) {
+    const r = lancerSort(char, catalog, demande, cryptoRng)
+    setDernierLancement(
+      `${r.sort.nom}` +
+        (r.de !== null ? ` — ${r.sort.de} → ${r.de}` : '') +
+        (r.effets.length ? ` · ${r.effets.join(' · ')}` : '') +
+        (r.recits.length ? ` — ${r.recits.join(' · ')}` : ''),
+    )
+    void journaliser(char.nom, 'sort', `${char.nom} lance ${r.sort.nom}.`)
+    maj((c) => ({ ...r.char, id: c.id }))
+  }
+
   return (
     <div className="pile">
       <section className="carte pile pile--serree">
         <div className="carte__titre">
           <span className="etiquette">Sorts préparés</span>
           <span className="tres-discret">
-            {prepares.length}/{TAILLE_GRIMOIRE}
+            {prepares.length}/{slotsGrimoire}
           </span>
         </div>
         {prepares.length === 0 && <p className="vide">Aucun sort préparé.</p>}
         {prepares.map((sort) => (
-          <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} maj={maj} />
+          <LigneSort
+            key={sort.id}
+            sort={sort}
+            char={char}
+            catalog={catalog}
+            maj={maj}
+            onLance={lancer}
+          />
         ))}
+        {dernierLancement && <p className="alerte alerte--info">{dernierLancement}</p>}
       </section>
 
       {permanents.length > 0 && (
@@ -611,10 +750,17 @@ function OngletSorts({
             <span className="tres-discret">accordés par votre passif</span>
           </div>
           <p className="tres-discret" style={{ margin: 0 }}>
-            Disponibles en permanence ; ils ne comptent pas dans la limite de {TAILLE_GRIMOIRE}.
+            Disponibles en permanence ; ils ne comptent pas dans la limite de {slotsGrimoire}.
           </p>
           {permanents.map((sort) => (
-            <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} maj={maj} />
+            <LigneSort
+              key={sort.id}
+              sort={sort}
+              char={char}
+              catalog={catalog}
+              maj={maj}
+              onLance={lancer}
+            />
           ))}
         </section>
       )}
@@ -624,19 +770,37 @@ function OngletSorts({
           <span className="etiquette">Sorts connus</span>
           <span className="tres-discret">préparables au prochain feu de camp</span>
         </div>
+
+        {/* Un répertoire s'allonge de session en session : le chercher à l'œil
+            devient vite pénible sur un téléphone. */}
+        <FiltresCatalogue
+          kind="sort"
+          valeur={filtres}
+          catalog={catalog}
+          total={visibles.length}
+          onChange={setFiltres}
+        />
+
         {connus.length === 0 && <p className="vide">Rien d'autre à votre répertoire.</p>}
-        {MAGIES.map((magie) => {
-          const duType = connus.filter((s) => s.magie === magie)
-          if (duType.length === 0) return null
-          return (
-            <div key={magie} className="pile pile--serree">
-              <span className="tres-discret">{LIBELLE_MAGIE[magie]}</span>
-              {duType.map((sort) => (
+        {connus.length > 0 && visibles.length === 0 && (
+          <p className="vide">Aucun sort ne correspond à cette recherche.</p>
+        )}
+
+        {/* Regroupés par type magique. On part des types **présents parmi les
+            sorts affichés** et non de la liste du catalogue : un sort dont le
+            type n'a pas encore été semé — le temps qu'une MJ se connecte —
+            resterait sinon invisible, et c'est exactement le genre de
+            disparition silencieuse qu'on ne veut pas. */}
+        {[...new Set(visibles.map((s) => s.magieId))].map((magieId) => (
+          <div key={magieId} className="pile pile--serree">
+            <span className="tres-discret">{libelleMagie(magieId, catalog)}</span>
+            {visibles
+              .filter((s) => s.magieId === magieId)
+              .map((sort) => (
                 <LigneSort key={sort.id} sort={sort} char={char} catalog={catalog} />
               ))}
-            </div>
-          )
-        })}
+          </div>
+        ))}
       </section>
     </div>
   )
@@ -654,9 +818,14 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
   const equipes = Object.entries(char.equipe).filter(([, id]) => id) as [SlotEquipement, string][]
   const parObjetPorte = new Map(equipes.map(([slot, id]) => [id, slot]))
 
-  const equipements = char.possede.equipements
-    .map((id) => catalog.equipement(id))
-    .filter((e): e is NonNullable<typeof e> => Boolean(e))
+  const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIERGES)
+
+  const equipements = filtrerEntrees(
+    char.possede.equipements
+      .map((id) => catalog.equipement(id))
+      .filter((e): e is Equipement => Boolean(e)),
+    filtres,
+  ) as Equipement[]
 
   const ameliorations = char.possede.ameliorations
     .map((id) => catalog.amelioration(id))
@@ -670,7 +839,16 @@ function OngletSac({ char, catalog }: { char: Character; catalog: Catalog }) {
 
       <section className="carte pile pile--serree">
         <span className="etiquette">Équipement</span>
-        {equipements.length === 0 && <p className="vide">Vous ne possédez aucun objet.</p>}
+
+        <FiltresCatalogue
+          kind="equipement"
+          valeur={filtres}
+          catalog={catalog}
+          total={equipements.length}
+          onChange={setFiltres}
+        />
+
+        {equipements.length === 0 && <p className="vide">Aucun objet à afficher.</p>}
         {equipements.map((eq) => {
           const porteEn = parObjetPorte.get(eq.id)
 

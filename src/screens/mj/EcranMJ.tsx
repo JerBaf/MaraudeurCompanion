@@ -5,6 +5,7 @@ import { Effets } from '../../components/Effets.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
+import { cibleValeur } from '../../domain/elements.ts'
 import { Bestiaire } from './Bestiaire.tsx'
 import { EditeurCatalogue } from './EditeurCatalogue.tsx'
 import { Inventaire } from './Inventaire.tsx'
@@ -15,7 +16,6 @@ import {
   amorcerSiNecessaire,
   definirMode,
   detacher,
-  enregistrerPersonnage,
   enregistrerSecret,
   exporterCatalogue,
   journaliser,
@@ -259,14 +259,17 @@ function DetailPersonnage({
   function ajusterCompetence(competence: Competence, delta: number) {
     maj((c) => {
       const existant = c.modifiers.find(
-        (m) => m.source.kind === 'mj' && m.target.kind === 'competence' && m.target.competence === competence,
+        (m) =>
+          m.source.kind === 'mj' &&
+          m.target.element.kind === 'competence' &&
+          m.target.element.competence === competence,
       )
       const valeur = (existant?.op.kind === 'add' ? existant.op.value : 0) + delta
       const autres = c.modifiers.filter((m) => m.id !== existant?.id)
       if (valeur === 0) return { ...c, modifiers: autres }
 
       const nouveau = modificateurMJ(
-        { kind: 'competence', competence },
+        cibleValeur({ kind: 'competence', competence }),
         { kind: 'add', value: valeur },
         `MJ — ${LIBELLE_COMPETENCE[competence]}`,
       )
@@ -283,8 +286,8 @@ function DetailPersonnage({
     maj((c) => {
       const estNet = (m: Modifier) =>
         m.source.kind === 'mj' &&
-        m.target.kind === 'competence' &&
-        m.target.competence === competence &&
+        m.target.element.kind === 'competence' &&
+        m.target.element.competence === competence &&
         (m.op.kind === 'avantage' || m.op.kind === 'desavantage')
 
       const existant = c.modifiers.find(estNet)
@@ -304,7 +307,7 @@ function DetailPersonnage({
         modifiers: [
           ...autres,
           modificateurMJ(
-            { kind: 'competence', competence },
+            cibleValeur({ kind: 'competence', competence }),
             suivant,
             `MJ — ${LIBELLE_COMPETENCE[competence]}`,
           ),
@@ -335,7 +338,9 @@ function DetailPersonnage({
     }
 
     const r = resoudreGrillePleine(char, secret as CharacterSecret, catalog, cryptoRng)
-    await enregistrerPersonnage(r.char)
+    // Par `modifierPersonnage` : le Détachement remet la grille de Fatigue à
+    // zéro, et cette baisse est un événement comme un autre.
+    await modifierPersonnage(char, () => r.char)
     await enregistrerSecret(r.secret)
 
     if (r.finDuPersonnage) {
@@ -477,7 +482,7 @@ function DetailPersonnage({
         peutAccorder
       />
 
-      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} />
+      <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} />
 
       <hr className="separateur" />
 

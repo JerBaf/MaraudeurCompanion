@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 214 tests — 179 de domaine, 4 de stockage, 31 de rendu |
+| `npm test` | 259 tests — 220 de domaine, 7 de stockage, 32 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -40,6 +40,14 @@ catalogue.
 S'y ajoute le **Combat rapide** — le duel « Flow » de
 `docs/Flow_v0.3_Playtest_Rules.docx` : un quatrième mode de table, cinq actions en anneau,
 cinq manches, sans dés. Voir § 10.
+
+Et une **refonte du modèle de contenu**, qui touche presque tout ce document. Quatre
+vocabulaires séparés en sont devenus un seul — l'**Élément Variable** — d'où découlent les
+Coûts (avec un « OU »), les Passifs (permanents, à seuil, ou en réaction), les Actifs et
+leurs charges. Les types magiques et les dossiers sont passés au catalogue, les passifs de
+classe en données, et l'app sait désormais **lancer un sort** : payer, tirer, appliquer.
+Tout le contenu écrit sous l'ancien modèle se convertit à la lecture — voir pièges n° 1 et
+n° 2 bis.
 
 ### Ce qui reste
 
@@ -66,7 +74,7 @@ src/
   store/       stockage temps réel : implémentation locale et Firestore
   data/repo.ts opérations métier sur la table — le seul écrivain
   screens/     écrans joueuse et MJ
-  components/  avatar, compteurs, icônes, objets dépliables, éditeur de passifs
+  components/  avatar, compteurs, icônes, objets dépliables, filtres, éditeurs de contenu
 firebase/      règles de sécurité Firestore
 scripts/       téléchargement des icônes
 ```
@@ -75,6 +83,28 @@ scripts/       téléchargement des icônes
 C'est ce qui permet de tester toutes les règles du jeu sans navigateur, en quelques
 millisecondes, et c'est là que vivent les décisions délicates. Si vous êtes tenté
 d'importer React ou Firestore dans `domain/`, c'est que la logique n'est pas à sa place.
+
+**À l'intérieur de `domain/`, l'ordre des couches compte aussi.** Depuis l'unification du
+modèle de contenu, une dizaine de modules s'empilent, et deux d'entre eux ont dû être
+coupés en deux pour éviter un cycle — ce n'est pas de la coquetterie, TypeScript compile
+un cycle sans broncher et la casse survient à l'exécution.
+
+```
+elements.ts     le vocabulaire : Élément Variable, Cible, registre. Ne dépend QUE de types.ts
+brulures.ts     la Magie du Sang. Extrait de magie.ts pour que couts.ts puisse l'utiliser
+modifiers.ts    l'agrégation, et le compilateur Passif → Modifier
+competences.ts  les valeurs et plafonds dérivés
+couts.ts        les Coûts, et la table des paiements
+passifs.ts      ce que SONT les passifs, et lesquels sont en vigueur
+reactions.ts    ce qu'ils FONT — a besoin des plafonds, donc vient après
+lancement.ts    lancer un sort : payer, tirer, appliquer
+```
+
+`passifs.ts` / `reactions.ts` sont séparés parce que `modifiers.ts` appelle
+`passifsActifs` : y mettre la résolution refermerait
+`modifiers → passifs → competences → modifiers`. Même raison pour la table des paiements,
+qui vit dans `couts.ts` et non dans le registre — dépenser une brûlure demande
+`brulures.ts`, qu'`elements.ts` ne peut pas importer.
 
 Le flux est à sens unique :
 
@@ -104,21 +134,29 @@ valeur affichée = base + Σ(modificateurs explicites) + Σ(modificateurs dériv
 - **Explicites** : persistés dans `Character.modifiers`. Fardeau, Serment, Marque,
   Esquive, Diversion, ajustements de la MJ.
 - **Dérivés** : recalculés par `derivedModifiers(char, catalog)`, **jamais écrits en
-  base**. Voie de la Flamme, Overdrive, Conteur, bonus d'armure portée, améliorations.
+  base**. Ils viennent presque tous d'un `Passif` — objet porté, amélioration possédée,
+  classe, option de classe retenue, Voie de la Flamme. Seul le bonus d'Évasion d'une
+  armure reste un champ à part : c'est le raccourci que la MJ attend d'une armure.
 
 C'est cette séparation qui rend l'exigence « les modificateurs doivent être dynamiques »
 tenable : si les brûlures passent de 3 à 5, le point de 6ᵉ Sens supplémentaire apparaît
 sans qu'aucun écran n'ait eu à y penser, et rien ne peut se désynchroniser.
 
 > **Les passifs se composent en données, depuis l'écran Réglages.**
-> `Equipement.modificateurs` et `Amelioration.modificateurs` sont appliqués par
-> `derivedModifiers`, et `EditeurModificateurs` (`components/`) permet à la MJ de les
-> saisir : cible — une compétence, toutes, Évasion, 6ᵉ Sens, Points d'Énergie d'attaque —
-> et opération — chiffre, avantage, désavantage. **Aucune ligne de code ne connaît le
-> talisman qu'elle vient de créer.** Un test de rendu suit ce parcours de bout en bout.
+> Un `Passif` porte un **déclenchement** — permanent, permanent au-delà d'un seuil, ou en
+> réaction à un changement — et un **effet**. `EditeurPassifs` (`components/`) les saisit,
+> `derivedModifiers` compile les permanents en `Modifier`. **Aucune ligne de code ne
+> connaît le talisman qu'elle vient de créer.** Trois tests de rendu suivent ce parcours
+> de bout en bout.
 >
-> Deux cibles restent hors de l'éditeur, délibérément : `cout-sort` sert au passif Conteur
-> et `competence-sauf` au Serment. Ce sont des mécaniques de règle, pas du contenu.
+> ⚠️ **`Passif` et `Modifier` restent deux choses distinctes.** `Passif` est du contenu
+> écrit par la MJ ; `Modifier` est la monnaie d'exécution — persistée dans
+> `Character.modifiers` (Fardeau, Serment, Marque, Esquive, Diversion), porteuse d'un
+> `posePar` et d'une échéance. `compilerPassif` est le pont de l'un vers l'autre, et il
+> refuse les opérations qui ne survivent pas à l'agrégation (`set`, `add-x`).
+>
+> Le libellé affiché retombe sur le **nom du porteur** quand le passif n'en porte pas,
+> relu à chaque rendu : renommer un objet renomme son passif, sans rien à recopier.
 
 `domain/effets.ts` en donne une vue unifiée pour l'affichage : chaque effet porte une
 **origine** parmi six — `choisi`, `feu-de-camp`, `derive`, `equipement`, `mj`,
@@ -127,8 +165,11 @@ permet à l'écran de n'offrir un contrôle que là où la règle l'autorise.
 
 Deux effets ne passent pas par des modificateurs et c'est voulu :
 - **Overheat** (Dusk Hunter) transforme le *gain* de brûlures — c'est un hook,
-  `gainBrulureEffectif` dans `magie.ts`.
-- **Illusionniste** (Trickster) débloque des sorts — voir `sortsHorsEmplacement`.
+  `gainBrulureEffectif` dans `brulures.ts`. Ce n'est **pas** une réaction : une réaction
+  s'armerait sur tout mouvement du compteur, or la barre de brûlures sert aussi de
+  bloc-notes, et cocher une case pour noter son total en offrirait une gratuite.
+- **Les sorts débloqués par une option de classe** — `Sort.requiertPassif` — ne modifient
+  aucune valeur, ils donnent accès. Voir `sortsHorsEmplacement`.
 
 ### L'horloge de combat — `domain/combat.ts`
 
@@ -240,7 +281,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Cristal épuisé | sur **1 et 2** | le texte fait foi contre la table du PDF, qui se contredisait |
 | Pool du Détachement | tous sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base | le PDF exclut explicitement les améliorations |
 | Voie de la Flamme | paliers **cumulatifs** | à 7 brûlures on garde le 6ᵉ Sens du seuil 4 |
-| Illusions du Trickster | **dérivées du passif**, pas possédées | « donne accès à » ≠ « possède » |
+| Sorts débloqués par une option de classe | **dérivés du passif**, pas possédés | « donne accès à » ≠ « possède ». `Sort.requiertPassif` nomme l'option ; généralise l'ancien drapeau `illusion`, qui ne décrivait que l'Illusionniste |
 | Invocation du Soulshifter | un **jeton** que le tirage consomme et que la **MJ rend** depuis la fiche | « une fois par heure » parle de l'heure **de fiction**, que l'app ne connaît pas : une halte au camp couvre une nuit en trois minutes de table. Un compte à rebours réel se serait trompé dans les deux sens. `passifs.vieTireeA` porte le jeton (`peutTirerUneVie`, `rendreInvocationDeVie`) |
 | Maîtrises | **+3 / 0 / −3** | remplace le ±2 de la v0. Les fiches restées à l'ancien profil sont converties à la lecture par `convertirAncienProfil` ; une répartition que la MJ a réglée à la main n'est **pas** touchée |
 | Marques | plafond **3**, rien d'automatique | la MJ dépense à la main |
@@ -255,17 +296,24 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Combustion | à la **neuvième consommée**, jamais au gain | accumuler neuf marques sans en dépenser aucune ne brûle personne |
 | Voie de la Flamme | lue sur les brûlures **acquises** | la marque reste sur la peau une fois dépensée, donc le palier tient |
 | Sorts et classes | `classesIds`, plusieurs classes possibles ; vide = ouvert à toutes | la boutique ne propose que le générique et la classe de la joueuse |
-| Objets à effets actifs | une table `1d{faces}`, une contrepartie parmi trois | même modèle pour l'Attaque Spéciale d'une arme et pour une potion — une table à une face rend l'effet déterministe |
-| Charges | par identifiant d'objet, sur la fiche ; **clé absente = objet au complet** | évite d'initialiser à chaque acquisition — achat, don de la MJ, fiche ancienne |
-| Recharge | **à la main par la MJ**, jamais au feu de camp | le PDF attache un rituel propre à chaque objet ; c'est la fiction qui décide |
-| Consommable | charges non rechargeables ; à zéro l'objet est **détruit et déséquipé** | cas dégénéré des charges, pas un second mécanisme |
-| Passifs de sorts | **non** : seuls équipements et améliorations en portent | un passif permanent se modélise par une amélioration ; évite un troisième régime d'activation |
+| Objets à effets actifs | un ou **plusieurs** `Actif`, chacun sa table `1d{faces}`, son coût et ses charges | même modèle pour l'Attaque Spéciale d'une arme et pour une potion — une table à une face rend l'effet déterministe. Coût et nombre d'usages sont **indépendants** : l'ancien modèle les confondait, ce qui interdisait un objet à la fois limité en charges et payant à l'usage |
+| Charges | par `objetId:actifId`, sur la fiche ; **clé absente = objet au complet** | évite d'initialiser à chaque acquisition — achat, don de la MJ, fiche ancienne. La clé nue de l'ancien format est relue puis effacée, sinon les deux compteurs divergeraient |
+| Recharge | **rituel** validé par la MJ, **coût** payé par la joueuse, ou **aucune** | le PDF attache un rituel propre à chaque objet ; c'est la fiction qui décide. Rien ne se recharge au feu de camp |
+| Objet épuisé | il **reste en inventaire**, marqué et inutilisable | décision de la MJ, contre la destruction automatique d'avant : un flacon vide se garde, se remplit, se revend. C'est à elle ou à la joueuse de le retirer |
+| Passifs de sorts | **non** : seuls équipements, améliorations et classes en portent | un passif permanent se modélise par une amélioration ; évite un troisième régime d'activation (sort connu ? préparé ? lancé ?). Un sort porte des **Actifs**, ce qui suffit à son lancement |
 | Plafonds de ressource | **dérivés**, comme le 6ᵉ Sens | une dague qui coûte un Point de Fatigue rend la case dès qu'on la range |
 | Passifs réactifs | « quand telle jauge bouge, telle autre varie », **une seule passe** | voir l'encadré ci-dessous |
 | Usage d'un objet | depuis la **fiche**, sous l'avatar, donc seulement s'il est **porté** | le PDF limite la joueuse à ses trois emplacements pendant la session |
+| Coûts | un `Cout` = des **branches** (« OU »), chacune des **parts** (« ET ») | « 2 Points de Foi OU 10 Lumens » ne pouvait pas s'écrire. Une part peut être fixe, variable (le « X »), ou narrative — que le moteur affiche sans prétendre la prélever |
+| Types magiques | **entrées de catalogue**, plus une union fermée | la MJ en crée depuis son écran. Les trois d'origine gardent leurs identifiants (`arcane`, `sang`, `miracle`), si bien que les sorts en base s'y rattachent sans conversion |
+| Choix de classe | **données** (`Classe.choix`), chacun avec son **verrou** | Hexcore et voie du Trickster étaient un champ codé par classe. Le verrou porte une règle : l'Hexcore se bascule quand on veut, la voie s'engage au Feu de Camp |
+| Lancer un sort | l'app **paie, tire et applique** | le coût et l'effet étant structurés, l'ajustement manuel des compteurs n'avait plus de raison d'être |
+| Durée d'un sort | `duree` reste du **texte**, doublée d'une échéance que le moteur sait tenir | l'app n'a **aucune horloge de fiction** : un effet « pendant 1 heure » ne peut pas expirer seul. La joueuse le **dissipe** à la main quand la fiction l'a consommé |
+| Emplacements | Grimoire, offres de boutique et investissements proposés sont **dérivés** | un passif peut en accorder un de plus. Ce sont des nombres *proposés*, pas des limites d'acquisition — celle-ci reste portée par `JetonsCamp` |
+| Dossiers | un dossier par entrée ; « ALL » **jamais stocké** | c'est l'absence de filtre, rien à créer ni à tenir à jour |
 | Rareté | palette nommée, `Equipement.rarete` ; absent = commun | la couleur veut dire quelque chose à table, et suit l'objet partout |
 | Entrées `seed` | **supprimables** | le drapeau ne sert plus qu'à les faire revenir à la réinitialisation |
-| Cristal épuisé | signalé **par la joueuse**, sur un sort d'Arcane préparé | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser |
+| Cristal épuisé | signalé **par la joueuse**, sur un sort préparé dont le type magique porte `cristal` | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser. Le drapeau était câblé sur l'Arcane : un type magique créé par la MJ aurait perdu la mécanique |
 | Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
@@ -284,28 +332,46 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 
 ### Les passifs réactifs passent par un point unique
 
-`resoudreDeclencheurs` (`domain/declencheurs.ts`) compare l'état d'avant à celui d'après et
-applique ce qui s'est armé. Elle est appelée depuis **`modifierPersonnage` et nulle part
-ailleurs** : c'est le seul endroit qui dispose des deux états. La brancher dans les écrans
-aurait produit des déclencheurs qui partent ou non selon qui a bougé la ressource — c'est
-d'ailleurs pourquoi l'écran MJ est passé de `enregistrerPersonnage` à `modifierPersonnage`.
+`resoudrePassifs` (`domain/reactions.ts`) compare l'état d'avant à celui d'après et applique
+ce qui s'est armé. Elle est appelée depuis **`modifierPersonnage` et nulle part ailleurs** :
+c'est le seul endroit qui dispose des deux états. La brancher dans les écrans aurait produit
+des réactions qui partent ou non selon qui a bougé la jauge — c'est pourquoi les **huit**
+sites qui écrivaient encore par `enregistrerPersonnage` y sont passés : gains de Foi au camp,
+achat, investissement, Fardeau, Serment, Diversion, grille pleine.
+
+`enregistrerPersonnage` n'est plus réservé qu'aux écritures **en masse et déjà résolues par
+le domaine** — résolution d'un camp, expiration, Détachement. Le camp est le cas limite : il
+remet la Foi et la Fatigue de toute la table d'un coup, et y armer les réactions ferait
+partir chaque passif de chaque joueuse dans la même seconde. C'est une remise à zéro, pas un
+événement.
 
 Trois bornes à ne pas lever :
 
-- **une seule passe** : un déclencheur ne peut pas en réveiller un autre. Sans cela,
-  « +1 Foi quand la Foi augmente » bouclerait à l'infini ;
-- **le résultat reste borné** par les plafonds dérivés — un déclencheur ne fait pas déborder
-  une jauge, et quand rien ne bouge il ne raconte rien ;
-- **même régime d'activation que les modificateurs** : objet porté, amélioration possédée.
+- **une seule passe, sur le roster** : chaque personnage est armé une fois, par le seul
+  changement d'origine. Ce qu'une réaction produit chez une alliée n'en réveille aucune
+  autre — sans cette borne, « une brûlure quand une alliée en prend une » ferait le tour de
+  la table indéfiniment, et personne ne pourrait suivre la cascade ;
+- **le résultat reste borné** par les plafonds dérivés — une réaction ne fait pas déborder
+  une jauge, et quand rien ne bouge elle ne raconte rien, et n'écrit rien ;
+- **même régime d'activation que les modificateurs** : objet porté, amélioration possédée,
+  classe du personnage.
 
-⚠️ Un déclencheur ne produit **aucun modificateur** — il réagit au lieu d'ajuster. `effetsActifs`
-(`domain/effets.ts`) part des modificateurs : il faut donc l'y ajouter explicitement, sans quoi
-une amélioration qui n'accorde qu'un passif réactif n'apparaît nulle part. Même piège pour tout
-passif futur qui ne passerait pas par le moteur — c'est déjà le cas d'Overheat et d'Illusionniste.
+Les réactions **croisées** (`chez: 'un-allie' | 'quiconque'`) écrivent la fiche de l'alliée
+en plus de celle de l'actrice, et le journal nomme **celle chez qui l'effet s'est produit**.
+L'ordre du roster est trié par identifiant, pour que deux appareils résolvant le même geste
+aboutissent au même état.
 
-`modifierPersonnage` lit le catalogue dans `catalogueCourant`, un cache alimenté par
-`surCatalogue`. Tant qu'il est nul — avant la première réponse — aucun déclencheur ne part,
-ce qui est le bon comportement : rien ne doit s'appliquer sur un catalogue inconnu.
+> ✅ **Un piège de longue date s'est refermé ici.** `effetsActifs` (`domain/effets.ts`)
+> partait des *modificateurs* : tout passif n'en produisant pas — une réaction, Overheat,
+> Illusionniste — devait y être ajouté **à la main**, et l'oubli ne se voyait nulle part.
+> La liste part désormais des **passifs** : tout ce que la MJ compose y figure par
+> construction. Ne restent en dur que les trois mécaniques qui ne sont pas des passifs —
+> Overheat, les sorts débloqués par une option de classe, et la vie du Soulshifter.
+
+`modifierPersonnage` lit le catalogue dans `catalogueCourant` et le roster dans
+`personnagesCourants`, deux caches alimentés par les souscriptions. Tant qu'ils sont vides —
+avant la première réponse — aucune réaction ne part, ce qui est le bon comportement : rien
+ne doit s'appliquer sur un catalogue ou un roster inconnu.
 
 ### Les brûlures se comptent deux fois
 
@@ -332,7 +398,7 @@ Trois conséquences qu'un seul compteur ne peut pas rendre :
 
 La barre de neuf pastilles porte les deux compteurs à la fois : un clic marque la brûlure
 acquise (orange), un deuxième la marque dépensée (rouge), un troisième l'efface —
-`basculerCaseBrulure` dans `magie.ts`. Les deux compteurs étant des **préfixes**, effacer
+`basculerCaseBrulure` dans `brulures.ts`. Les deux compteurs étant des **préfixes**, effacer
 une case efface aussi tout ce qui la suit ; une barre trouée n'aurait pas de sens.
 
 ---
@@ -357,10 +423,18 @@ par ordre de préférence :
 
 1. **Dériver plutôt que stocker** — la capacité se recalcule depuis l'état, donc elle
    apparaît immédiatement partout ;
-2. **Passer par l'éditeur de catalogue** (Réglages) — c'est la voie prévue pour le
+2. **Convertir à la lecture** — `normaliserEntree` (voir piège n° 2 bis) ; c'est ainsi que
+   tout le contenu écrit sous l'ancien modèle continue de se lire ;
+3. **Passer par l'éditeur de catalogue** (Réglages) — c'est la voie prévue pour le
    contenu ;
-3. En dernier recours, le bouton « Réinitialiser le catalogue », qui **écrase aussi les
+4. En dernier recours, le bouton « Réinitialiser le catalogue », qui **écrase aussi les
    entrées de la MJ**.
+
+⚠️ Corollaire moins évident : `amorcerSiNecessaire` ne tourne **que pour la MJ**. Entre un
+déploiement et sa prochaine connexion, une entrée nouvellement semée n'existe pas encore
+pour les joueuses. Tout ce qui la lit doit donc se replier proprement — c'est pourquoi
+`libelleMagie` retombe sur les trois noms d'origine puis sur l'identifiant brut, et
+pourquoi la Voie de la Flamme est restée **en code** plutôt qu'au catalogue.
 
 #### Piège n° 2 : ajouter un champ à `Character` ne l'ajoute pas aux fiches existantes
 
@@ -378,6 +452,23 @@ Survenu trois fois — illusions, catalogue, puis `investissements` (qui faisait
 > `normaliserPersonnage`.** C'est la seule chose à retenir de cette section.
 
 Trois tests gardent cette régression (`describe('normalisation des fiches lues en base')`).
+
+#### Piège n° 2 bis : le même piège vaut pour le catalogue
+
+Une entrée de catalogue écrite l'an dernier ne connaît pas le modèle d'aujourd'hui, et
+l'amorçage ne la réécrira **jamais** (piège n° 1). `normaliserEntree` est son
+`normaliserPersonnage` : elle convertit à la lecture les coûts de sorts à l'ancienne forme,
+les `modificateurs` et `declencheurs` en `Passif`, la table unique d'un objet en `Actif`,
+`magie` en `magieId`, `illusion` en `requiertPassif`.
+
+⚠️ **Elle vit dans `createCatalog`, pas chez l'appelant.** Il existe trois usages du
+catalogue — la souscription temps réel, le lancement d'un feu de camp qui relit la
+collection, et l'export JSON — et normaliser en amont aurait obligé chacun à y penser.
+Un seul chemin, comme `normaliserPersonnage` dans `surPersonnages`.
+
+> **Si vous changez la forme d'une entrée de catalogue, donnez-lui sa conversion dans
+> `normaliserEntree`.** Plusieurs fixtures de test restent délibérément à l'ancien format
+> pour garder ce chemin sous garde.
 
 #### Piège n° 3 : la lecture Firestore est tout-ou-rien
 
@@ -429,9 +520,15 @@ Quatre tests couvrent les cas décrits par la MJ.
 
 #### Piège n° 6 : les paliers de la Voie de la Flamme se cumulent
 
-Un drapeau `VOIE_FLAMME_CUMULATIVE` a existé, puis a été remplacé par `PALIERS_FLAMME`,
-une liste de seuils dont on obtient **tous** ceux atteints. Ajouter un palier = ajouter
-une entrée. Ne réintroduisez pas d'énumération exclusive.
+Un drapeau `VOIE_FLAMME_CUMULATIVE` a existé, puis a été remplacé par une liste de seuils
+dont on obtient **tous** ceux atteints. Ajouter un palier = ajouter une entrée. Ne
+réintroduisez pas d'énumération exclusive.
+
+Les paliers sont aujourd'hui des `Passif` à condition de seuil (`PASSIFS_FLAMME`,
+`domain/passifs.ts`), donc exprimés dans le même vocabulaire que le contenu de la MJ. Ils
+restent **en code** et non au catalogue, à dessein : le contenu semé n'atteint une table
+qu'à la connexion de la MJ (piège n° 1), et les y déplacer priverait les joueuses de la
+Voie de la Flamme entre un déploiement et cette connexion.
 
 #### Piège n° 7 : ce qui ne doit jamais entrer dans un document public
 
@@ -480,6 +577,7 @@ murs ; `overlay` reste utilisable pour ce qu'on ne fait que *pousser* vers un é
 | Piège | Détail |
 |---|---|
 | **Deux configs Vite** | `vite.config.ts` et `vitest.config.ts` sont séparés à dessein : vitest 2 embarque Vite 5, le projet utilise Vite 6, et les mélanger fait diverger les types du plugin React. Ne les fusionnez pas. |
+| **Firestore refuse un tableau de tableaux** | Et le store local, qui sérialise en JSON, l'accepte : le bug n'apparaîtrait qu'à la première sauvegarde de la MJ, **en production**. C'est pourquoi `Cout` s'écrit `{ branches: [{ parts: [...] }] }` et non un tableau nu à deux niveaux. Une assertion de forme garde le cas dans `firestore.test.ts`, faute d'émulateur. |
 | **Les tests forcent le mode local** | `SOUS_TEST` dans `store/index.ts`. Sans cela, la suite dépendrait de la présence d'une config Firebase — elle casserait dès que `src/config.ts` est renseigné, **et bloquerait le déploiement** puisque GitHub Actions lance les tests avant le build. |
 | **Polyfill Storage** | `src/test-setup.ts` installe un `localStorage`/`sessionStorage` en mémoire : Node ≥ 22 expose un `localStorage` global inerte, et jsdom ne fournit pas toujours le sien. |
 | **`base` de Vite** | `base: '/MaraudeurCompanion/'` — le site est servi sous le nom du dépôt. Les chemins d'assets passent par `import.meta.env.BASE_URL`. |
@@ -560,19 +658,22 @@ Ce sont des interprétations. Si la MJ dit autre chose, elle a raison.
 
 ## 8. Décisions revenues sur elles-mêmes
 
-Cinq choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
+Huit choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
 
 | Sujet | D'abord | Puis | Pourquoi |
 |---|---|---|---|
-| **Voie de la Flamme** | paliers exclusifs, drapeau `VOIE_FLAMME_CUMULATIVE` | liste de seuils cumulatifs `PALIERS_FLAMME` | la MJ les joue cumulatifs ; la liste rend le drapeau inutile et l'ajout d'un palier trivial |
+| **Voie de la Flamme** | paliers exclusifs, drapeau `VOIE_FLAMME_CUMULATIVE` | liste de seuils cumulatifs, aujourd'hui des `Passif` à condition (`PASSIFS_FLAMME`) | la MJ les joue cumulatifs ; la liste rend le drapeau inutile et l'ajout d'un palier trivial |
 | **Illusions du Trickster** | ajoutées à `possede.sorts` à la création | **dérivées** du passif via `sortsHorsEmplacement` | un correctif à la création n'atteint pas les fiches existantes ; et « donne accès à » ≠ « possède » |
 | **Cycles (1d4+2)** | tirés par l'app à la création | **saisis par la MJ** sur son écran | tirés côté joueuse, son navigateur en gardait la trace — la console les révélait |
 | **Nature du camp** | deux booléens indépendants, `finDeJournee` et `debutDeSession` | un `type: 'initial' \| 'repos-court'` et une table `PROFILS_CAMP` | les deux booléens pouvaient se contredire (Banque fermée sur un brouillon resté en phase `banque`), et `finDeJournee` valant `false` par défaut verrouillait silencieusement tous les gains de Foi |
 | **Jetons de camp** | booléens dans `Session.jetons` | datés, sur `Character.jetonsCamp` | voir piège n° 8 : mauvais document (écriture refusée aux joueuses) et mauvaise forme (rien ne les réinitialisait) |
+| **Vocabulaire du contenu** | quatre listes séparées — `Ressource` (réactions), `ModifierTarget` (passifs), `CoutSort`, `CoutUsage` | un seul **Élément Variable**, et une `Cible` = élément + aspect | les quatre décrivaient la même chose sans se connaître. Une réaction ne pouvait pas viser l'Évasion, un coût ne pouvait pas se payer en Marques — non par choix de règle, mais parce que les listes n'avaient jamais été écrites au même endroit |
+| **Passifs** | deux tableaux, `modificateurs` et `declencheurs` | un seul type `Passif`, porteur de son **déclenchement** | ils ne différaient que par ce qui les armait, jamais par leur effet. Les réunir permet à une réaction d'accorder un bonus d'Évasion, et à un permanent de n'agir qu'au-delà d'un seuil — deux choses qu'aucun des deux ne savait faire |
+| **Objet épuisé** | détruit et déséquipé automatiquement | **conservé**, marqué, retiré à la main | décision de la MJ : un flacon vide se garde, se remplit, se revend |
 
 Le fil commun de ces retours : **préférer le dérivé au stocké**, **ne jamais faire transiter
-par un appareil ce qu'il ne doit pas savoir**, et **ranger un état là où celui qui l'écrit a
-le droit d'écrire**.
+par un appareil ce qu'il ne doit pas savoir**, **ranger un état là où celui qui l'écrit a
+le droit d'écrire**, et **n'écrire un vocabulaire qu'une fois**.
 
 ---
 
@@ -582,7 +683,7 @@ le droit d'écrire**.
 2. `npm install && npm run dev`, deux onglets **du même navigateur** (MJ, PIN `1234` ;
    joueuse, code `ENTREMONDE`). Connectez-vous **en MJ d'abord** : le catalogue s'installe
    à ce moment-là.
-3. Parcourez `src/domain/rules.test.ts` — 169 tests qui décrivent le système mieux que
+3. Parcourez `src/domain/rules.test.ts` — 220 tests qui décrivent le système mieux que
    n'importe quelle prose.
 4. Demandez à la MJ ce qu'elle veut, et posez-lui vos questions avant de coder.
 

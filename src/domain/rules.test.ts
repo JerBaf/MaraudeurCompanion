@@ -59,6 +59,9 @@ import {
   computeFoiMax,
   computeMarquesMax,
   computeSixthSens,
+  tailleGrimoire,
+  tailleInvestissements,
+  tailleOffres,
 } from './competences.ts'
 import {
   effetsActifs,
@@ -87,6 +90,7 @@ import {
   coutAdditionnel,
   sortOuvertA,
   coutFoiEffectif,
+  decrireCoutSort,
   disponibiliteSort,
   estHorsEmplacement,
   grimoireEffectif,
@@ -107,7 +111,36 @@ import {
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
-import { resoudreDeclencheurs } from './declencheurs.ts'
+import { resoudrePassifs } from './reactions.ts'
+import { dissiperEffet, estPoseParUnSort, lancerSort } from './lancement.ts'
+import { normaliserCible, type Cible, type CibleHeritee, type CleElement } from './elements.ts'
+import {
+  DOSSIER_TOUS,
+  FILTRES_VIERGES,
+  filtrerEntrees,
+  poidsCout,
+  SANS_DOSSIER,
+  type FiltresCatalogue,
+} from './filtres.ts'
+import {
+  branchesPayables,
+  COUT_GRATUIT,
+  coutAuChoix,
+  coutDe,
+  decrireCout,
+  disponiblePour,
+  fixe,
+  payerCout,
+  peutPayer,
+  variable,
+} from './couts.ts'
+
+/**
+ * Une cible telle qu'elle dort en base, écrite avant l'unification des Éléments
+ * Variables. Les fixtures qui l'emploient ne sont pas en retard sur le modèle :
+ * elles vérifient que `normaliserCible` les relit encore.
+ */
+const ancienneCible = (c: CibleHeritee): Cible => c as unknown as Cible
 import {
   actionScriptee,
   appatDe,
@@ -122,13 +155,24 @@ import {
   OBJECTIF_POINTS,
   perdContre,
 } from './duel.ts'
-import { chargesRestantes, peutUtiliser, rechargerObjet, utiliserObjet } from './objets.ts'
+import {
+  actifsDe,
+  chargesRestantes,
+  detailObjet,
+  estEpuise,
+  peutUtiliser,
+  rechargerActif,
+  retirerObjet,
+  utiliserActif,
+} from './objets.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import { ACTIONS_DUEL } from './types.ts'
 import type {
   ActionDuel,
+  Actif,
   Amelioration,
   Character,
+  Competence,
   CoutUsage,
   EntreeCatalogue,
   Equipement,
@@ -136,6 +180,8 @@ import type {
   Investissement,
   MancheJouee,
   ModeleAdversaire,
+  Modifier,
+  Passif,
   Sort,
   VieSoulshifter,
 } from './types.ts'
@@ -155,7 +201,13 @@ function nouveauPerso(classeId: string, patch: Partial<Character> = {}): Charact
     catalog,
     0,
   )
-  return { ...char, ...patch }
+  /*
+   * Passe par `normaliserPersonnage`, comme toute fiche qui entre dans
+   * l'application (`surPersonnages`). Les fixtures peuvent ainsi rester à
+   * l'ancien format — `passifs: { hexcore: … }`, `voieTrickster` — et servent
+   * du même coup de garde-fou à la conversion.
+   */
+  return normaliserPersonnage({ ...char, ...patch })
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +378,13 @@ describe('Voie de la Flamme', () => {
     expect(computeSixthSens(calme, catalog).max).toBe(1)
     expect(computeSixthSens(chaud, catalog).max).toBe(2)
     expect(chaud.modifiers).toHaveLength(0)
-    expect(derivedModifiers(chaud, catalog).some((m) => m.target.kind === 'sixth-sens')).toBe(true)
+    // Le palier hausse le **plafond** de 6th Sens, pas sa valeur courante :
+    // s'y tromper ferait taire le bonus sans que rien ne le signale.
+    expect(
+      derivedModifiers(chaud, catalog).some(
+        (m) => m.target.element.kind === 'sixth-sens' && m.target.aspect === 'plafond',
+      ),
+    ).toBe(true)
   })
 
   it('cumule les paliers : à 8 brûlures, 6th Sens ET avantage en Physique', () => {
@@ -548,9 +606,476 @@ describe('disponibilité des sorts', () => {
     expect(disponibiliteSort(catalog.sort('mage-hand') as Sort, char, catalog).disponible).toBe(true)
   })
 
+  /**
+   * Les deux anciennes raisons — `foi-insuffisante`, `brulures-insuffisantes` —
+   * ont fusionné en `cout-impayable` : avec un coût qui admet un « OU », ce
+   * n'est plus telle monnaie qui manque, mais toutes les façons de payer qui
+   * sont fermées.
+   */
   it('refuse un Miracle sans assez de Foi', () => {
-    const char = nouveauPerso('dusk-hunter', { foi: 1, grimoire: ['first-aid'] })
-    expect(disponibiliteSort(catalog.sort('first-aid') as Sort, char, catalog).raisons).toContain('foi-insuffisante')
+    const first = catalog.sort('first-aid') as Sort
+    const demunie = nouveauPerso('dusk-hunter', { foi: 1, grimoire: ['first-aid'] })
+    expect(disponibiliteSort(first, demunie, catalog).raisons).toContain('cout-impayable')
+
+    const riche = nouveauPerso('dusk-hunter', { foi: 3, grimoire: ['first-aid'] })
+    expect(disponibiliteSort(first, riche, catalog).disponible).toBe(true)
+  })
+
+  it('refuse un sort de Sang dont les brûlures ont déjà été dépensées', () => {
+    const heat = catalog.sort('heat-track') as Sort
+    // Neuf marques sur la peau, mais toutes consommées : rien à dépenser.
+    const vidée = nouveauPerso('dusk-hunter', {
+      grimoire: ['heat-track'],
+      brulures: 9,
+      bruluresConsommees: 9,
+    })
+    expect(disponibiliteSort(heat, vidée, catalog).raisons).toContain('cout-impayable')
+
+    const marquee = nouveauPerso('dusk-hunter', {
+      grimoire: ['heat-track'],
+      brulures: 2,
+      bruluresConsommees: 1,
+    })
+    expect(disponibiliteSort(heat, marquee, catalog).disponible).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+describe('lancer un sort', () => {
+  /** Un sort à effet concret : « 2 Foi OU 10 Lumens », +2 en Physique. */
+  const benediction: Sort = {
+    kind: 'sort',
+    id: 'benediction',
+    nom: 'Bénédiction',
+    icone: 'healing',
+    magieId: 'miracle',
+    cout: coutAuChoix([fixe('foi', 2)], [fixe('lumens', 10)]),
+    de: null,
+    duree: '1 heure',
+    effet: 'La Lumière vous porte.',
+    actifs: [
+      {
+        id: 'principal',
+        nom: 'Bénédiction',
+        table: {
+          faces: 1,
+          entrees: [
+            {
+              texte: 'La Lumière vous porte.',
+              operations: [
+                {
+                  kind: 'ajuster',
+                  cible: { element: { kind: 'competence', competence: 'physique' }, aspect: 'valeur' },
+                  op: { kind: 'add', value: 2 },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  }
+
+  const avecSort = createCatalog([...SEED, benediction])
+  const lanceuse = (patch: Partial<Character> = {}) =>
+    nouveauPerso('trickster', { grimoire: [benediction.id], ...patch })
+
+  it('débite la branche de coût choisie, et elle seule', () => {
+    const char = lanceuse({ foi: 5, lumens: 40 })
+
+    const parFoi = lancerSort(char, avecSort, { sortId: benediction.id, brancheCout: 0 }, seededRng(1))
+    expect(parFoi.char.foi).toBe(3)
+    expect(parFoi.char.lumens).toBe(40)
+
+    const parLumens = lancerSort(char, avecSort, { sortId: benediction.id, brancheCout: 1 }, seededRng(1))
+    expect(parLumens.char.lumens).toBe(30)
+    expect(parLumens.char.foi).toBe(5)
+  })
+
+  it('pose l’effet concret comme un modificateur, dissipable à la main', () => {
+    const char = lanceuse({ foi: 5 })
+    const r = lancerSort(char, avecSort, { sortId: benediction.id }, seededRng(1))
+
+    expect(computeCompetence(r.char, avecSort, 'physique').bonus).toBe(2)
+    expect(r.effets.join(' ')).toContain('La Lumière vous porte.')
+
+    /*
+     * Sans horloge de fiction, l'effet ne peut pas expirer seul : c'est la
+     * joueuse qui déclare que l'heure est passée.
+     */
+    const pose = r.char.modifiers.find(estPoseParUnSort)
+    expect(pose).toBeTruthy()
+    const apres = dissiperEffet(r.char, (pose as Modifier).id)
+    expect(computeCompetence(apres, avecSort, 'physique').bonus).toBe(0)
+  })
+
+  it('refuse un sort que la joueuse ne peut pas payer', () => {
+    const demunie = lanceuse({ foi: 0, lumens: 0 })
+    expect(() => lancerSort(demunie, avecSort, { sortId: benediction.id }, seededRng(1))).toThrow()
+  })
+
+  it('refuse un sort absent du Grimoire', () => {
+    const distraite = nouveauPerso('trickster', { grimoire: [], foi: 5 })
+    expect(() => lancerSort(distraite, avecSort, { sortId: benediction.id }, seededRng(1))).toThrow()
+  })
+
+  /** Le « X » : la joueuse choisit ce qu'elle dépense, et l'effet en dépend. */
+  it('prélève le X choisi, borné par la part', () => {
+    const sundown = catalog.sort('sundown') as Sort
+    const char = nouveauPerso('dusk-hunter', { grimoire: [sundown.id], marques: 3 })
+
+    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 2 }, seededRng(1)).char.marques).toBe(1)
+    // Le maximum déclaré fait loi, même si la joueuse en demande plus.
+    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 9 }, seededRng(1)).char.marques).toBe(0)
+  })
+
+  it('lance le dé du sort quand il en porte un', () => {
+    const polymorph = catalog.sort('polymorph') as Sort
+    const char = nouveauPerso('trickster', { grimoire: [polymorph.id] })
+
+    const r = lancerSort(char, catalog, { sortId: polymorph.id }, seededRng(3))
+    expect(r.de).toBeGreaterThanOrEqual(1)
+    expect(r.de).toBeLessThanOrEqual(6)
+  })
+
+  it('raconte la Combustion quand le coût en brûlures la provoque', () => {
+    const heat = catalog.sort('heat-track') as Sort
+    const alaLimite = nouveauPerso('dusk-hunter', {
+      grimoire: [heat.id],
+      brulures: 9,
+      bruluresConsommees: 8,
+    })
+
+    const r = lancerSort(alaLimite, catalog, { sortId: heat.id }, seededRng(1))
+    expect(r.recits.join(' ')).toContain('Combustion')
+    expect(r.char.fatigue.coches).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Trois comptes qui étaient des constantes. Les rendre dérivés, c'est permettre
+ * à la MJ d'écrire « cette amélioration donne un emplacement de Grimoire de
+ * plus » sans toucher au code.
+ */
+describe('emplacements dérivés', () => {
+  const ameliorationQuiAjoute = (element: CleElement, id: string): Amelioration => ({
+    kind: 'amelioration',
+    id,
+    nom: `Don — ${id}`,
+    icone: 'crystal-shine',
+    prix: 100,
+    effetTexte: 'Un emplacement de plus.',
+    passifs: [
+      {
+        id: 'slot',
+        libelle: '',
+        declenchement: { kind: 'permanent' },
+        effet: {
+          texte: '',
+          operations: [
+            {
+              kind: 'ajuster',
+              cible: { element: { kind: element } as never, aspect: 'valeur' },
+              op: { kind: 'add', value: 1 },
+            },
+          ],
+        },
+      },
+    ],
+  })
+
+  const avec = (element: CleElement, id: string) => {
+    const am = ameliorationQuiAjoute(element, id)
+    const catalogue = createCatalog([...SEED, am])
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [am.id] },
+    })
+    return { catalogue, char }
+  }
+
+  it('part des bases quand rien ne les modifie', () => {
+    const nu = nouveauPerso('trickster')
+    expect(tailleGrimoire(nu, catalog)).toBe(TAILLE_GRIMOIRE)
+    expect(tailleOffres(nu, catalog)).toBe(3)
+    expect(tailleInvestissements(nu, catalog)).toBe(3)
+  })
+
+  it('suit un passif qui accorde un emplacement de Grimoire', () => {
+    const { catalogue, char } = avec('slots-grimoire', 'grimoire-plus')
+    expect(tailleGrimoire(char, catalogue)).toBe(TAILLE_GRIMOIRE + 1)
+    // Et la validation suit : un quatrième sort devient acceptable.
+    expect(grimoireValide(['a', 'b', 'c', 'd'], char, catalogue)).toBe(true)
+  })
+
+  it('suit un passif qui accorde une offre en boutique', () => {
+    const am = ameliorationQuiAjoute('slots-boutique', 'boutique-plus')
+
+    // De quoi remplir la boutique : le catalogue livré ne compte que trois
+    // entrées à vendre, ce qui bornerait le tirage avant le passif.
+    const bibelots = Array.from({ length: 6 }, (_, i) => ({
+      kind: 'equipement' as const,
+      id: `bibelot-${i}`,
+      nom: `Bibelot ${i}`,
+      icone: 'crystal-shine',
+      slot: 'bibelot' as const,
+      prix: 10,
+    }))
+
+    const catalogue = createCatalog([...SEED, am, ...bibelots])
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [am.id] },
+    })
+
+    expect(tailleOffres(char, catalogue)).toBe(4)
+    // `tirerOffres` en tire d'autant plus, sans qu'on ait à lui dire combien.
+    expect(tirerOffres(char, catalogue, seededRng(1)).length).toBe(4)
+
+    // Sans le passif, la même boutique n'en propose que trois.
+    const sansPassif = nouveauPerso('trickster')
+    expect(tirerOffres(sansPassif, catalogue, seededRng(1)).length).toBe(3)
+  })
+
+  /**
+   * Le plancher porte une règle : un Grimoire sans emplacement rendrait tout
+   * sort inlançable, ce qu'aucun contenu ne devrait pouvoir provoquer.
+   */
+  it('garde au moins un emplacement de Grimoire', () => {
+    const punitif: Amelioration = {
+      kind: 'amelioration',
+      id: 'grimoire-moins',
+      nom: 'Mémoire trouée',
+      icone: 'crystal-shine',
+      prix: 0,
+      effetTexte: 'Neuf emplacements en moins — bien plus qu’il n’en existe.',
+      passifs: [
+        {
+          id: 'slot',
+          libelle: '',
+          declenchement: { kind: 'permanent' },
+          effet: {
+            texte: '',
+            operations: [
+              {
+                kind: 'ajuster',
+                cible: { element: { kind: 'slots-grimoire' }, aspect: 'valeur' },
+                op: { kind: 'add', value: -9 },
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const catalogue = createCatalog([...SEED, punitif])
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [punitif.id] },
+    })
+    expect(tailleGrimoire(char, catalogue)).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+describe('filtres du catalogue', () => {
+  const entree = (patch: Partial<Equipement> & { id: string; nom: string }): Equipement => ({
+    kind: 'equipement',
+    icone: 'crystal-shine',
+    slot: 'arme',
+    ...patch,
+  })
+
+  const lot: Equipement[] = [
+    entree({ id: 'a', nom: 'Épée courte', rarete: 'commun', prix: 30, creeLe: 300, slot: 'arme' }),
+    entree({ id: 'b', nom: 'Cuirasse', rarete: 'rare', prix: 10, creeLe: 100, slot: 'armure', dossierId: 'd1' }),
+    entree({ id: 'c', nom: 'Amulette', rarete: 'legendaire', creeLe: 200, slot: 'bibelot', dossierId: 'd1' }),
+  ]
+
+  const avec = (patch: Partial<FiltresCatalogue>) => filtrerEntrees(lot, { ...FILTRES_VIERGES, ...patch })
+  const ids = (r: EntreeCatalogue[]) => r.map((e) => e.id)
+
+  it('cherche sans se soucier des accents ni de la casse', () => {
+    // « epee » doit trouver « Épée » : sans cela le filtre serait inutilisable
+    // en français à une main, sur téléphone.
+    expect(ids(avec({ texte: 'epee' }))).toEqual(['a'])
+    expect(ids(avec({ texte: 'ÉPÉE' }))).toEqual(['a'])
+    expect(ids(avec({ texte: 'zzz' }))).toEqual([])
+  })
+
+  it('filtre par dossier, et sait isoler ce qui n’est rangé nulle part', () => {
+    expect(ids(avec({ dossierId: 'd1' })).sort()).toEqual(['b', 'c'])
+    expect(ids(avec({ dossierId: SANS_DOSSIER }))).toEqual(['a'])
+    // « Tous » n'est pas un dossier : c'est l'absence de filtre.
+    expect(ids(avec({ dossierId: DOSSIER_TOUS })).length).toBe(3)
+  })
+
+  it('filtre par rareté, l’absence valant « commun »', () => {
+    expect(ids(avec({ rarete: 'commun' }))).toEqual(['a'])
+    expect(ids(avec({ rarete: 'legendaire' }))).toEqual(['c'])
+  })
+
+  it('filtre par emplacement', () => {
+    expect(ids(avec({ slot: 'armure' }))).toEqual(['b'])
+  })
+
+  it('combine les axes', () => {
+    expect(ids(avec({ dossierId: 'd1', rarete: 'rare' }))).toEqual(['b'])
+    expect(ids(avec({ dossierId: 'd1', rarete: 'commun' }))).toEqual([])
+  })
+
+  it('trie par nom, rareté, prix et date de création', () => {
+    expect(ids(avec({ tri: 'nom' }))).toEqual(['c', 'b', 'a'])
+    expect(ids(avec({ tri: 'rarete' }))).toEqual(['a', 'b', 'c'])
+    // Sans prix = hors boutique : rangé en fin de liste, jamais confondu
+    // avec un objet gratuit.
+    expect(ids(avec({ tri: 'prix' }))).toEqual(['b', 'a', 'c'])
+    expect(ids(avec({ tri: 'creation' }))).toEqual(['b', 'c', 'a'])
+    expect(ids(avec({ tri: 'creation', ordre: 'desc' }))).toEqual(['a', 'c', 'b'])
+  })
+
+  /**
+   * Sans ce départage, l'ordre serait celui — imprévisible — des documents
+   * Firestore, et la liste changerait d'aspect d'un rendu à l'autre.
+   */
+  it('départage par le nom quand l’axe de tri ne tranche pas', () => {
+    const exaequo = [
+      entree({ id: 'z', nom: 'Zeste' }),
+      entree({ id: 'y', nom: 'Abricot' }),
+    ]
+    expect(
+      filtrerEntrees(exaequo, { ...FILTRES_VIERGES, tri: 'rarete' }).map((e) => e.id),
+    ).toEqual(['y', 'z'])
+  })
+
+  it('pèse un coût sur sa branche la moins chère, le X ne comptant pas', () => {
+    expect(poidsCout(COUT_GRATUIT)).toBe(0)
+    expect(poidsCout(coutDe(fixe('foi', 3)))).toBe(3)
+    expect(poidsCout(coutAuChoix([fixe('foi', 2)], [fixe('lumens', 10)]))).toBe(2)
+    // Le X est choisi au lancement : le prétendre connu tromperait le tri.
+    expect(poidsCout(coutDe(variable('brulures', { min: 1 })))).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+describe('coûts', () => {
+  const nu = () => nouveauPerso('dusk-hunter', { foi: 2, lumens: 40, marques: 0 })
+
+  it('est gratuit quand il n’a aucune branche', () => {
+    expect(peutPayer(nu(), catalog, COUT_GRATUIT)).toBe(true)
+    expect(decrireCout(COUT_GRATUIT)).toBe('sans coût')
+    expect(payerCout(nu(), catalog, COUT_GRATUIT).char).toEqual(nu())
+  })
+
+  /**
+   * Le « OU » est ce que l'ancien modèle ne savait pas dire. Une seule branche
+   * suffit à rendre le coût payable, et c'est celle qu'on choisit qui est
+   * prélevée — les autres restent intactes.
+   */
+  it('accepte « 2 Foi OU 10 Lumens » et ne prélève que la branche choisie', () => {
+    const cout = coutAuChoix([fixe('foi', 2)], [fixe('lumens', 10)])
+    expect(decrireCout(cout)).toBe('2 Foi ou 10 Lumens')
+
+    const desargentee = nouveauPerso('dusk-hunter', { foi: 2, lumens: 0 })
+    expect(branchesPayables(desargentee, catalog, cout)).toEqual([0])
+
+    const impie = nouveauPerso('dusk-hunter', { foi: 0, lumens: 40 })
+    expect(branchesPayables(impie, catalog, cout)).toEqual([1])
+
+    const aisee = nu()
+    expect(branchesPayables(aisee, catalog, cout)).toEqual([0, 1])
+
+    const parLesLumens = payerCout(aisee, catalog, cout, { branche: 1 }).char
+    expect(parLesLumens.lumens).toBe(30)
+    expect(parLesLumens.foi).toBe(2)
+  })
+
+  it('refuse le coût quand aucune branche n’est payable', () => {
+    const cout = coutAuChoix([fixe('foi', 9)], [fixe('lumens', 999)])
+    expect(peutPayer(nu(), catalog, cout)).toBe(false)
+    expect(() => payerCout(nu(), catalog, cout)).toThrow()
+  })
+
+  it('paie toutes les parts d’une même branche', () => {
+    const cout = coutDe(fixe('foi', 1), fixe('lumens', 5))
+    const apres = payerCout(nu(), catalog, cout).char
+    expect(apres.foi).toBe(1)
+    expect(apres.lumens).toBe(35)
+  })
+
+  it('borne le X aux limites déclarées', () => {
+    const cout = coutDe(variable('marques', { max: 3 }))
+    const char = nouveauPerso('dusk-hunter', { marques: 3 })
+
+    expect(decrireCout(cout)).toBe('X Marques (max 3)')
+    // Demander 5 ne prélève que 3 : le maximum fait loi.
+    expect(payerCout(char, catalog, cout, { branche: 0, x: 5 }).char.marques).toBe(0)
+    expect(payerCout(char, catalog, cout, { branche: 0, x: 2 }).char.marques).toBe(1)
+  })
+
+  /**
+   * ⚠️ La Fatigue a une polarité inversée : la payer, c'est **cocher** une
+   * case, donc faire monter la jauge. Ce qui reste disponible est ce qui n'est
+   * pas coché, pas la valeur lue.
+   */
+  it('coche une case quand le coût se paie en Fatigue', () => {
+    const char = nouveauPerso('dusk-hunter') // 5 cases, aucune cochée
+    expect(disponiblePour(char, catalog, { kind: 'fatigue' })).toBe(5)
+
+    const apres = payerCout(char, catalog, coutDe(fixe('fatigue', 2))).char
+    expect(apres.fatigue.coches).toBe(2)
+    expect(disponiblePour(apres, catalog, { kind: 'fatigue' })).toBe(3)
+
+    // Grille pleine : on ne peut plus rien encaisser.
+    const epuisee = nouveauPerso('dusk-hunter', { fatigue: { max: 5, coches: 5 } })
+    expect(peutPayer(epuisee, catalog, coutDe(fixe('fatigue', 1)))).toBe(false)
+  })
+
+  /**
+   * ⚠️ Les brûlures se paient sur la part **non consommée**, pas sur le total
+   * acquis : une marque déjà dépensée ne paie pas un second sort.
+   */
+  it('paie les brûlures sur ce qui reste dépensable, et brûle à la neuvième', () => {
+    const marquee = nouveauPerso('dusk-hunter', { brulures: 3, bruluresConsommees: 2 })
+    expect(disponiblePour(marquee, catalog, { kind: 'brulures' })).toBe(1)
+    expect(peutPayer(marquee, catalog, coutDe(fixe('brulures', 2)))).toBe(false)
+
+    const alaLimite = nouveauPerso('dusk-hunter', { brulures: 9, bruluresConsommees: 8 })
+    const r = payerCout(alaLimite, catalog, coutDe(fixe('brulures', 1)))
+    expect(r.char.brulures).toBe(0)
+    expect(r.char.bruluresConsommees).toBe(0)
+    expect(r.char.fatigue.coches).toBe(1)
+    expect(r.recits.join(' ')).toContain('Combustion')
+  })
+
+  /**
+   * Une part narrative n'est pas prélevée — le moteur ne prétend pas savoir la
+   * appliquer — mais elle ne bloque rien non plus : c'est la MJ qui arbitre.
+   */
+  it('affiche une contrepartie narrative sans la prélever', () => {
+    const cout = coutDe({ kind: 'narratif', description: 'Une Marque toutes les 3 utilisations' })
+    expect(peutPayer(nu(), catalog, cout)).toBe(true)
+    expect(payerCout(nu(), catalog, cout).char).toEqual(nu())
+    expect(decrireCout(cout)).toContain('Une Marque toutes les 3 utilisations')
+  })
+
+  /**
+   * Le passif Conteur du Trickster réduit le coût en Foi des sorts « Word: ».
+   * C'est le même agrégat qu'avant l'unification, appliqué par part — et le
+   * filtre porte désormais l'élément, si bien qu'un rabais sur la Foi ne touche
+   * pas un coût en brûlures.
+   */
+  it('applique les modificateurs de coût sur la part visée, et sur elle seule', () => {
+    const conteur = nouveauPerso('trickster', {
+      foi: 5,
+      passifs: { voieTrickster: 'conteur' },
+    })
+    const word = catalog.sort('word-crackers') as Sort
+    expect(decrireCoutSort(word, conteur, catalog)).toBe('1 Foi')
+
+    const sansPassif = nouveauPerso('trickster', { foi: 5 })
+    expect(decrireCoutSort(word, sansPassif, catalog)).toBe('2 Foi')
   })
 })
 
@@ -638,8 +1163,8 @@ describe('Illusions hors emplacement', () => {
       nom: 'Mirage tardif',
       icone: 'magic-swirl',
       classeId: 'trickster',
-      magie: 'arcane',
-      cout: { kind: 'aucun' },
+      magieId: 'arcane',
+      cout: COUT_GRATUIT,
       de: null,
       duree: '1 minute',
       effet: 'Une illusion acquise en cours de campagne.',
@@ -655,7 +1180,7 @@ describe('Illusions hors emplacement', () => {
 
   it('laisse lancer une illusion absente des 3 emplacements', () => {
     const mageHand = catalog.sort('mage-hand') as Sort
-    expect(estHorsEmplacement(mageHand, illusionniste())).toBe(true)
+    expect(estHorsEmplacement(mageHand, illusionniste(), catalog)).toBe(true)
     expect(disponibiliteSort(mageHand, illusionniste(), catalog).disponible).toBe(true)
   })
 })
@@ -964,7 +1489,7 @@ describe('plafonds de ressource', () => {
     modificateurs: [
       {
         source: { kind: 'equipement', label: 'Dague sanglante' },
-        target: { kind: 'fatigue-max' },
+        target: ancienneCible({ kind: 'fatigue-max' }),
         op: { kind: 'add', value: -1 },
       },
     ],
@@ -1046,14 +1571,16 @@ describe('passifs réactifs', () => {
     const avant = portant({ marques: 0, foi: 2 })
     const apres = { ...avant, marques: 1 }
 
-    const r = resoudreDeclencheurs(avant, apres, avecSceau)
+    const r = resoudrePassifs(avant, apres, avecSceau)
     expect(r.char.foi).toBe(3)
-    expect(r.recits[0]).toContain('Sceau du Martyr')
+    expect(r.recits[0]?.texte).toContain('Sceau du Martyr')
+    // Le récit nomme celle chez qui l'effet s'est produit.
+    expect(r.recits[0]?.chez).toBe('Maya')
   })
 
   it('ne s’arme pas dans l’autre sens', () => {
     const avant = portant({ marques: 2, foi: 2 })
-    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    const r = resoudrePassifs(avant, { ...avant, marques: 1 }, avecSceau)
     expect(r.char.foi).toBe(2)
     expect(r.recits).toEqual([])
   })
@@ -1065,7 +1592,7 @@ describe('passifs réactifs', () => {
       marques: 0,
       foi: 2,
     })
-    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    const r = resoudrePassifs(avant, { ...avant, marques: 1 }, avecSceau)
     expect(r.char.foi).toBe(2)
   })
 
@@ -1081,13 +1608,13 @@ describe('passifs réactifs', () => {
     const catalogue = createCatalog([...SEED, boucle])
     const avant = portant({ foi: 2 })
 
-    const r = resoudreDeclencheurs(avant, { ...avant, foi: 3 }, catalogue)
+    const r = resoudrePassifs(avant, { ...avant, foi: 3 }, catalogue)
     expect(r.char.foi).toBe(4)
   })
 
   it('reste borné par le plafond de la ressource visée', () => {
     const avant = portant({ marques: 0, foi: MAX_FOI })
-    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, avecSceau)
+    const r = resoudrePassifs(avant, { ...avant, marques: 1 }, avecSceau)
     expect(r.char.foi).toBe(MAX_FOI)
     // Rien n'a bougé : rien à raconter.
     expect(r.recits).toEqual([])
@@ -1139,14 +1666,155 @@ describe('passifs réactifs', () => {
       foi: 2,
     })
 
-    const r = resoudreDeclencheurs(avant, { ...avant, marques: 1 }, catalogue)
+    const r = resoudrePassifs(avant, { ...avant, marques: 1 }, catalogue)
     expect(r.char.foi).toBe(4)
     expect(r.recits).toHaveLength(2)
+  })
+
+  // -------------------------------------------------------------------------
+  // Réactions croisées
+  // -------------------------------------------------------------------------
+
+  describe('chez une alliée', () => {
+    /** « Gagnez une brûlure chaque fois qu'une alliée en prend une. » */
+    const solidaire: Amelioration = {
+      kind: 'amelioration',
+      id: 'lien-de-sang',
+      nom: 'Lien de sang',
+      icone: 'crystal-shine',
+      prix: 120,
+      effetTexte: 'La douleur d’une alliée est la vôtre.',
+      passifs: [
+        {
+          id: 'lien',
+          libelle: 'Lien de sang',
+          declenchement: {
+            kind: 'reaction',
+            quand: { element: { kind: 'brulures' }, sens: 'augmente', chez: 'un-allie' },
+          },
+          effet: {
+            texte: '',
+            operations: [
+              {
+                kind: 'ajuster',
+                cible: { element: { kind: 'brulures' }, aspect: 'valeur' },
+                op: { kind: 'add', value: 1 },
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const avecLien = createCatalog([...SEED, solidaire, sceau])
+
+    const liee = (patch: Partial<Character> = {}) => ({
+      ...nouveauPerso('trickster', {
+        possede: { sorts: [], equipements: [], ameliorations: [solidaire.id] },
+        ...patch,
+      }),
+      id: 'b-alliee',
+      nom: 'Alliée',
+    })
+
+    const actrice = (patch: Partial<Character> = {}) => ({
+      ...nouveauPerso('dusk-hunter', patch),
+      id: 'a-actrice',
+      nom: 'Actrice',
+    })
+
+    it('s’applique sur la fiche de l’alliée, et la nomme dans le récit', () => {
+      const avant = actrice({ brulures: 0 })
+      const alliee = liee({ brulures: 0 })
+
+      const r = resoudrePassifs(avant, { ...avant, brulures: 1 }, avecLien, [avant, alliee])
+
+      // L'actrice n'a pas ce passif : sa propre fiche ne bouge pas au-delà du geste.
+      expect(r.char.brulures).toBe(1)
+      expect(r.autres).toHaveLength(1)
+      expect(r.autres[0]?.id).toBe(alliee.id)
+      expect(r.autres[0]?.brulures).toBe(1)
+      expect(r.recits[0]?.chez).toBe('Alliée')
+    })
+
+    /**
+     * ⚠️ L'invariant « une seule passe » se lit sur le **roster** : ce qu'une
+     * réaction produit chez une alliée n'en réveille aucune autre. Sans cette
+     * borne, deux personnages portant ce lien se brûleraient mutuellement en
+     * boucle, et la cascade serait intenable à table.
+     */
+    it('ne cascade pas d’une alliée à l’autre', () => {
+      const avant = actrice({ brulures: 0 })
+      const une = { ...liee({ brulures: 0 }), id: 'b-une', nom: 'Une' }
+      const autre = { ...liee({ brulures: 0 }), id: 'c-autre', nom: 'Autre' }
+
+      const r = resoudrePassifs(avant, { ...avant, brulures: 1 }, avecLien, [avant, une, autre])
+
+      // Chacune réagit une fois au geste de l'actrice, jamais à celui de l'autre.
+      expect(r.autres.map((c) => c.brulures)).toEqual([1, 1])
+      expect(r.recits).toHaveLength(2)
+    })
+
+    it('n’écrit aucune fiche que rien n’a touchée', () => {
+      const avant = actrice({ brulures: 0 })
+      const indifferente = { ...nouveauPerso('trickster'), id: 'z-passante', nom: 'Passante' }
+
+      const r = resoudrePassifs(avant, { ...avant, brulures: 1 }, avecLien, [avant, indifferente])
+      expect(r.autres).toEqual([])
+    })
+
+    it('borne le gain d’une alliée par son propre plafond', () => {
+      const avant = actrice({ brulures: 0 })
+      const saturee = liee({ brulures: SEUIL_COMBUSTION })
+
+      const r = resoudrePassifs(avant, { ...avant, brulures: 1 }, avecLien, [avant, saturee])
+      // Rien n'a bougé : rien à écrire, rien à raconter.
+      expect(r.autres).toEqual([])
+    })
+
+    /** Une réaction `soi` ne part pas sur le geste d'une autre, et réciproquement. */
+    it('distingue « chez vous » de « chez une alliée »', () => {
+      const avant = { ...actrice({ marques: 0, foi: 2 }), ...portant({ marques: 0, foi: 2 }) }
+      const alliee = liee()
+
+      // Le Sceau du Martyr est un passif `soi` : il part chez son porteur…
+      const propre = resoudrePassifs(avant, { ...avant, marques: 1 }, avecLien, [avant, alliee])
+      expect(propre.char.foi).toBe(3)
+
+      // …et le geste d'une autre ne l'arme pas.
+      const tierce = { ...actrice({ marques: 0 }), id: 'x-tierce', nom: 'Tierce' }
+      const croise = resoudrePassifs(
+        tierce,
+        { ...tierce, marques: 1 },
+        avecLien,
+        [tierce, avant],
+      )
+      expect(croise.autres).toEqual([])
+    })
+
+    /** Deux appareils qui résolvent le même geste doivent aboutir au même état. */
+    it('parcourt le roster dans un ordre déterministe', () => {
+      const avant = actrice({ brulures: 0 })
+      const une = { ...liee({ brulures: 0 }), id: 'b-une', nom: 'Une' }
+      const autre = { ...liee({ brulures: 0 }), id: 'c-autre', nom: 'Autre' }
+
+      const ids = (roster: Character[]) =>
+        resoudrePassifs(avant, { ...avant, brulures: 1 }, avecLien, roster).autres.map((c) => c.id)
+
+      expect(ids([avant, une, autre])).toEqual(['b-une', 'c-autre'])
+      expect(ids([autre, une, avant])).toEqual(['b-une', 'c-autre'])
+    })
   })
 })
 
 describe('objets à effets actifs', () => {
-  const arme = (cout: CoutUsage, faces = 6): Equipement => ({
+  /**
+   * Un objet écrit à l'**ancien** format : une table unique, et une
+   * « contrepartie » qui confondait le coût et le nombre d'utilisations. Des
+   * objets de cette forme dorment en base, et l'amorçage ne les réécrira
+   * jamais : les fixtures restent donc délibérément à l'ancien format, et
+   * chaque test vérifie du même coup que la conversion tient.
+   */
+  const armeHeritee = (cout: CoutUsage, faces = 6): Equipement => ({
     kind: 'equipement',
     id: 'lame-runique',
     nom: 'Lame runique',
@@ -1159,6 +1827,17 @@ describe('objets à effets actifs', () => {
     },
   })
 
+  /**
+   * `createCatalog` est le seul chemin par lequel une entrée entre dans le
+   * domaine, et donc le seul endroit où la conversion a lieu. Y passer, c'est
+   * reproduire exactement ce que fait l'application.
+   */
+  const monte = (eq: Equipement) => {
+    const catalogue = createCatalog([...SEED, eq])
+    const converti = catalogue.equipement(eq.id) as Equipement
+    return { catalogue, eq: converti, actif: actifsDe(converti)[0] as Actif }
+  }
+
   const porteuse = (eq: Equipement, patch: Partial<Character> = {}) =>
     nouveauPerso('dusk-hunter', {
       possede: { sorts: [], equipements: [eq.id], ameliorations: [] },
@@ -1167,65 +1846,111 @@ describe('objets à effets actifs', () => {
     })
 
   it('part au complet sans que rien n’ait été initialisé', () => {
-    const eq = arme({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' })
+    const { eq, actif } = monte(armeHeritee({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' }))
     // La fiche ne connaît pas encore l'objet : c'est le cas d'un achat en
     // boutique ou d'un don de la MJ.
-    expect(chargesRestantes(porteuse(eq), eq)).toBe(3)
+    expect(chargesRestantes(porteuse(eq), eq, actif)).toBe(3)
   })
 
   it('décompte une charge par usage et refuse la suivante à zéro', () => {
-    const eq = arme({ kind: 'charges', max: 2, rituel: 'sang de Carcasse' })
+    const { catalogue, eq, actif } = monte(
+      armeHeritee({ kind: 'charges', max: 2, rituel: 'sang de Carcasse' }),
+    )
     let char = porteuse(eq)
 
-    char = utiliserObjet(char, eq, seededRng(3)).char
-    expect(chargesRestantes(char, eq)).toBe(1)
+    char = utiliserActif(char, catalogue, eq, actif, seededRng(3)).char
+    expect(chargesRestantes(char, eq, actif)).toBe(1)
 
-    const r = utiliserObjet(char, eq, seededRng(4))
+    const r = utiliserActif(char, catalogue, eq, actif, seededRng(4))
     expect(r.restantes).toBe(0)
-    expect(r.detruit).toBe(false)
     char = r.char
 
     // L'objet reste au sac, mais ne répond plus tant qu'on ne l'a pas rechargé.
-    expect(peutUtiliser(char, eq)).toBe(false)
-    expect(() => utiliserObjet(char, eq, seededRng(5))).toThrow(/charge/)
+    expect(peutUtiliser(char, catalogue, eq, actif)).toBe(false)
+    expect(() => utiliserActif(char, catalogue, eq, actif, seededRng(5))).toThrow()
   })
 
   it('tire un effet de la table, et le rend déterministe à une seule face', () => {
-    const potion = arme({ kind: 'consommable', max: 1 }, 1)
-    const r = utiliserObjet(porteuse(potion), potion, seededRng(7))
+    const { catalogue, eq, actif } = monte(armeHeritee({ kind: 'consommable', max: 1 }, 1))
+    const r = utiliserActif(porteuse(eq), catalogue, eq, actif, seededRng(7))
     expect(r.de).toBe(1)
     expect(r.effet).toBe('Effet 1')
   })
 
-  it('détruit un consommable épuisé et le déséquipe', () => {
-    const potion = arme({ kind: 'consommable', max: 1 }, 1)
-    const r = utiliserObjet(porteuse(potion), potion, seededRng(1))
+  /**
+   * ⚠️ **Inversion volontaire.** Un consommable épuisé se détruisait et se
+   * déséquipait tout seul. Décision arrêtée avec la MJ : il reste désormais en
+   * inventaire, marqué et inutilisable, jusqu'à ce qu'on l'en retire — un
+   * flacon vide se garde, se remplit, se revend.
+   */
+  it('n’est plus détruit quand sa dernière charge part', () => {
+    const { catalogue, eq, actif } = monte(armeHeritee({ kind: 'consommable', max: 1 }, 1))
+    const r = utiliserActif(porteuse(eq), catalogue, eq, actif, seededRng(1))
 
-    expect(r.detruit).toBe(true)
-    expect(r.char.possede.equipements).not.toContain(potion.id)
-    // Sans cela, l'emplacement pointerait dans le vide.
-    expect(r.char.equipe.arme).toBeNull()
-    expect(r.char.chargesObjets[potion.id]).toBeUndefined()
+    expect(r.restantes).toBe(0)
+    expect(r.char.possede.equipements).toContain(eq.id)
+    expect(r.char.equipe.arme).toBe(eq.id)
+
+    // C'est ce drapeau qui le marque en rouge, sans le faire disparaître.
+    expect(estEpuise(r.char, eq)).toBe(true)
+    expect(peutUtiliser(r.char, catalogue, eq, actif)).toBe(false)
+    // Et rien ne le recharge : c'est à la MJ ou à la joueuse de le retirer.
+    expect(() => rechargerActif(r.char, catalogue, eq, actif)).toThrow(/recharge/)
   })
 
-  it('ne décompte rien sur un objet à paiement', () => {
-    const eq = arme({ kind: 'paiement', description: 'une Marque toutes les 3 utilisations' })
-    const r = utiliserObjet(porteuse(eq), eq, seededRng(2))
+  it('ne décompte rien sur un objet à contrepartie narrative', () => {
+    const { catalogue, eq, actif } = monte(
+      armeHeritee({ kind: 'paiement', description: 'une Marque toutes les 3 utilisations' }),
+    )
+    const r = utiliserActif(porteuse(eq), catalogue, eq, actif, seededRng(2))
+
     expect(r.restantes).toBeNull()
-    expect(r.detruit).toBe(false)
-    expect(peutUtiliser(r.char, eq)).toBe(true)
+    expect(peutUtiliser(r.char, catalogue, eq, actif)).toBe(true)
+    expect(estEpuise(r.char, eq)).toBe(false)
+    // La contrepartie n'a pas disparu : elle est devenue une part narrative,
+    // affichée sans que le moteur prétende savoir la prélever.
+    expect(detailObjet(eq)).toContain('une Marque toutes les 3 utilisations')
   })
 
   it('se recharge à neuf, et seulement à la main', () => {
-    const eq = arme({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' })
-    const vide = porteuse(eq, { chargesObjets: { [eq.id]: 0 } })
+    const { catalogue, eq, actif } = monte(
+      armeHeritee({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' }),
+    )
+    const vide = porteuse(eq, { chargesObjets: { [`${eq.id}:${actif.id}`]: 0 } })
 
-    expect(peutUtiliser(vide, eq)).toBe(false)
-    expect(chargesRestantes(rechargerObjet(vide, eq), eq)).toBe(3)
+    expect(peutUtiliser(vide, catalogue, eq, actif)).toBe(false)
+    expect(chargesRestantes(rechargerActif(vide, catalogue, eq, actif).char, eq, actif)).toBe(3)
+  })
 
-    // Un objet à paiement n'a rien à recharger.
-    const paye = arme({ kind: 'paiement', description: 'une Marque' })
-    expect(rechargerObjet(porteuse(paye), paye).chargesObjets).toEqual({})
+  /**
+   * Régression de conversion : un objet dont les charges étaient déjà entamées
+   * les comptait sous son seul identifiant, avant qu'un objet puisse porter
+   * plusieurs Actifs. Sans le repli, il repartirait au complet — la joueuse
+   * retrouverait gratuitement des charges dépensées.
+   */
+  it('retrouve des charges entamées sous l’ancienne clé, puis bascule sur la nouvelle', () => {
+    const { catalogue, eq, actif } = monte(
+      armeHeritee({ kind: 'charges', max: 3, rituel: 'sang de Carcasse' }),
+    )
+    const entamee = porteuse(eq, { chargesObjets: { [eq.id]: 1 } })
+    expect(chargesRestantes(entamee, eq, actif)).toBe(1)
+
+    const apres = utiliserActif(entamee, catalogue, eq, actif, seededRng(1)).char
+    expect(chargesRestantes(apres, eq, actif)).toBe(0)
+    // La clé nue disparaît : la laisser ferait diverger les deux compteurs.
+    expect(apres.chargesObjets[eq.id]).toBeUndefined()
+    expect(apres.chargesObjets[`${eq.id}:${actif.id}`]).toBe(0)
+  })
+
+  it('oublie toutes les charges quand l’objet est retiré', () => {
+    const { eq, actif } = monte(armeHeritee({ kind: 'charges', max: 3, rituel: 'rituel' }))
+    const char = porteuse(eq, {
+      chargesObjets: { [eq.id]: 2, [`${eq.id}:${actif.id}`]: 1, 'autre-objet': 3 },
+    })
+
+    const apres = retirerObjet(char, eq.id)
+    expect(apres.chargesObjets).toEqual({ 'autre-objet': 3 })
+    expect(apres.equipe.arme).toBeNull()
   })
 
   /**
@@ -1243,7 +1968,7 @@ describe('objets à effets actifs', () => {
       modificateurs: [
         {
           source: { kind: 'equipement', label: 'Talisman de protection' },
-          target: { kind: 'competence', competence: 'social' },
+          target: ancienneCible({ kind: 'competence', competence: 'social' }),
           op: { kind: 'avantage' },
         },
       ],
@@ -1556,6 +2281,115 @@ describe('normalisation des fiches lues en base', () => {
     expect(normalisee.modifiers).toEqual([])
     expect(normalisee.jetonsCamp.achat).toBeNull()
     expect(() => computeEvasion(normalisee, catalog)).not.toThrow()
+  })
+
+  /**
+   * Les Serments et Fardeaux engagés vivent dans `char.modifiers`, écrits sous
+   * l'ancienne forme de cible. Sans conversion à la lecture, ils cesseraient de
+   * s'appliquer du jour au lendemain — et sans rien lever, puisqu'une cible qui
+   * ne correspond à rien s'agrège simplement à zéro.
+   */
+  it('relit un Serment engagé sous l’ancienne forme de cible', () => {
+    const jureuse = {
+      ...nouveauPerso('trickster'),
+      modifiers: [
+        {
+          id: 'serment-ancien',
+          source: { kind: 'serment', label: 'Serment' },
+          target: ancienneCible({ kind: 'competence-sauf', except: 'esprit' }),
+          op: { kind: 'add', value: -4 },
+          expires: { kind: 'fin-de-journee' },
+        },
+      ],
+    } as unknown as Character
+
+    const normalisee = normaliserPersonnage(jureuse)
+    const bonus = (c: Competence) => computeCompetence(normalisee, catalog, c).bonus
+
+    expect(bonus('esprit')).toBe(0)
+    expect(bonus('physique')).toBe(-4)
+    expect(bonus('roublardise')).toBe(-4)
+    expect(bonus('social')).toBe(-4)
+  })
+
+  it('convertit les anciens plafonds, 6th Sens compris', () => {
+    // Le 6th Sens ne portait pas le suffixe `-max`, mais visait déjà le maximum.
+    expect(normaliserCible({ kind: 'sixth-sens' })).toEqual({
+      element: { kind: 'sixth-sens' },
+      aspect: 'plafond',
+    })
+    expect(normaliserCible({ kind: 'fatigue-max' })).toEqual({
+      element: { kind: 'fatigue' },
+      aspect: 'plafond',
+    })
+    expect(normaliserCible({ kind: 'evasion' })).toEqual({
+      element: { kind: 'evasion' },
+      aspect: 'valeur',
+    })
+  })
+
+  /**
+   * Avant l'unification des coûts, `coutFoiEffectif` était seul à consulter les
+   * modificateurs de `cout-sort` : un filtre vide signifiait donc « la Foi ».
+   * Ne pas l'inscrire ferait déborder le passif Conteur sur les autres coûts.
+   */
+  /**
+   * `modificateurs` et `declencheurs` ne différaient que par leur
+   * déclenchement. Une fois les deux types disparus du modèle, seule cette
+   * conversion garde l'ancien chemin de données sous garde — et le contenu
+   * déjà saisi par la MJ ne sera jamais réécrit par l'amorçage.
+   */
+  it('convertit les deux anciens tableaux de passifs en Passif', () => {
+    const objet: Equipement = {
+      kind: 'equipement',
+      id: 'vieux-talisman',
+      nom: 'Vieux talisman',
+      icone: 'crystal-shine',
+      slot: 'bibelot',
+      modificateurs: [
+        {
+          source: { kind: 'equipement', label: 'Libellé figé d’autrefois' },
+          target: ancienneCible({ kind: 'evasion' }),
+          op: { kind: 'add', value: 1 },
+        },
+      ],
+      declencheurs: [{ quand: 'marques', sens: 'augmente', alors: 'foi', delta: 1 }],
+    }
+
+    const converti = createCatalog([...SEED, objet]).equipement(objet.id) as Equipement
+    const passifs = converti.passifs ?? []
+    expect(passifs).toHaveLength(2)
+
+    const [permanent, reactif] = passifs as [Passif, Passif]
+    expect(permanent.declenchement).toEqual({ kind: 'permanent' })
+    expect(permanent.effet.operations?.[0]?.cible).toEqual({
+      element: { kind: 'evasion' },
+      aspect: 'valeur',
+    })
+
+    expect(reactif.declenchement).toEqual({
+      kind: 'reaction',
+      // Un déclencheur ne savait viser que soi-même.
+      quand: { element: { kind: 'marques' }, sens: 'augmente', chez: 'soi' },
+    })
+
+    /*
+     * Les libellés restent vides à dessein : le moteur retombe alors sur le nom
+     * du porteur, relu à chaque rendu. C'est ce repli qui a rendu inutile la
+     * recopie des libellés à l'enregistrement — et qui répare, au passage, les
+     * libellés figés déjà en base.
+     */
+    expect(permanent.libelle).toBe('')
+    expect(reactif.libelle).toBe('')
+  })
+
+  it('inscrit « foi » sur un ajustement de coût hérité, et reste idempotent', () => {
+    const converti = normaliserCible({ kind: 'cout-sort', filtre: { prefixeNom: 'Word:' } })
+    expect(converti).toEqual({
+      element: { kind: 'cout-sort', filtre: { prefixeNom: 'Word:', element: 'foi' } },
+      aspect: 'valeur',
+    })
+    expect(normaliserCible(converti)).toEqual(converti)
   })
 })
 
@@ -1874,9 +2708,10 @@ describe('ordonnancement du Feu de Camp', () => {
   })
 
   it('refuse un Grimoire à 4 sorts ou avec doublons', () => {
-    expect(grimoireValide(['a', 'b', 'c'])).toBe(true)
-    expect(grimoireValide(['a', 'b', 'c', 'd'])).toBe(false)
-    expect(grimoireValide(['a', 'a', 'b'])).toBe(false)
+    const char = nouveauPerso('trickster')
+    expect(grimoireValide(['a', 'b', 'c'], char, catalog)).toBe(true)
+    expect(grimoireValide(['a', 'b', 'c', 'd'], char, catalog)).toBe(false)
+    expect(grimoireValide(['a', 'a', 'b'], char, catalog)).toBe(false)
   })
 })
 

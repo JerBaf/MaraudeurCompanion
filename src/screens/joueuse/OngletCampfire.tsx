@@ -4,7 +4,7 @@ import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { THEMATIQUES_RECUEIL } from '../../content/recueil.ts'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
-import { enregistrerPersonnage, journaliser, modifierPersonnage, surCampfire } from '../../data/repo.ts'
+import { journaliser, modifierPersonnage, surCampfire } from '../../data/repo.ts'
 import {
   acheter,
   entreesAchetables,
@@ -21,10 +21,10 @@ import {
   resoudreFardeauFatigue,
   resoudrePriseInvestissement,
   resumeEntree,
-  TAILLE_GRIMOIRE,
   type ContexteCamp,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { tailleGrimoire } from '../../domain/competences.ts'
 import { resumeSort } from '../../domain/magie.ts'
 import { detailObjet, resumeEquipement } from '../../domain/objets.ts'
 import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
@@ -150,14 +150,14 @@ function Banque({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
     const { lumens, recit } = resoudrePriseInvestissement(inv, cryptoRng)
     // Le registre des investissements sert lui-même de jeton : une seule
     // écriture, donc aucune fenêtre où le gain serait acquis sans la limite.
-    await enregistrerPersonnage({
-      ...char,
-      lumens: Math.max(0, char.lumens + lumens),
+    await modifierPersonnage(char, (c) => ({
+      ...c,
+      lumens: Math.max(0, c.lumens + lumens),
       investissements: [
-        ...char.investissements,
+        ...c.investissements,
         { investissementId: inv.id, sessionNumero: campfire.sessionNumero },
       ],
-    })
+    }))
     await journaliser(char.nom, 'investissement', `${char.nom} investit — ${recit}`)
     setMessage(recit)
   }
@@ -313,10 +313,10 @@ function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
       // Achat et jeton dans la même écriture : l'ordre précédent créditait
       // l'objet puis échouait à poser la limite, ce qui rendait les achats
       // illimités tout en affichant « Achat impossible ».
-      await enregistrerPersonnage({
-        ...acheter(char, entree),
-        jetonsCamp: { ...char.jetonsCamp, achat: campfire.id },
-      })
+      await modifierPersonnage(char, (c) => ({
+        ...acheter(c, entree),
+        jetonsCamp: { ...c.jetonsCamp, achat: campfire.id },
+      }))
       await journaliser(char.nom, 'achat', `${char.nom} acquiert ${entree.nom} (${prix} ʟ).`)
       setMessage(`${entree.nom} est à vous.`)
     } catch (e) {
@@ -420,16 +420,18 @@ function Boutique({ char, catalog, campfire, ctx, edition }: ProprietesPhase) {
 // ---------------------------------------------------------------------------
 
 function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase) {
+  // Dérivé, pas constant : un passif peut accorder un emplacement de plus.
+  const slotsGrimoire = tailleGrimoire(char, catalog)
   const sorts = char.possede.sorts
     .map((id) => catalog.sort(id))
-    .filter((s): s is Sort => Boolean(s) && s!.illusion !== true)
+    .filter((s): s is Sort => Boolean(s) && s!.requiertPassif === undefined)
 
   function basculer(id: string) {
     void modifierPersonnage(char, (c) => {
       if (c.grimoire.includes(id)) return { ...c, grimoire: c.grimoire.filter((s) => s !== id) }
       // La règle des 3 emplacements est portée par le domaine, pas réécrite ici.
       const suivant = [...c.grimoire, id]
-      return grimoireValide(suivant) ? { ...c, grimoire: suivant } : c
+      return grimoireValide(suivant, c, catalog) ? { ...c, grimoire: suivant } : c
     })
   }
 
@@ -439,7 +441,7 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
         <div className="carte__titre">
           <span className="etiquette">Sorts</span>
           <span className="tres-discret">
-            {char.grimoire.length}/{TAILLE_GRIMOIRE} · figé jusqu'au prochain feu de camp
+            {char.grimoire.length}/{slotsGrimoire} · figé jusqu'au prochain feu de camp
           </span>
         </div>
 
@@ -451,7 +453,7 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
             n'est pas du HTML valide, d'où la prop `action` plutôt qu'un imbriqué. */}
         {sorts.map((sort) => {
           const actif = char.grimoire.includes(sort.id)
-          const plein = char.grimoire.length >= TAILLE_GRIMOIRE
+          const plein = char.grimoire.length >= slotsGrimoire
           const verrouille = Boolean(edition) || (!actif && plein)
 
           return (
@@ -547,11 +549,11 @@ function GainsDeFoi({
     // subi, comme les dés à table. La joueuse écrit ensuite dans son carnet —
     // rien de ce qu'elle rédige ne transite par l'application.
     const tiree = cryptoRng.pick(THEMATIQUES_RECUEIL)
-    await enregistrerPersonnage({
-      ...char,
+    await modifierPersonnage(char, (c) => ({
+      ...c,
       foi: ajouterFoi(2),
-      jetonsCamp: { ...char.jetonsCamp, recueillir: ctx.sessionNumero },
-    })
+      jetonsCamp: { ...c.jetonsCamp, recueillir: ctx.sessionNumero },
+    }))
     await journaliser(char.nom, 'recueillir', `${char.nom} se recueille — « ${tiree} »`)
     setThematique(tiree)
     setMessage('+2 Points de Foi. Écrivez vos 2 à 3 phrases dans votre carnet.')
@@ -559,12 +561,12 @@ function GainsDeFoi({
 
   async function fardeauDesavantage(competence: (typeof COMPETENCES)[number]) {
     if (!peutPrendreFardeau(ctx)) return
-    await enregistrerPersonnage({
-      ...char,
+    await modifierPersonnage(char, (c) => ({
+      ...c,
       foi: ajouterFoi(3),
-      modifiers: [...char.modifiers, modificateurFardeau(competence)],
-      jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
-    })
+      modifiers: [...c.modifiers, modificateurFardeau(competence)],
+      jetonsCamp: { ...c.jetonsCamp, fardeau: ctx.sessionNumero },
+    }))
     await journaliser(char.nom, 'fardeau', `${char.nom} prend un fardeau : désavantage en ${LIBELLE_COMPETENCE[competence]}.`)
     setMessage(`+3 Points de Foi. Désavantage en ${LIBELLE_COMPETENCE[competence]} pour la session.`)
   }
@@ -574,14 +576,18 @@ function GainsDeFoi({
     if (!peutPrendreFardeau(ctx) || !cible || !peutCouvrirLeFardeau(cible)) return
 
     const { porteuse, couverte } = resoudreFardeauFatigue(char, cible)
-    await enregistrerPersonnage({
+    await modifierPersonnage(char, () => ({
       ...porteuse,
       foi: ajouterFoi(3),
       jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
-    })
-    // La case change de fiche : sans cette seconde écriture, le Fardeau coûtait
-    // un Point de Fatigue sans soulager personne.
-    await enregistrerPersonnage(couverte)
+    }))
+    /*
+     * La case change de fiche : sans cette seconde écriture, le Fardeau coûtait
+     * un Point de Fatigue sans soulager personne. Elle passe elle aussi par
+     * `modifierPersonnage` — c'est la Fatigue de la couverte qui baisse, et ce
+     * mouvement doit armer ses propres passifs réactifs.
+     */
+    await modifierPersonnage(cible, () => couverte)
     await journaliser(
       char.nom,
       'fardeau',
@@ -599,12 +605,12 @@ function GainsDeFoi({
     // La compétence épargnée est tirée par l'app : c'est un des cas où
     // l'impartialité prime sur le plaisir de lancer un dé.
     const epargnee = cryptoRng.pick(COMPETENCES)
-    await enregistrerPersonnage({
-      ...char,
+    await modifierPersonnage(char, (c) => ({
+      ...c,
       foi: ajouterFoi(4),
-      modifiers: [...char.modifiers, modificateurSerment(epargnee)],
-      jetonsCamp: { ...char.jetonsCamp, serment: ctx.sessionNumero },
-    })
+      modifiers: [...c.modifiers, modificateurSerment(epargnee)],
+      jetonsCamp: { ...c.jetonsCamp, serment: ctx.sessionNumero },
+    }))
     await journaliser(char.nom, 'serment', `${char.nom} prononce un serment : ${LIBELLE_COMPETENCE[epargnee]} épargnée.`)
     setMessage(`+4 Points de Foi. ${LIBELLE_COMPETENCE[epargnee]} est épargnée, les autres subissent −4.`)
   }

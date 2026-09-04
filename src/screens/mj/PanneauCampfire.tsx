@@ -23,6 +23,7 @@ import {
   tirerOffres,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
+import { tailleInvestissements } from '../../domain/competences.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   LIBELLE_PHASE,
@@ -143,6 +144,27 @@ function Preparation({
   const investissements = catalog.investissements()
   const [lancement, setLancement] = useState(false)
 
+  /*
+   * La Banque propose **une seule liste** à toute la table, alors que le compte
+   * se dérive par personnage. On retient le maximum : un passif qui accorde un
+   * investissement de plus doit en ajouter un, et jamais en retirer à celles
+   * qui n'ont pas ce passif.
+   */
+  const nbInvestissements = Math.max(
+    0,
+    ...personnages.map((c) => tailleInvestissements(c, catalog)),
+  )
+
+  function tirerInvestissements() {
+    const pool = [...investissements]
+    const tires: string[] = []
+    while (tires.length < nbInvestissements && pool.length > 0) {
+      const [tire] = pool.splice(cryptoRng.int(0, pool.length - 1), 1)
+      if (tire) tires.push(tire.id)
+    }
+    maj({ investissementsProposes: tires })
+  }
+
   function creer() {
     void creerBrouillon(session).then(enregistrerBrouillon)
   }
@@ -223,7 +245,16 @@ function Preparation({
 
       {brouillon.type === 'initial' && (
         <div className="pile pile--serree">
-          <span className="etiquette">Banque — investissements proposés</span>
+          <div className="rangee">
+            <span className="etiquette" style={{ flex: 1 }}>
+              Banque — investissements proposés
+            </span>
+            {investissements.length > 0 && (
+              <button type="button" className="btn" onClick={tirerInvestissements}>
+                Tirer {nbInvestissements}
+              </button>
+            )}
+          </div>
           {investissements.length === 0 && (
             <p className="tres-discret" style={{ margin: 0 }}>
               Aucun investissement au catalogue. Ajoutez-en dans l'onglet Réglages.
@@ -312,7 +343,9 @@ function Offres({
 }) {
   function tirerTout() {
     const offres: Record<string, string[]> = {}
-    for (const char of personnages) offres[char.id] = tirerOffres(char, catalog, cryptoRng, 3)
+    // Sans taille imposée : `tirerOffres` la dérive de `slots-boutique`, si
+    // bien qu'un passif qui l'augmente vaut pour cette joueuse et pour elle seule.
+    for (const char of personnages) offres[char.id] = tirerOffres(char, catalog, cryptoRng)
     onMaj({ offres })
   }
 

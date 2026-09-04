@@ -1,5 +1,37 @@
 import type { Catalog } from './catalog.ts'
-import type { Character, Competence, Magie, Modifier, ModifierTarget, Sort } from './types.ts'
+import { cibleValeur, type Cible } from './elements.ts'
+import {
+  conditionRemplie,
+  estEcritureDirecte,
+  estPermanentApplicable,
+  passifsActifs,
+  type ProvenancePassif,
+} from './passifs.ts'
+import type {
+  Character,
+  Competence,
+  Magie,
+  Modifier,
+  ModifierSourceKind,
+  Passif,
+} from './types.ts'
+
+/*
+ * Le vocabulaire des cibles et les constantes de règle vivent désormais dans
+ * `elements.ts`, avec les Éléments Variables qu'ils décrivent. On les
+ * ré-exporte : le moteur reste le point d'entrée naturel pour qui raisonne en
+ * modificateurs, et aucun site d'import n'a eu à changer.
+ */
+export {
+  cibleCompetence,
+  cibleCoutSort,
+  cibleElement,
+  EVASION_DE_BASE,
+  FOI_DE_DEPART,
+  MAX_FOI,
+  MAX_MARQUES,
+  SEUIL_COMBUSTION,
+} from './elements.ts'
 
 /**
  * Le moteur de modificateurs.
@@ -15,99 +47,12 @@ import type { Character, Competence, Magie, Modifier, ModifierTarget, Sort } fro
  * changent, le bonus suit immédiatement, sans qu'aucun écran n'ait à y penser.
  */
 
-// ---------------------------------------------------------------------------
-// Voie de la Flamme
-// ---------------------------------------------------------------------------
-
-/**
- * Voie de la Flamme.
- *
- * Les paliers sont **cumulatifs** : à 7 brûlures on conserve le 6th Sens
- * supplémentaire du palier 4-6 et on gagne en plus l'avantage en Physique.
- *
- * Modélisé comme une liste de seuils plutôt qu'une énumération de paliers
- * exclusifs : ajouter un palier revient à ajouter une entrée ici, sans toucher
- * ni au calcul, ni aux écrans.
+/*
+ * La Voie de la Flamme s'exprime désormais comme n'importe quel passif à seuil
+ * — voir `PASSIFS_FLAMME` dans `passifs.ts`. Ré-exportée ici, où les écrans la
+ * cherchaient.
  */
-export interface PalierFlamme {
-  id: string
-  /** Nombre de brûlures à partir duquel le palier s'applique. */
-  seuil: number
-  nom: string
-  effet: string
-}
-
-export const PALIERS_FLAMME: PalierFlamme[] = [
-  {
-    id: 'perception',
-    seuil: 4,
-    nom: 'Voie de la Flamme (4+)',
-    effet: 'Perception accrue de la chaleur : un point de 6th Sens supplémentaire.',
-  },
-  {
-    id: 'fureur',
-    seuil: 7,
-    nom: 'Voie de la Flamme (7+)',
-    effet: 'Le brasier vous porte : avantage sur tous les jets de Physique.',
-  },
-]
-
-/** Tous les paliers atteints, du plus bas au plus haut. */
-export function paliersFlammeAtteints(brulures: number): PalierFlamme[] {
-  return PALIERS_FLAMME.filter((p) => brulures >= p.seuil)
-}
-
-export const SEUIL_COMBUSTION = 9
-export const MAX_FOI = 9
-export const EVASION_DE_BASE = 1
-
-/**
- * Points de Foi de départ : « Les joueuses commencent toutes avec 2 Points de Foi ».
- *
- * Décision de la MJ : c'est aussi le solde auquel chacune revient à l'ouverture
- * d'une session, contre le PDF qui les conservait de jour en jour.
- *
- * Vit ici plutôt que dans `character.ts` parce que la résolution du camp en a
- * besoin, et que `character.ts` dépend déjà de `campfire.ts` : l'y laisser
- * aurait fermé un cycle d'imports.
- */
-export const FOI_DE_DEPART = 2
-
-/**
- * Plafond des Marques.
- *
- * Le PDF ne fixe pas de maximum ; il donne des coûts (1 Marque pour un
- * désavantage, 3 pour une prise de contrôle). La table plafonne à 3 : c'est le
- * seuil au-delà duquel la MJ peut prendre le personnage en main. Rien n'est
- * automatique — les Marques sont une monnaie que la MJ dépense à la main.
- */
-export const MAX_MARQUES = 3
-
-// ---------------------------------------------------------------------------
-// Ciblage
-// ---------------------------------------------------------------------------
-
-export function cibleCompetence(target: ModifierTarget, c: Competence): boolean {
-  switch (target.kind) {
-    case 'competence':
-      return target.competence === c
-    case 'competence-sauf':
-      return target.except !== c
-    case 'competence-toutes':
-      return true
-    default:
-      return false
-  }
-}
-
-export function cibleCoutSort(target: ModifierTarget, sort: Sort): boolean {
-  if (target.kind !== 'cout-sort') return false
-  const f = target.filtre
-  if (!f) return true
-  if (f.magie && f.magie !== sort.magie) return false
-  if (f.prefixeNom && !sort.nom.startsWith(f.prefixeNom)) return false
-  return true
-}
+export { PASSIFS_FLAMME, paliersFlammeAtteints } from './passifs.ts'
 
 // ---------------------------------------------------------------------------
 // Agrégation
@@ -155,11 +100,59 @@ function derive(
   id: string,
   kind: Modifier['source']['kind'],
   label: string,
-  target: ModifierTarget,
+  target: Cible,
   op: Modifier['op'],
   ref?: string,
 ): Modifier {
   return { id: `derive:${id}`, source: { kind, label, ...(ref ? { ref } : {}) }, target, op, expires: { kind: 'jamais' } }
+}
+
+/**
+ * Le passif permanent tel que le moteur le consomme.
+ *
+ * ⚠️ **`Passif` et `Modifier` restent deux choses distinctes.** `Passif` est du
+ * contenu écrit par la MJ ; `Modifier` est la monnaie d'exécution, persistée
+ * dans `Character.modifiers` (Fardeau, Serment, Marque, Esquive, Diversion),
+ * porteuse d'un `posePar` et d'une échéance. Cette fonction est le compilateur
+ * de l'un vers l'autre.
+ *
+ * Elle ignore les opérations qui n'ont pas de sens en permanence : une écriture
+ * de jauge s'appliquerait à chaque rendu, et `set` comme `add-x` ne survivent
+ * pas à l'agrégation (`agreger` somme les `add` en un scalaire).
+ */
+function compilerPassif(
+  passif: Passif,
+  sourceKind: ModifierSourceKind,
+  label: string,
+  ref: string,
+): Modifier[] {
+  if (!estPermanentApplicable(passif)) return []
+
+  return (passif.effet.operations ?? [])
+    .filter((o) => !estEcritureDirecte(o.cible))
+    .filter((o) => o.op.kind === 'add' || o.op.kind === 'avantage' || o.op.kind === 'desavantage')
+    .map((o, i) => ({
+      id: `derive:passif:${ref}:${passif.id}:${i}`,
+      /*
+       * Le libellé : celui du passif s'il en porte un, sinon **celui du
+       * porteur**, relu à chaque rendu. Ce repli est ce qui retire le besoin de
+       * réécrire les libellés à l'enregistrement : renommer un objet renomme
+       * son passif, sans qu'on ait à toucher à la base.
+       */
+      source: { kind: sourceKind, label: passif.libelle || label, ref },
+      target: o.cible,
+      op: o.op as Modifier['op'],
+      expires: { kind: 'jamais' } as const,
+    }))
+}
+
+const SOURCE_PAR_PROVENANCE: Record<ProvenancePassif, ModifierSourceKind> = {
+  equipement: 'equipement',
+  amelioration: 'passif',
+  classe: 'passif',
+  'type-magique': 'passif',
+  // La Voie de la Flamme découle des brûlures : elle n'est pas un choix.
+  derive: 'voie-flamme',
 }
 
 /**
@@ -169,67 +162,30 @@ function derive(
 export function derivedModifiers(char: Character, catalog: Catalog): Modifier[] {
   const out: Modifier[] = []
 
-  // --- Équipement porté (les 3 slots de l'Armurerie) ---
+  // --- Bonus d'Évasion des objets portés ---
+  // Reste un champ à part : c'est le raccourci que la MJ attend d'une armure,
+  // et l'écrire en passif à chaque fois serait une corvée sans contrepartie.
   for (const equipeId of Object.values(char.equipe)) {
     if (!equipeId) continue
     const eq = catalog.equipement(equipeId)
-    if (!eq) continue
-    if (eq.bonusEvasion) {
-      out.push(
-        derive(`equip:${eq.id}:evasion`, 'equipement', eq.nom, { kind: 'evasion' }, { kind: 'add', value: eq.bonusEvasion }, eq.id),
-      )
-    }
-    eq.modificateurs?.forEach((m, i) => {
-      out.push({ ...m, id: `derive:equip:${eq.id}:${i}`, expires: { kind: 'jamais' } })
-    })
-  }
-
-  // --- Améliorations possédées (permanentes, hors Détachement) ---
-  for (const amId of char.possede.ameliorations) {
-    const am = catalog.amelioration(amId)
-    am?.modificateurs?.forEach((m, i) => {
-      out.push({ ...m, id: `derive:amelio:${am.id}:${i}`, expires: { kind: 'jamais' } })
-    })
-  }
-
-  // --- Voie de la Flamme (Magie du Sang), cumulative ---
-  for (const palier of paliersFlammeAtteints(char.brulures)) {
-    if (palier.id === 'perception') {
-      out.push(derive('flamme:sens', 'voie-flamme', palier.nom, { kind: 'sixth-sens' }, { kind: 'add', value: 1 }))
-    }
-    if (palier.id === 'fureur') {
-      out.push(
-        derive(
-          'flamme:physique',
-          'voie-flamme',
-          palier.nom,
-          { kind: 'competence', competence: 'physique' },
-          { kind: 'avantage' },
-        ),
-      )
-    }
-  }
-
-  // --- Dusk Hunter : Overdrive ---
-  if (char.passifs.hexcore === 'overdrive') {
+    if (!eq?.bonusEvasion) continue
     out.push(
-      derive('hexcore:overdrive', 'passif', 'Overdrive', { kind: 'energie-attaque' }, { kind: 'add', value: 1 }),
+      derive(`equip:${eq.id}:evasion`, 'equipement', eq.nom, cibleValeur({ kind: 'evasion' }), { kind: 'add', value: eq.bonusEvasion }, eq.id),
     )
   }
 
-  // --- Trickster : Conteur ---
-  if (char.passifs.voieTrickster === 'conteur') {
-    out.push(
-      derive(
-        'trickster:conteur',
-        'passif',
-        'Conteur',
-        { kind: 'cout-sort', filtre: { magie: 'miracle', prefixeNom: 'Word:' } },
-        { kind: 'add', value: -1 },
-      ),
-    )
+  // --- Passifs permanents : objets portés, améliorations, classe, types magiques ---
+  for (const { passif, source, provenance, ref } of passifsActifs(char, catalog)) {
+    if (!conditionRemplie(passif, char)) continue
+    out.push(...compilerPassif(passif, SOURCE_PAR_PROVENANCE[provenance], source, ref))
   }
 
+  /*
+   * Overdrive et Conteur ne figurent plus ici : ce sont désormais des options
+   * de classe, écrites en données dans le seed et récoltées ci-dessus comme
+   * n'importe quel passif. C'est ce qui permet de créer une classe complète
+   * depuis l'écran MJ, sans toucher au code.
+   */
   return out
 }
 
@@ -300,7 +256,7 @@ export function modificateurFardeau(competence: Competence): Modifier {
   return {
     id: nouvelId('fardeau'),
     source: { kind: 'fardeau', label: 'Fardeau' },
-    target: { kind: 'competence', competence },
+    target: cibleValeur({ kind: 'competence', competence }),
     op: { kind: 'desavantage' },
     expires: { kind: 'fin-de-session' },
   }
@@ -311,7 +267,7 @@ export function modificateurSerment(competenceEpargnee: Competence): Modifier {
   return {
     id: nouvelId('serment'),
     source: { kind: 'serment', label: 'Serment' },
-    target: { kind: 'competence-sauf', except: competenceEpargnee },
+    target: cibleValeur({ kind: 'competence-sauf', except: competenceEpargnee }),
     op: { kind: 'add', value: -4 },
     expires: { kind: 'fin-de-session' },
   }
@@ -322,7 +278,7 @@ export function modificateurMarque(competence: Competence): Modifier {
   return {
     id: nouvelId('marque'),
     source: { kind: 'marque', label: 'Marque' },
-    target: { kind: 'competence', competence },
+    target: cibleValeur({ kind: 'competence', competence }),
     op: { kind: 'desavantage' },
     expires: { kind: 'fin-de-session' },
   }
@@ -336,7 +292,7 @@ export function modificateurEsquive(momentFin: number): Modifier {
   return {
     id: nouvelId('esquive'),
     source: { kind: 'action-alt', label: 'Esquiver' },
-    target: { kind: 'evasion' },
+    target: cibleValeur({ kind: 'evasion' }),
     op: { kind: 'add', value: 1 },
     expires: { kind: 'moment-combat', momentFin },
   }
@@ -353,7 +309,7 @@ export function modificateurDiversion(momentFin: number, poseParNom: string): Mo
   return {
     id: nouvelId('diversion'),
     source: { kind: 'action-alt', label: `Diversion de ${poseParNom}` },
-    target: { kind: 'energie-attaque' },
+    target: cibleValeur({ kind: 'energie-attaque' }),
     op: { kind: 'add', value: 1 },
     expires: { kind: 'moment-combat', momentFin },
     posePar: poseParNom,
@@ -362,7 +318,7 @@ export function modificateurDiversion(momentFin: number, poseParNom: string): Mo
 
 /** Ajustement libre posé par la MJ (« Infliger des modifications sur les Compétences »). */
 export function modificateurMJ(
-  target: ModifierTarget,
+  target: Cible,
   op: Modifier['op'],
   label: string,
   expires: Modifier['expires'] = { kind: 'fin-de-session' },
@@ -373,7 +329,7 @@ export function modificateurMJ(
 /** Effet d'une personnalité de Soulshifter, posé au lancement de Tribue ou Sens. */
 export function modificateurPersonnalite(
   label: string,
-  target: ModifierTarget,
+  target: Cible,
   op: Modifier['op'],
   magie: Magie = 'arcane',
 ): Modifier {
