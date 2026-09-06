@@ -7,11 +7,13 @@ import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { cibleValeur } from '../../domain/elements.ts'
 import { Bestiaire } from './Bestiaire.tsx'
-import { EditeurCatalogue } from './EditeurCatalogue.tsx'
+import { CreationCatalogue } from './CreationCatalogue.tsx'
+import { EditeurCatalogue, EditeurDossiers } from './EditeurCatalogue.tsx'
 import { Inventaire } from './Inventaire.tsx'
 import { PanneauCampfire } from './PanneauCampfire.tsx'
 import { PanneauCombat } from './PanneauCombat.tsx'
 import { PanneauDuel } from './PanneauDuel.tsx'
+import { PanneauNotifications } from './PanneauNotifications.tsx'
 import {
   amorcerSiNecessaire,
   definirMode,
@@ -37,6 +39,7 @@ import {
   computeToutesCompetences,
 } from '../../domain/competences.ts'
 import { cyclesRestants, fatigueRestante, resoudreGrillePleine } from '../../domain/fatigue.ts'
+import type { Notification } from '../../domain/notifications.ts'
 import { modificateurMJ } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
@@ -46,6 +49,7 @@ import {
   type Character,
   type CharacterSecret,
   type Competence,
+  type EntreeCatalogue,
   type Modifier,
   type EtatTable,
   type EvenementJournal,
@@ -64,22 +68,31 @@ interface Props {
   etat: EtatTable | null
   personnages: Character[]
   adversaires: Adversaire[]
+  notifications: Notification[]
   catalog: Catalog
   onDeconnexion: () => void
 }
 
-type Onglet = 'table' | 'combat' | 'duel' | 'camp' | 'journal' | 'reglages'
+type Onglet = 'table' | 'combat' | 'duel' | 'camp' | 'notifs' | 'journal' | 'reglages'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   table: 'Table',
   combat: 'Combat',
   duel: 'Combat rapide',
   camp: 'Feu de camp',
+  notifs: 'Notifications',
   journal: 'Journal',
   reglages: 'Réglages',
 }
 
-export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion }: Props) {
+export function EcranMJ({
+  etat,
+  personnages,
+  adversaires,
+  notifications,
+  catalog,
+  onDeconnexion,
+}: Props) {
   const [onglet, setOnglet] = useState<Onglet>('table')
   const [selectionId, setSelectionId] = useState<string | null>(null)
 
@@ -90,8 +103,8 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
   // comme le Feu de camp — c'est là qu'on prépare le duel avant de le lancer.
   const onglets: Onglet[] =
     etat?.mode === 'combat'
-      ? ['table', 'combat', 'duel', 'camp', 'journal', 'reglages']
-      : ['table', 'duel', 'camp', 'journal', 'reglages']
+      ? ['table', 'combat', 'duel', 'camp', 'notifs', 'journal', 'reglages']
+      : ['table', 'duel', 'camp', 'notifs', 'journal', 'reglages']
 
   const ongletActif = onglets.includes(onglet) ? onglet : 'table'
 
@@ -148,6 +161,14 @@ export function EcranMJ({ etat, personnages, adversaires, catalog, onDeconnexion
 
         {ongletActif === 'camp' && etat && (
           <PanneauCampfire etat={etat} personnages={personnages} catalog={catalog} />
+        )}
+
+        {ongletActif === 'notifs' && (
+          <PanneauNotifications
+            personnages={personnages}
+            notifications={notifications}
+            catalog={catalog}
+          />
         )}
 
         {ongletActif === 'table' && (
@@ -663,12 +684,80 @@ function Journal() {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Les Réglages, pilotés par onglets.
+ *
+ * La barre vit ici et non dans `EditeurCatalogue` : elle n'aiguille plus
+ * seulement des familles de catalogue, mais aussi la Création, le Bestiaire et
+ * la Maintenance. La laisser dans l'éditeur aurait obligé à lui faire porter
+ * des onglets qui ne sont pas des `kind`, et fait mentir son nom.
+ *
+ * L'ordre suit l'usage : on crée d'abord, on consulte ensuite. Bestiaire et
+ * Maintenance ferment la marche — cette dernière parce qu'elle contient le
+ * bouton « Réinitialiser », qui n'a rien à faire à portée d'un scroll.
+ */
+type OngletReglages =
+  | 'creation'
+  | 'equipement'
+  | 'amelioration'
+  | 'sort'
+  | 'classe'
+  | 'type-magique'
+  | 'investissement'
+  | 'dossier'
+  | 'bestiaire'
+  | 'maintenance'
+
+const LIBELLE_REGLAGES: Record<OngletReglages, string> = {
+  creation: 'Création',
+  equipement: 'Équipements',
+  amelioration: 'Améliorations',
+  sort: 'Sorts',
+  classe: 'Classes',
+  'type-magique': 'Types magiques',
+  investissement: 'Investissements',
+  dossier: 'Dossiers',
+  bestiaire: 'Bestiaire',
+  maintenance: 'Maintenance',
+}
+
+/** Les onglets qui ne font que lister une famille du catalogue. */
+const FAMILLES: OngletReglages[] = [
+  'equipement',
+  'amelioration',
+  'sort',
+  'classe',
+  'type-magique',
+  'investissement',
+]
+
 function Reglages({ catalog }: { catalog: Catalog }) {
+  const [onglet, setOnglet] = useState<OngletReglages>('creation')
+
   return (
     <div className="pile">
-      <EditeurCatalogue catalog={catalog} />
-      <Bestiaire />
-      <ReglagesCatalogue />
+      <div className="onglets" role="tablist">
+        {(Object.keys(LIBELLE_REGLAGES) as OngletReglages[]).map((cle) => (
+          <button
+            key={cle}
+            type="button"
+            role="tab"
+            aria-selected={onglet === cle}
+            className={`onglet ${onglet === cle ? 'onglet--actif' : ''}`}
+            onClick={() => setOnglet(cle)}
+          >
+            {LIBELLE_REGLAGES[cle]}
+          </button>
+        ))}
+      </div>
+
+      {onglet === 'creation' && <CreationCatalogue catalog={catalog} />}
+      {FAMILLES.includes(onglet) && (
+        <EditeurCatalogue catalog={catalog} kind={onglet as EntreeCatalogue['kind']} />
+      )}
+      {onglet === 'dossier' && <EditeurDossiers catalog={catalog} />}
+      {onglet === 'bestiaire' && <Bestiaire />}
+      {onglet === 'maintenance' && <ReglagesCatalogue />}
     </div>
   )
 }
@@ -697,10 +786,11 @@ function ReglagesCatalogue() {
 
   return (
     <section className="carte pile">
-      <span className="etiquette">Catalogue</span>
+      <span className="etiquette">Maintenance du catalogue</span>
       <p className="discret" style={{ margin: 0 }}>
-        Le contenu vit dans la base et sera éditable depuis cet écran au lot 3. En attendant,
-        l'amorçage installe les 3 classes et leurs sorts, et l'export vous donne une sauvegarde.
+        L'amorçage installe le contenu livré qui manque encore — il n'écrase jamais ce que vous
+        avez écrit. L'export vous donne une sauvegarde. La réinitialisation, elle, réécrit tout
+        par-dessus vos modifications.
       </p>
 
       {message && <p className="alerte alerte--info">{message}</p>}

@@ -8,6 +8,7 @@ import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
 import { OngletDuel } from './OngletDuel.tsx'
+import { OverlayNotifications } from './OverlayNotifications.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
@@ -34,6 +35,7 @@ import {
   type FiltresCatalogue as Filtres,
 } from '../../domain/filtres.ts'
 import { lancerSort, type DemandeLancement } from '../../domain/lancement.ts'
+import type { Notification } from '../../domain/notifications.ts'
 import {
   appliquerGainBrulures,
   basculerCaseBrulure,
@@ -87,6 +89,7 @@ interface Props {
   etat: EtatTable | null
   adversaires: Adversaire[]
   personnages: Character[]
+  notifications: Notification[]
   onQuitter: () => void
 }
 
@@ -103,7 +106,15 @@ const LIBELLE_ONGLET: Record<Onglet, string> = {
   sac: 'Équipement',
 }
 
-export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter }: Props) {
+export function Fiche({
+  char,
+  catalog,
+  etat,
+  adversaires,
+  personnages,
+  notifications,
+  onQuitter,
+}: Props) {
   const [onglet, setOnglet] = useState<Onglet>('fiche')
   const classe = catalog.classe(char.classeId)
 
@@ -140,6 +151,8 @@ export function Fiche({ char, catalog, etat, adversaires, personnages, onQuitter
 
   return (
     <>
+      <OverlayNotifications char={char} catalog={catalog} notifications={notifications} />
+
       <header className="bandeau">
         <button type="button" className="btn btn--fantome pas" onClick={onQuitter} aria-label="Changer de personnage">
           ←

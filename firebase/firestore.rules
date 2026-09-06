@@ -148,6 +148,23 @@ service cloud.firestore {
                       || (estJoueuse() && champsTouches().hasOnly(['choixJoueuse']));
       }
 
+      // --- Notifications ----------------------------------------------------
+      // La MJ pousse, la joueuse répond. Elle n'écrit que `reponses` : avec une
+      // clause plus large, elle pourrait se réécrire un choix moins cher ou se
+      // donner l'équipement d'une autre.
+      //
+      // Lisible par toute la table, faute de mieux : les joueuses partagent un
+      // compte, et un document rangé dans `secrets/` serait refusé en lecture à
+      // sa propre destinataire. Le secret d'un Choix secret est donc social.
+      // Une joueuse peut, techniquement, écrire la réponse d'une autre — même
+      // arbitrage assumé que pour les fiches de personnage.
+      match /notifications/{notifId} {
+        allow read: if deLaTable();
+        allow create, delete: if estMJ();
+        allow update: if estMJ()
+                      || (estJoueuse() && champsTouches().hasOnly(['reponses']));
+      }
+
       // --- 🔒 Journal -------------------------------------------------------
       // Les joueuses y déposent leurs actions mais ne peuvent pas le relire :
       // il contient les décisions et les tirages de la MJ.

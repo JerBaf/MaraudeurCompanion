@@ -3,7 +3,7 @@ import {
   axesPertinents,
   dossiersDe,
   DOSSIER_TOUS,
-  familleRangeable,
+  estRangeable,
   LIBELLE_TRI,
   SANS_DOSSIER,
   type CleTri,
@@ -56,8 +56,8 @@ export function FiltresCatalogue({
   const axes = axesPertinents(kind)
   const maj = (patch: Partial<Filtres>) => onChange({ ...valeur, ...patch })
 
-  const famille = familleRangeable(kind)
-  const dossiers = famille ? dossiersDe(catalog, famille) : []
+  const rangeable = estRangeable(kind)
+  const dossiers = dossiersDe(catalog)
 
   return (
     <div className="pile pile--serree">
@@ -97,7 +97,7 @@ export function FiltresCatalogue({
       <div className="rangee">
         {/* Le dossier « Tous » n'est pas une entrée du catalogue : c'est
             l'absence de filtre. Rien à créer, rien à tenir à jour. */}
-        {axes.includes('dossierId') && famille && (
+        {axes.includes('dossierId') && rangeable && (
           <select
             value={valeur.dossierId}
             style={{ flex: 1, minWidth: 120 }}

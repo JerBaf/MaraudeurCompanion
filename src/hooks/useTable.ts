@@ -5,9 +5,11 @@ import {
   surAdversaires,
   surCatalogue,
   surEtat,
+  surNotifications,
   surPersonnages,
 } from '../data/repo.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
+import type { Notification } from '../domain/notifications.ts'
 import type { Adversaire, Character, EtatTable } from '../domain/types.ts'
 import { effacerErreur } from '../store/erreurs.ts'
 import { auth, type Role } from '../store/index.ts'
@@ -24,6 +26,7 @@ export function useTable(role: Role | null) {
   const [etat, setEtat] = useState<EtatTable | null>(null)
   const [personnages, setPersonnages] = useState<Character[]>([])
   const [adversaires, setAdversaires] = useState<Adversaire[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [catalog, setCatalog] = useState<Catalog>(() => createCatalog([]))
   const [pret, setPret] = useState(false)
 
@@ -34,6 +37,7 @@ export function useTable(role: Role | null) {
       setEtat(null)
       setPersonnages([])
       setAdversaires([])
+      setNotifications([])
       setCatalog(createCatalog([]))
       setPret(false)
       return
@@ -46,6 +50,7 @@ export function useTable(role: Role | null) {
       surEtat(setEtat),
       surPersonnages(setPersonnages),
       surAdversaires(setAdversaires),
+      surNotifications(setNotifications),
       surCatalogue((c) => {
         setCatalog(c)
         setPret(true)
@@ -64,7 +69,21 @@ export function useTable(role: Role | null) {
     [adversaires],
   )
 
-  return { etat, personnages: personnagesTries, adversaires: adversairesTries, catalog, pret }
+  // La plus ancienne d'abord : les notifications se présentent à la joueuse
+  // dans l'ordre où la MJ les a envoyées.
+  const notificationsTriees = useMemo(
+    () => [...notifications].sort((a, b) => a.envoyeeLe - b.envoyeeLe),
+    [notifications],
+  )
+
+  return {
+    etat,
+    personnages: personnagesTries,
+    adversaires: adversairesTries,
+    notifications: notificationsTriees,
+    catalog,
+    pret,
+  }
 }
 
 export function useRole(): Role | null {

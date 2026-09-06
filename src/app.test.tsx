@@ -309,6 +309,57 @@ describe('outillage de table', () => {
   }
 
   /**
+   * Le parcours complet du nouvel atelier : la MJ fabrique une **classe
+   * entière** — champs de base, sorts fournis, et un choix à deux options —
+   * depuis le seul onglet Création, et la joueuse peut aussitôt s'en servir.
+   *
+   * C'était le dernier trou du modèle : rien ne permettait de créer une classe
+   * sans toucher au code.
+   */
+  it('la MJ compose une classe entière depuis l’onglet Création', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Classe' }))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), { target: { value: 'Arpenteuse' } })
+
+    // Un choix à deux options, chacune avec son verrou et son effet.
+    fireEvent.click(screen.getByText('Ajouter un choix'))
+    fireEvent.change(await screen.findByLabelText('Libellé du choix'), {
+      target: { value: 'Démarche' },
+    })
+    fireEvent.change(screen.getByLabelText('Nom de l’option'), {
+      target: { value: 'Silencieuse' },
+    })
+    fireEvent.click(screen.getByText('Ajouter une option'))
+    await waitFor(() =>
+      expect(screen.getAllByLabelText('Nom de l’option')).toHaveLength(2),
+    )
+    fireEvent.change(screen.getAllByLabelText('Nom de l’option')[1] as HTMLElement, {
+      target: { value: 'Assurée' },
+    })
+
+    fireEvent.click(screen.getByText('Enregistrer'))
+    await waitFor(() => expect(screen.getByText(/« Arpenteuse » créé/)).toBeTruthy())
+
+    // Elle figure dans l'onglet qui liste les classes.
+    fireEvent.click(screen.getByRole('tab', { name: 'Classes' }))
+    await waitFor(() => expect(screen.getByText('Arpenteuse')).toBeTruthy())
+    cleanup()
+
+    // Et la joueuse peut créer un personnage dessus.
+    localStorage.removeItem('maraudeur:personnage')
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    // Sans personnage retenu, on arrive sur le roster.
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    await waitFor(() => expect(screen.getByText('Arpenteuse')).toBeTruthy())
+  })
+
+  /**
    * Le parcours complet d'une réaction croisée : la MJ compose « quand une
    * alliée prend une brûlure, gagnez un Point de Foi », et le passif part sur la
    * fiche de sa porteuse quand *quelqu'un d'autre* bouge la jauge.
@@ -325,8 +376,7 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
-    fireEvent.click(await screen.findByRole('tab', { name: 'Améliorations' }))
-    fireEvent.click(await screen.findByText(/Ajouter — améliorations/))
+    fireEvent.click(await screen.findByRole('button', { name: 'Amélioration' }))
 
     fireEvent.change(await screen.findByLabelText('Nom'), { target: { value: 'Lien de sang' } })
     fireEvent.click(screen.getByText('Ajouter un passif'))
@@ -428,7 +478,8 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
-    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+    // L'onglet Création est ouvert d'emblée : on y choisit ce qu'on fabrique.
+    fireEvent.click(await screen.findByRole('button', { name: 'Équipement' }))
 
     fireEvent.change(await screen.findByLabelText('Nom'), {
       target: { value: 'Talisman de protection' },
@@ -485,7 +536,8 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
-    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+    // L'onglet Création est ouvert d'emblée : on y choisit ce qu'on fabrique.
+    fireEvent.click(await screen.findByRole('button', { name: 'Équipement' }))
 
     fireEvent.change(await screen.findByLabelText('Nom'), {
       target: { value: 'Sceau du Martyr' },
@@ -539,8 +591,7 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
-    fireEvent.click(await screen.findByRole('tab', { name: 'Améliorations' }))
-    fireEvent.click(await screen.findByText(/Ajouter — améliorations/))
+    fireEvent.click(await screen.findByRole('button', { name: 'Amélioration' }))
 
     // Le passif d'abord…
     fireEvent.click(await screen.findByText('Ajouter un passif'))
@@ -580,7 +631,8 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
-    fireEvent.click(await screen.findByText(/Ajouter — équipements/))
+    // L'onglet Création est ouvert d'emblée : on y choisit ce qu'on fabrique.
+    fireEvent.click(await screen.findByRole('button', { name: 'Équipement' }))
 
     fireEvent.change(await screen.findByLabelText('Nom'), {
       target: { value: 'Potion de brume' },
@@ -1164,5 +1216,112 @@ describe('Combat rapide', () => {
     expect(screen.getByText('Contre')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Contre' })).toBeNull()
     expect(screen.queryByText(/Verrouiller/)).toBeNull()
+  })
+})
+
+describe('Notifications', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  afterEach(cleanup)
+
+  /** Amorce la table et crée une joueuse, comme pour le Combat rapide. */
+  async function tableAvec(nom: string) {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    await waitFor(() =>
+      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+    )
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Créer un personnage'))
+    fireEvent.change(screen.getByPlaceholderText('Maya'), { target: { value: nom } })
+    fireEvent.click(await screen.findByText('Dusk Hunter'))
+    fireEvent.click(screen.getByRole('button', { name: 'Physique en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Roublardise en point fort' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Esprit en point faible' }))
+    fireEvent.click(screen.getByText('Entrer dans l’Entre-Monde'))
+    await waitFor(() => expect(screen.getByText(nom)).toBeTruthy())
+    cleanup()
+  }
+
+  /** Compose et envoie une notification depuis l'écran MJ. Laisse l'écran monté. */
+  async function envoyerMJ(type: string, nom: string, texte: string) {
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+    fireEvent.click(await screen.findByRole('button', { name: type }))
+    fireEvent.click(await screen.findByLabelText(nom))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: texte } })
+  }
+
+  function ficheDe(nom: string): string {
+    const cle = clesStockage().find(
+      (k) => k.includes('/characters/') && (localStorage.getItem(k) ?? '').includes(`"${nom}"`),
+    )
+    return localStorage.getItem(cle as string) as string
+  }
+
+  it('pousse un 6th Sens, consomme le point sur Écouter, et le remonte à la MJ', async () => {
+    await tableAvec('Ilma')
+    await envoyerMJ('6th Sens', 'Ilma', "Un courant d'air froid vient du couloir de gauche.")
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }))
+    await waitFor(() => expect(screen.getByText('En attente…')).toBeTruthy())
+    cleanup()
+
+    // --- La carte arrive sur l'écran de la joueuse, sans qu'elle change d'onglet ---
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const carte = await screen.findByRole('dialog')
+    expect(within(carte).getByText(/courant d'air froid/)).toBeTruthy()
+    // Le coût est annoncé sur le bouton, pas caché derrière l'appui.
+    expect(within(carte).getByText(/1 6th Sens/)).toBeTruthy()
+
+    fireEvent.click(within(carte).getByRole('button', { name: /Écouter/ }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(ficheDe('Ilma')).toContain('"sixthSensUtilises":1')
+    cleanup()
+
+    // --- Et la MJ voit la réponse, pour donner l'information à l'oreille ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+
+    // Restreint à la carte de suivi : « Écouter » figure aussi dans le texte
+    // d'aide du composeur, qui décrit les deux réponses possibles.
+    const suivi = (await screen.findByText(/courant d'air froid/)).closest('section') as HTMLElement
+    await waitFor(() => expect(within(suivi).getByText('Écouter')).toBeTruthy())
+    expect(within(suivi).queryByText('En attente…')).toBeNull()
+  })
+
+  it('remet un équipement dans le sac, sans l’équiper', async () => {
+    await tableAvec('Ilma')
+    await envoyerMJ('Nouvel équipement', 'Ilma', 'La forgeronne vous tend une lame.')
+    fireEvent.change(screen.getByLabelText("L'objet remis"), { target: { value: 'lame-simple' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }))
+    await waitFor(() => expect(screen.getByText('En attente…')).toBeTruthy())
+    cleanup()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const carte = await screen.findByRole('dialog')
+    // La joueuse voit l'objet avant de le prendre.
+    expect(within(carte).getByText('Lame simple')).toBeTruthy()
+    expect(ficheDe('Ilma')).not.toContain('lame-simple')
+
+    fireEvent.click(within(carte).getByRole('button', { name: 'Prendre' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    const fiche = ficheDe('Ilma')
+    expect(fiche).toContain('lame-simple')
+    // Dans le sac, pas au bras : les échanges se font au feu de camp.
+    expect(fiche).toContain('"equipe":{"arme":null')
   })
 })

@@ -12,6 +12,14 @@ import { resoudrePassifs, type RecitPassif } from '../domain/reactions.ts'
 import { etatCombatInitial, indexMoment, sousGroupeSuivant } from '../domain/combat.ts'
 import { actionScriptee, etatDuel, issueDuel, jouerManche } from '../domain/duel.ts'
 import { creerPersonnage, normaliserPersonnage, type DemandeCreation } from '../domain/character.ts'
+import {
+  contenuVierge,
+  libelleOption,
+  libelleType,
+  repondre,
+  type KindNotification,
+  type Notification,
+} from '../domain/notifications.ts'
 import { effectuerDetachement, type ElementDetachable } from '../domain/fatigue.ts'
 import { expireModifiers, type EvenementExpiration } from '../domain/modifiers.ts'
 import { cryptoRng } from '../domain/random.ts'
@@ -78,6 +86,16 @@ export const chemins = {
    * droit de voir.
    */
   duelPrive: `${racine}/secrets/duel`,
+  /**
+   * Les notifications en cours.
+   *
+   * Publique, comme les duels : les joueuses partagent un compte, et un
+   * document rangé dans `secrets/` leur serait refusé en lecture — donc
+   * invisible pour sa propre destinataire. Le « secret » d'un Choix secret est
+   * social, pas cryptographique.
+   */
+  notifications: `${racine}/notifications`,
+  notification: (id: string) => `${racine}/notifications/${id}`,
   catalogue: `${racine}/catalog`,
   entreeCatalogue: (id: string) => `${racine}/catalog/${id}`,
   journal: `${racine}/log`,
@@ -802,6 +820,82 @@ export async function terminerDuel(etat: EtatTable, duel: Duel | null): Promise<
   await store.setDoc(chemins.etat, { ...etat, mode: 'standard', duelId: null })
   await abandonnerDuelPrive()
   if (duel) await journaliser('MJ', 'duel', `Fin du combat rapide contre ${duel.adversaireNom}.`)
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export const surNotifications = (cb: (n: Notification[]) => void) =>
+  store.subscribeCollection<Notification>(chemins.notifications, cb)
+
+export function nouvelleNotification(kind: KindNotification): Notification {
+  return {
+    id: nouvelIdentifiant(),
+    cibles: [],
+    texte: '',
+    contenu: contenuVierge(kind),
+    reponses: {},
+    envoyeeLe: 0,
+  }
+}
+
+export async function envoyerNotification(
+  notif: Notification,
+  personnages: Character[],
+): Promise<void> {
+  const envoyee: Notification = { ...notif, reponses: {}, envoyeeLe: Date.now() }
+  await store.setDoc(chemins.notification(envoyee.id), envoyee)
+
+  const noms = envoyee.cibles
+    .map((id) => personnages.find((c) => c.id === id)?.nom ?? id)
+    .join(', ')
+  await journaliser('MJ', 'notification', `${libelleType(envoyee)} → ${noms} : ${envoyee.texte}`)
+}
+
+/**
+ * Verrouille la réponse d'une joueuse.
+ *
+ * On **paie d'abord** : si le coût est impayable, `repondre` lève et rien n'est
+ * enregistré. Le paiement passe par `modifierPersonnage` pour que les passifs
+ * réactifs s'arment, exactement comme un lancement de sort.
+ *
+ * ⚠️ Les deux écritures ne sont pas transactionnelles — c'est la faiblesse déjà
+ * connue du dépôt. L'écran garde un verrou local pour ne pas envoyer deux fois.
+ */
+export async function repondreNotification(
+  char: Character,
+  catalog: Catalog,
+  notif: Notification,
+  optionId: string,
+  branche = 0,
+): Promise<string[]> {
+  let recits: string[] = []
+  await modifierPersonnage(char, (c) => {
+    const r = repondre(c, catalog, notif, optionId, branche)
+    recits = r.recits
+    return r.char
+  })
+
+  // Un seul champ touché : c'est tout ce que les règles Firestore autorisent à
+  // une joueuse sur ce document (même geste que `definirInitiative`).
+  await store.updateDoc(chemins.notification(notif.id), {
+    reponses: { ...notif.reponses, [char.id]: { optionId, repondueLe: Date.now() } },
+  })
+
+  await journaliser(
+    char.nom,
+    'notification',
+    `${libelleType(notif)} — ${libelleOption(notif, optionId)}` +
+      (recits.length ? ` (${recits.join(' · ')})` : ''),
+  )
+
+  return recits
+}
+
+/** Range une notification : le journal en garde la trace, la collection reste courte. */
+export async function rangerNotification(id: string): Promise<void> {
+  await store.deleteDoc(chemins.notification(id))
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import {
   creerPersonnage,
   cyclesNonRenseignes,
   maitrisesSuiventLeProfil,
+  maitrisesVierges,
   normaliserPersonnage,
   secretVierge,
 } from './character.ts'
@@ -129,6 +130,7 @@ import {
   coutDe,
   decrireCout,
   disponiblePour,
+  estGratuit,
   fixe,
   payerCout,
   peutPayer,
@@ -165,11 +167,22 @@ import {
   retirerObjet,
   utiliserActif,
 } from './objets.ts'
+import {
+  choixProposes,
+  enAttente,
+  libelleOption,
+  optionCouteuse,
+  optionsDe,
+  repondre,
+  type ContenuNotification,
+  type Notification,
+} from './notifications.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import { ACTIONS_DUEL } from './types.ts'
 import type {
   ActionDuel,
   Actif,
+  Classe,
   Amelioration,
   Character,
   Competence,
@@ -760,6 +773,126 @@ describe('lancer un sort', () => {
  * à la MJ d'écrire « cette amélioration donne un emplacement de Grimoire de
  * plus » sans toucher au code.
  */
+/**
+ * Une classe composée **entièrement en données**, comme la MJ en écrira depuis
+ * l'onglet Création. C'était le dernier trou du modèle : rien ne permettait
+ * jusqu'ici de créer une classe sans toucher au code.
+ */
+describe('classe composée en données', () => {
+  const arpenteuse: Classe = {
+    kind: 'classe',
+    id: 'arpenteuse',
+    nom: 'Arpenteuse',
+    icone: 'crystal-shine',
+    fatigueMax: 4,
+    sixthSensBase: 1,
+    lore: 'Elle marche les lisières.',
+    passifTexte: 'Choisit sa démarche.',
+    sortsIds: ['polymorph'],
+    choix: [
+      {
+        id: 'demarche',
+        libelle: 'Démarche',
+        verrou: 'libre',
+        options: [
+          {
+            id: 'silencieuse',
+            nom: 'Silencieuse',
+            effet: 'Avantage en Roublardise',
+            passifs: [
+              {
+                id: 'silence',
+                libelle: 'Silencieuse',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte: '',
+                  operations: [
+                    {
+                      kind: 'ajuster',
+                      cible: {
+                        element: { kind: 'competence', competence: 'roublardise' },
+                        aspect: 'valeur',
+                      },
+                      op: { kind: 'avantage' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: 'assuree',
+            nom: 'Assurée',
+            effet: '+1 Évasion',
+            passifs: [
+              {
+                id: 'assurance',
+                libelle: 'Assurée',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte: '',
+                  operations: [
+                    {
+                      kind: 'ajuster',
+                      cible: { element: { kind: 'evasion' }, aspect: 'valeur' },
+                      op: { kind: 'add', value: 1 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+
+  const avecClasse = createCatalog([...SEED, arpenteuse])
+
+  const arpenteur = (option?: string) =>
+    normaliserPersonnage({
+      ...creerPersonnage(
+        { id: 'p', nom: 'Nael', classeId: 'arpenteuse', maitrises: maitrisesVierges() },
+        avecClasse,
+        0,
+      ),
+      ...(option ? { passifs: { choix: { demarche: option } } } : {}),
+    } as Character)
+
+  it('se crée sans passifMoteur, et fournit ses sorts', () => {
+    const char = arpenteur()
+    expect(char.fatigue.max).toBe(4)
+    expect(char.sixthSensBase).toBe(1)
+    expect(char.possede.sorts).toEqual(['polymorph'])
+    expect(char.grimoire).toEqual(['polymorph'])
+    // Sans `passifMoteur` ni choix retenu, aucun passif de classe ne s'applique.
+    expect(char.passifs.choix).toEqual({})
+  })
+
+  it('accorde le passif de l’option retenue, et elle seule', () => {
+    const silencieuse = arpenteur('silencieuse')
+    expect(computeCompetence(silencieuse, avecClasse, 'roublardise').net).toBe('avantage')
+    expect(computeEvasion(silencieuse, avecClasse).total).toBe(EVASION_DE_BASE)
+
+    const assuree = arpenteur('assuree')
+    expect(computeEvasion(assuree, avecClasse).total).toBe(EVASION_DE_BASE + 1)
+    expect(computeCompetence(assuree, avecClasse, 'roublardise').net).toBe('neutre')
+  })
+
+  /**
+   * Le repli sur la première option serait tentant, mais l'ordre de la liste
+   * est un détail de rédaction : s'y fier accorderait un passif que personne
+   * n'a choisi.
+   */
+  it('n’accorde rien tant qu’aucune option n’est retenue', () => {
+    const indecise = arpenteur()
+    expect(computeEvasion(indecise, avecClasse).total).toBe(EVASION_DE_BASE)
+    expect(computeCompetence(indecise, avecClasse, 'roublardise').net).toBe('neutre')
+  })
+})
+
+// ---------------------------------------------------------------------------
+
 describe('emplacements dérivés', () => {
   const ameliorationQuiAjoute = (element: CleElement, id: string): Amelioration => ({
     kind: 'amelioration',
@@ -908,6 +1041,63 @@ describe('filtres du catalogue', () => {
     expect(ids(avec({ dossierId: SANS_DOSSIER }))).toEqual(['a'])
     // « Tous » n'est pas un dossier : c'est l'absence de filtre.
     expect(ids(avec({ dossierId: DOSSIER_TOUS })).length).toBe(3)
+  })
+
+  /**
+   * ⚠️ **Un dossier est polyvalent.** Il portait d'abord une `cible` qui le
+   * limitait à une famille — une erreur de lecture : un dossier de table est
+   * thématique (« Poisons »), et mêle naturellement les trois.
+   */
+  it('range dans un même dossier un sort, une amélioration et un équipement', () => {
+    const melange: EntreeCatalogue[] = [
+      {
+        kind: 'sort',
+        id: 's',
+        nom: 'Venin',
+        icone: 'crystal-shine',
+        magieId: 'arcane',
+        cout: COUT_GRATUIT,
+        de: null,
+        duree: 'Instantané',
+        effet: '',
+        dossierId: 'poisons',
+      },
+      {
+        kind: 'amelioration',
+        id: 'a',
+        nom: 'Accoutumance',
+        icone: 'crystal-shine',
+        prix: 60,
+        effetTexte: '',
+        dossierId: 'poisons',
+      },
+      entree({ id: 'e', nom: 'Fiole', dossierId: 'poisons' }),
+      entree({ id: 'hors', nom: 'Épée' }),
+    ]
+
+    const dansLeDossier = filtrerEntrees(melange, { ...FILTRES_VIERGES, dossierId: 'poisons' })
+    expect(dansLeDossier.map((e) => e.kind).sort()).toEqual([
+      'amelioration',
+      'equipement',
+      'sort',
+    ])
+  })
+
+  it('retire la cible d’un dossier écrit à l’ancien format', () => {
+    // Le champ limitait le dossier à une famille. Le laisser mourir en base ne
+    // suffisait pas : le formulaire l'aurait recopié à chaque enregistrement.
+    const ancien = {
+      kind: 'dossier',
+      id: 'poisons',
+      nom: 'Poisons',
+      icone: 'crystal-shine',
+      ordre: 0,
+      cible: 'equipement',
+    } as unknown as EntreeCatalogue
+
+    const converti = createCatalog([...SEED, ancien]).dossier('poisons')
+    expect(converti).toBeTruthy()
+    expect('cible' in (converti as object)).toBe(false)
   })
 
   it('filtre par rareté, l’absence valant « commun »', () => {
@@ -2990,5 +3180,164 @@ describe('Combat rapide — le motif du PNJ', () => {
 
   it('refuse un motif vide plutôt que d’inventer une action', () => {
     expect(() => actionScriptee([], 1)).toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+function notif(
+  contenu: ContenuNotification,
+  patch: Partial<Notification> = {},
+): Notification {
+  return {
+    id: 'notif-test',
+    cibles: ['pj-test'],
+    texte: 'Un buisson s’agite dans la pénombre.',
+    contenu,
+    reponses: {},
+    envoyeeLe: 0,
+    ...patch,
+  }
+}
+
+const CHOIX_BUISSON: ContenuNotification = {
+  kind: 'choix',
+  options: [
+    { id: 'a', libelle: 'Aller voir', cout: coutDe(fixe('lumens', 10)) },
+    { id: 'b', libelle: 'Jeter une pierre', cout: COUT_GRATUIT },
+  ],
+}
+
+describe('Notifications — les options', () => {
+  it('propose Écouter contre un point de 6th Sens, et Laisse passer gratuitement', () => {
+    const options = optionsDe(notif({ kind: 'sixth-sens' }))
+    expect(options.map((o) => o.id)).toEqual(['ecouter', 'laisser'])
+    expect(estGratuit(options[0]!.cout)).toBe(false)
+    expect(estGratuit(options[1]!.cout)).toBe(true)
+  })
+
+  it('rend les options d’un Choix secret telles que la MJ les a écrites', () => {
+    expect(optionsDe(notif(CHOIX_BUISSON)).map((o) => o.libelle)).toEqual([
+      'Aller voir',
+      'Jeter une pierre',
+    ])
+  })
+
+  it('n’offre qu’une seule option sur un équipement remis', () => {
+    const options = optionsDe(notif({ kind: 'equipement', equipementId: 'lame-simple' }))
+    expect(options).toHaveLength(1)
+    expect(estGratuit(options[0]!.cout)).toBe(true)
+  })
+})
+
+describe('Notifications — ce qui est payable', () => {
+  it('grise Écouter quand il ne reste plus de 6th Sens, mais jamais Laisse passer', () => {
+    const char = nouveauPerso('trickster', { sixthSensUtilises: 1 })
+    expect(computeSixthSens(char, catalog).restants).toBe(0)
+
+    const choix = choixProposes(char, catalog, notif({ kind: 'sixth-sens' }))
+    expect(choix.find((c) => c.option.id === 'ecouter')!.payable).toBe(false)
+    expect(choix.find((c) => c.option.id === 'laisser')!.payable).toBe(true)
+  })
+
+  it('dit ce qui manque plutôt que de refuser sans un mot', () => {
+    const char = nouveauPerso('trickster', { lumens: 6 })
+    const choix = choixProposes(char, catalog, notif(CHOIX_BUISSON))
+    const a = choix.find((c) => c.option.id === 'a')!
+
+    expect(a.payable).toBe(false)
+    expect(a.raison).toContain('il vous en manque 4')
+  })
+
+  it('propose un bouton par branche : « 2 Foi OU 10 Lumens » en donne deux', () => {
+    const contenu: ContenuNotification = {
+      kind: 'choix',
+      options: [
+        {
+          id: 'a',
+          libelle: 'Forcer le passage',
+          cout: coutAuChoix([fixe('foi', 2)], [fixe('lumens', 10)]),
+        },
+        { id: 'b', libelle: 'Reculer', cout: COUT_GRATUIT },
+      ],
+    }
+
+    // 2 Points de Foi à la création, mais 0 Lumens : une seule branche passe.
+    const char = nouveauPerso('trickster', { lumens: 0 })
+    const choix = choixProposes(char, catalog, notif(contenu))
+    const branchesA = choix.filter((c) => c.option.id === 'a')
+
+    expect(branchesA).toHaveLength(2)
+    expect(branchesA.map((c) => c.payable)).toEqual([true, false])
+    // L'option gratuite reste un seul bouton, sans coût affiché.
+    expect(choix.filter((c) => c.option.id === 'b')).toEqual([
+      { option: contenu.options[1], branche: 0, libelleCout: null, payable: true, raison: null },
+    ])
+  })
+})
+
+describe('Notifications — répondre', () => {
+  it('consomme un point de 6th Sens sur Écouter, et rien sur Laisse passer', () => {
+    const char = nouveauPerso('trickster')
+    const n = notif({ kind: 'sixth-sens' })
+
+    expect(repondre(char, catalog, n, 'ecouter').char.sixthSensUtilises).toBe(1)
+    expect(repondre(char, catalog, n, 'laisser').char.sixthSensUtilises).toBe(0)
+  })
+
+  it('met l’objet dans le sac sans l’équiper', () => {
+    const char = nouveauPerso('trickster')
+    const n = notif({ kind: 'equipement', equipementId: 'lame-simple' })
+    const apres = repondre(char, catalog, n, 'prendre').char
+
+    expect(apres.possede.equipements).toContain('lame-simple')
+    expect(apres.equipe).toEqual(char.equipe)
+  })
+
+  it('prélève sur la branche choisie, et sur elle seule', () => {
+    const contenu: ContenuNotification = {
+      kind: 'choix',
+      options: [
+        {
+          id: 'a',
+          libelle: 'Forcer le passage',
+          cout: coutAuChoix([fixe('foi', 2)], [fixe('lumens', 10)]),
+        },
+      ],
+    }
+    const char = nouveauPerso('trickster', { lumens: 30 })
+
+    const parLaFoi = repondre(char, catalog, notif(contenu), 'a', 0).char
+    expect(parLaFoi.foi).toBe(char.foi - 2)
+    expect(parLaFoi.lumens).toBe(30)
+
+    const parLesLumens = repondre(char, catalog, notif(contenu), 'a', 1).char
+    expect(parLesLumens.lumens).toBe(20)
+    expect(parLesLumens.foi).toBe(char.foi)
+  })
+
+  it('refuse une option impayable plutôt que de laisser une jauge passer sous zéro', () => {
+    const char = nouveauPerso('trickster', { lumens: 6 })
+    expect(() => repondre(char, catalog, notif(CHOIX_BUISSON), 'a')).toThrow()
+  })
+
+  it('refuse une option qui n’existe pas', () => {
+    const char = nouveauPerso('trickster')
+    expect(() => repondre(char, catalog, notif(CHOIX_BUISSON), 'c')).toThrow()
+  })
+})
+
+describe('Notifications — suivi', () => {
+  it('ne compte en attente que les cibles qui n’ont pas répondu', () => {
+    const n = notif(CHOIX_BUISSON, {
+      cibles: ['pj-1', 'pj-2'],
+      reponses: { 'pj-1': { optionId: 'b', repondueLe: 1 } },
+    })
+
+    expect(enAttente(n)).toEqual(['pj-2'])
+    expect(libelleOption(n, 'b')).toBe('Jeter une pierre')
+    // La MJ doit repérer d'un coup d'œil la réponse qui a coûté quelque chose.
+    expect(optionCouteuse(n, 'a')).toBe(true)
+    expect(optionCouteuse(n, 'b')).toBe(false)
   })
 })

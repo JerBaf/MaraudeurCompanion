@@ -80,11 +80,14 @@ export function axesPertinents(kind: EntreeCatalogue['kind']): (keyof FiltresCat
   }
 }
 
-/** Le dossier n'existe que pour les trois familles qu'on range. */
-export function familleRangeable(
-  kind: EntreeCatalogue['kind'],
-): 'sort' | 'equipement' | 'amelioration' | null {
-  return kind === 'sort' || kind === 'equipement' || kind === 'amelioration' ? kind : null
+/**
+ * Cette famille se range-t-elle dans un dossier ?
+ *
+ * Ne sert plus qu'à ça : un dossier étant polyvalent, il n'y a plus de « bons »
+ * dossiers à proposer selon le type — ils conviennent tous.
+ */
+export function estRangeable(kind: EntreeCatalogue['kind']): boolean {
+  return kind === 'sort' || kind === 'equipement' || kind === 'amelioration'
 }
 
 // ---------------------------------------------------------------------------
@@ -186,13 +189,10 @@ export function filtrerEntrees(
   })
 }
 
-/** Les dossiers d'une famille, dans l'ordre voulu par la MJ. */
-export function dossiersDe(
-  catalog: { dossiers(): Dossier[] },
-  cible: 'sort' | 'equipement' | 'amelioration',
-) {
+/** Les dossiers, dans l'ordre voulu par la MJ. */
+export function dossiersDe(catalog: { dossiers(): Dossier[] }) {
   return catalog
     .dossiers()
-    .filter((d) => d.cible === cible)
+    .slice()
     .sort((a, b) => a.ordre - b.ordre || a.nom.localeCompare(b.nom, 'fr'))
 }

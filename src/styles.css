@@ -1044,6 +1044,36 @@ textarea {
   word-break: break-all;
 }
 
+/*
+  Notification poussée par la MJ.
+
+  Le seul élément fixe de l'application, et volontairement au-dessus du bandeau
+  d'erreur : la joueuse doit répondre avant de reprendre sa fiche. La carte
+  défile toute seule si l'objet remis a une longue description — sur un
+  téléphone en paysage, elle dépasserait l'écran.
+*/
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--encre) 88%, transparent);
+}
+
+.overlay__carte {
+  width: 100%;
+  max-width: 480px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--ambre-sourd);
+  border-radius: var(--rayon-l);
+  background: var(--encre-2);
+}
+
 .vide {
   padding: 24px 12px;
   text-align: center;

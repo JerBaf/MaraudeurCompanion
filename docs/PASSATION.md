@@ -21,13 +21,17 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 259 tests — 220 de domaine, 7 de stockage, 32 de rendu |
+| `npm test` | 279 tests — 237 de domaine, 7 de stockage, 35 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
 
 Un `git push` sur `main` déclenche GitHub Actions : tests → build → publication.
 **Les tests bloquent le déploiement** — un test rouge, et le site n'est pas mis à jour.
+
+> Les comptes de tests cités dans ce document sont un **instantané**. Ils bougent à chaque
+> ajout : `npm test` fait toujours foi. Ne les prenez pas pour une contrainte, seulement
+> pour un ordre de grandeur de ce qui est couvert.
 
 ### Ce qui fonctionne
 
@@ -48,6 +52,11 @@ leurs charges. Les types magiques et les dossiers sont passés au catalogue, les
 classe en données, et l'app sait désormais **lancer un sort** : payer, tirer, appliquer.
 Tout le contenu écrit sous l'ancien modèle se convertit à la lecture — voir pièges n° 1 et
 n° 2 bis.
+
+L'écran Réglages est enfin devenu **une barre d'onglets** : un onglet **Création** fabrique
+n'importe quelle entrée — y compris une **Classe entière**, choix et passifs par option
+compris, ce que rien ne permettait jusqu'ici — et les autres onglets ne servent plus qu'à
+consulter et corriger. Bestiaire et Maintenance y ont chacun le leur.
 
 ### Ce qui reste
 
@@ -95,6 +104,7 @@ brulures.ts     la Magie du Sang. Extrait de magie.ts pour que couts.ts puisse l
 modifiers.ts    l'agrégation, et le compilateur Passif → Modifier
 competences.ts  les valeurs et plafonds dérivés
 couts.ts        les Coûts, et la table des paiements
+notifications.ts ce que la MJ pousse vers une joueuse — a besoin des Coûts
 passifs.ts      ce que SONT les passifs, et lesquels sont en vigueur
 reactions.ts    ce qu'ils FONT — a besoin des plafonds, donc vient après
 lancement.ts    lancer un sort : payer, tirer, appliquer
@@ -146,8 +156,10 @@ sans qu'aucun écran n'ait eu à y penser, et rien ne peut se désynchroniser.
 > Un `Passif` porte un **déclenchement** — permanent, permanent au-delà d'un seuil, ou en
 > réaction à un changement — et un **effet**. `EditeurPassifs` (`components/`) les saisit,
 > `derivedModifiers` compile les permanents en `Modifier`. **Aucune ligne de code ne
-> connaît le talisman qu'elle vient de créer.** Trois tests de rendu suivent ce parcours
-> de bout en bout.
+> connaît le talisman qu'elle vient de créer.** Quatre tests de rendu suivent ce parcours
+> de bout en bout — passif permanent, passif réactif, réaction croisée, et le libellé qui
+> retombe sur le nom du porteur — et un cinquième fait de même pour une **classe entière**
+> composée depuis l'onglet Création.
 >
 > ⚠️ **`Passif` et `Modifier` restent deux choses distinctes.** `Passif` est du contenu
 > écrit par la MJ ; `Modifier` est la monnaie d'exécution — persistée dans
@@ -310,7 +322,8 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Lancer un sort | l'app **paie, tire et applique** | le coût et l'effet étant structurés, l'ajustement manuel des compteurs n'avait plus de raison d'être |
 | Durée d'un sort | `duree` reste du **texte**, doublée d'une échéance que le moteur sait tenir | l'app n'a **aucune horloge de fiction** : un effet « pendant 1 heure » ne peut pas expirer seul. La joueuse le **dissipe** à la main quand la fiction l'a consommé |
 | Emplacements | Grimoire, offres de boutique et investissements proposés sont **dérivés** | un passif peut en accorder un de plus. Ce sont des nombres *proposés*, pas des limites d'acquisition — celle-ci reste portée par `JetonsCamp` |
-| Dossiers | un dossier par entrée ; « ALL » **jamais stocké** | c'est l'absence de filtre, rien à créer ni à tenir à jour |
+| Dossiers | un dossier par entrée, **polyvalent** ; « ALL » **jamais stocké** | un dossier de table est thématique — « Poisons » réunit trois sorts et deux bibelots. Il portait d'abord une `cible` qui le limitait à une famille : erreur de lecture, retirée à la lecture par `normaliserEntree`. « ALL », lui, est l'absence de filtre : rien à créer ni à tenir à jour |
+| Écran Réglages | une **barre d'onglets** ; un onglet **Création** fabrique, les autres consultent | le bouton « Ajouter » était sous une liste qui s'allonge à chaque session. Créer une classe ou un type magique n'était possible nulle part |
 | Rareté | palette nommée, `Equipement.rarete` ; absent = commun | la couleur veut dire quelque chose à table, et suit l'objet partout |
 | Entrées `seed` | **supprimables** | le drapeau ne sert plus qu'à les faire revenir à la réinitialisation |
 | Cristal épuisé | signalé **par la joueuse**, sur un sort préparé dont le type magique porte `cristal` | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser. Le drapeau était câblé sur l'Arcane : un type magique créé par la MJ aurait perdu la mécanique |
@@ -451,7 +464,7 @@ Survenu trois fois — illusions, catalogue, puis `investissements` (qui faisait
 > **Si vous ajoutez un champ à `Character`, donnez-lui sa valeur neutre dans
 > `normaliserPersonnage`.** C'est la seule chose à retenir de cette section.
 
-Trois tests gardent cette régression (`describe('normalisation des fiches lues en base')`).
+Sept tests gardent cette régression (`describe('normalisation des fiches lues en base')`) — un par forme héritée.
 
 #### Piège n° 2 bis : le même piège vaut pour le catalogue
 
@@ -516,7 +529,8 @@ chemin d'écriture nouveau côté joueuse, relisez `firebase/firestore.rules`.
 #### Piège n° 5 : l'expiration se compte en activations, pas en tours
 
 Voir § 3. Un bonus défensif et un bonus offensif ne vivent pas jusqu'au même instant.
-Quatre tests couvrent les cas décrits par la MJ.
+Huit tests couvrent les cas décrits par la MJ, répartis sur trois blocs — `Esquiver`,
+`Faire diversion` et `horloge de combat`.
 
 #### Piège n° 6 : les paliers de la Voie de la Flamme se cumulent
 
@@ -583,7 +597,7 @@ murs ; `overlay` reste utilisable pour ce qu'on ne fait que *pousser* vers un é
 | **`base` de Vite** | `base: '/MaraudeurCompanion/'` — le site est servi sous le nom du dépôt. Les chemins d'assets passent par `import.meta.env.BASE_URL`. |
 | **`src/content/icones.ts` est généré** | par `npm run icons`, mais **suivi par git** : le build en dépend. Ne l'éditez pas à la main ; déposez un SVG dans `public/icons/` et relancez le script. |
 | **Icônes normalisées** | les SVG de game-icons arrivent en tracé blanc sur carré noir plein. Le script retire le fond et teinte le tracé. Un fichier déposé par la MJ n'est jamais retouché. |
-| **Taille du bundle** | ~750 Ko, 196 Ko compressés, dominés par Firebase. Acceptable sur mobile ; un découpage dynamique est possible si le chargement gêne. |
+| **Taille du bundle** | ~890 Ko, 237 Ko compressés, dominés par Firebase. Acceptable sur mobile ; un découpage dynamique est possible si le chargement gêne. |
 
 ### 6.4 Robustesse connue, non corrigée
 
@@ -683,7 +697,7 @@ le droit d'écrire**, et **n'écrire un vocabulaire qu'une fois**.
 2. `npm install && npm run dev`, deux onglets **du même navigateur** (MJ, PIN `1234` ;
    joueuse, code `ENTREMONDE`). Connectez-vous **en MJ d'abord** : le catalogue s'installe
    à ce moment-là.
-3. Parcourez `src/domain/rules.test.ts` — 220 tests qui décrivent le système mieux que
+3. Parcourez `src/domain/rules.test.ts` — 237 tests qui décrivent le système mieux que
    n'importe quelle prose.
 4. Demandez à la MJ ce qu'elle veut, et posez-lui vos questions avant de coder.
 
@@ -789,3 +803,66 @@ La `FriseDuel` (`components/FriseDuel.tsx`) remplace l'ancienne liste de phrases
 cases dans l'ordre — les deux actions face à face, le résultat dessous, les manches à venir
 en creux. Le nombre de cases vient de `MANCHES_MAX`. Le récit de `recitManche` n'est pas
 perdu : il devient l'infobulle de la case et son texte pour les lecteurs d'écran.
+
+---
+
+## 11. Les Notifications
+
+La MJ sollicite une ou plusieurs joueuses **sans changer le mode de la table**. Combat, Feu
+de camp et Combat rapide basculent tout le monde ; une notification arrive sur les seuls
+écrans visés, par-dessus l'onglet en cours, et repart dès qu'on y a répondu.
+
+### Le modèle tient en une phrase
+
+**Une notification propose des options ; répondre, c'est payer le coût d'une option et,
+éventuellement, en subir l'effet sur sa fiche.** Les trois types d'aujourd'hui s'y ramènent
+tous :
+
+| Type | Options | Effet sur la fiche |
+|---|---|---|
+| 6th Sens | « Écouter » (1 point de 6th Sens) · « Laisse passer » (gratuit) | aucun |
+| Choix secret | n options libellées par la MJ, chacune avec son `Cout` | aucun |
+| Nouvel équipement | « Prendre » (gratuit) | ajoute l'objet à `possede.equipements` |
+
+Le coût n'a demandé **aucune ligne neuve** : `coutDe(fixe('lumens', 10))` dit « Payer
+10 Lumens », et « 2 Foi OU 10 Lumens » était déjà exprimable en branches. La MJ le saisit
+avec l'`EditeurCout` des sorts et des objets.
+
+### Le point d'extension est unique
+
+`TYPES` dans `domain/notifications.ts` : un `libelle`, une fonction `options`, et un
+`appliquer` facultatif. **Ajouter un type de notification — Quête, Image — c'est ajouter
+une entrée à ce registre**, plus un cas au `<Contenu>` du panneau MJ pour la saisie.
+L'écran de la joueuse, lui, ne connaît que des options et des coûts : il n'a rien à
+apprendre d'un type nouveau.
+
+`choixProposes` aplatit options × branches payables en une liste de boutons. Un coût à
+branche unique — le cas courant — donne exactement un bouton par option ; « 2 Foi OU
+10 Lumens » en donne deux, et l'écran n'a aucun cas particulier à traiter.
+
+### Ce qui est secret, et ce qui ne l'est pas
+
+⚠️ **Le Choix secret n'est secret que socialement.** Les joueuses partagent un compte
+Firebase : un document lisible par l'une l'est par toutes, et un document rangé dans
+`secrets/` serait refusé en lecture à sa propre destinataire. Il n'existe donc aucun
+endroit où déposer un contenu destiné à une seule joueuse — c'est le pendant du piège n° 7,
+vu de l'autre côté.
+
+Conséquence directe, et voulue : **le 6th Sens ne transporte que l'amorce publique**.
+« Écouter » consomme le point et prévient la MJ, qui donne l'information de vive voix.
+N'ajoutez pas de champ « texte révélé » : il serait lisible depuis la console par toute la
+table, et la mécanique perdrait exactement ce qu'elle vend.
+
+### Cycle de vie
+
+La MJ envoie, la joueuse répond, la MJ range — `rangerNotification` **supprime** le
+document. Pas de champ `clotureeLe` : le journal porte déjà l'historique, la collection
+reste courte, et l'écran de la joueuse n'a rien à filtrer d'autre que sa propre réponse.
+
+Répondre écrit deux documents — la fiche, puis `reponses` sur la notification — et **on paie
+d'abord** : si le coût est impayable, `repondre` lève et rien n'est enregistré. Les deux
+écritures ne sont pas transactionnelles (§ 6.4) ; l'écran tient un verrou local, comme le
+chrono du duel, pour qu'un double appui ne paie pas deux fois.
+
+Une part variable — le « X » — n'a pas de sens ici : la carte ne demande pas de choisir un
+montant, et `payerCout` prélèvera son minimum. N'en mettez pas.

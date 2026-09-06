@@ -1,167 +1,233 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { EditeurActifs } from '../../components/EditeurActifs.tsx'
 import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
-import { EditeurCout } from '../../components/EditeurCout.tsx'
-import { EditeurPassifs } from '../../components/EditeurPassifs.tsx'
 import { Icone } from '../../components/Icone.tsx'
-import { ICONES_DISPONIBLES } from '../../content/icones.ts'
 import { enregistrerEntreeCatalogue, supprimerEntreeCatalogue } from '../../data/repo.ts'
 import { prixDe } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
-import { COUT_GRATUIT } from '../../domain/couts.ts'
 import {
   dossiersDe,
-  familleRangeable,
   FILTRES_VIERGES,
   filtrerEntrees,
   type FiltresCatalogue as Filtres,
 } from '../../domain/filtres.ts'
-import { classesDuSort, libelleMagie } from '../../domain/magie.ts'
+import { libelleMagie } from '../../domain/magie.ts'
 import {
   RARETES,
   LIBELLE_SLOT,
-  SLOTS_EQUIPEMENT,
-  type Amelioration,
-  type Classe,
   type Dossier,
   type EntreeCatalogue,
-  type Equipement,
-  type Investissement,
-  type Rarete,
-  type Sort,
-  type TypeMagique,
 } from '../../domain/types.ts'
+import { FormulaireCatalogue } from './FormulaireCatalogue.tsx'
 
 /**
- * Éditeur du contenu du jeu.
+ * Consultation et correction d'une famille du catalogue.
  *
- * Les guidelines l'exigent : « il faut que cela soit simple d'ajouter plus de
- * sorts, équipements, investissements et autres améliorations ». C'est aussi
- * la seule voie fiable — le contenu que je livre en dur n'atteint jamais une
- * base déjà amorcée, puisque l'amorçage n'écrase jamais l'existant.
+ * ⚠️ **On ne crée rien ici.** La création vit dans son propre onglet
+ * (`CreationCatalogue`) : le bouton « Ajouter » était sous la liste, qui
+ * s'allonge à chaque session, et fabriquer une entrée demandait de dérouler
+ * tout ce qu'on avait déjà écrit. Cet écran ne fait que montrer et corriger.
  *
- * Les entrées livrées avec l'app (`seed`) sont modifiables et supprimables ;
- * le drapeau ne sert plus qu'à les faire revenir lors d'une réinitialisation.
+ * Les entrées livrées avec l'app (`seed`) sont modifiables et supprimables ; le
+ * drapeau ne sert plus qu'à les faire revenir lors d'une réinitialisation.
  */
-
-type Onglet = 'equipement' | 'amelioration' | 'investissement' | 'sort' | 'dossier'
-
-const LIBELLE_ONGLET: Record<Onglet, string> = {
-  equipement: 'Équipements',
-  amelioration: 'Améliorations',
-  investissement: 'Investissements',
-  sort: 'Sorts',
-  dossier: 'Dossiers',
-}
-
-const LIBELLE_CIBLE_DOSSIER: Record<Dossier['cible'], string> = {
-  equipement: 'Des équipements',
-  sort: 'Des sorts',
-  amelioration: 'Des améliorations',
-}
-
-export function EditeurCatalogue({ catalog }: { catalog: Catalog }) {
-  const [onglet, setOnglet] = useState<Onglet>('equipement')
+export function EditeurCatalogue({
+  catalog,
+  kind,
+}: {
+  catalog: Catalog
+  kind: EntreeCatalogue['kind']
+}) {
   const [edition, setEdition] = useState<EntreeCatalogue | null>(null)
-  // Les filtres repartent à zéro en changeant d'onglet : un « armure » laissé
-  // actif ferait croire à un catalogue de sorts vide.
   const [filtres, setFiltres] = useState<Filtres>(FILTRES_VIERGES)
 
-  function changerOnglet(cle: Onglet) {
-    setOnglet(cle)
+  // Les filtres repartent à zéro en changeant de famille : un « armure » laissé
+  // actif ferait croire à un catalogue de sorts vide.
+  useEffect(() => {
     setEdition(null)
     setFiltres(FILTRES_VIERGES)
-  }
+  }, [kind])
 
-  const entrees = filtrerEntrees(catalog.toutes().filter((e) => e.kind === onglet), filtres)
+  const entrees = filtrerEntrees(catalog.toutes().filter((e) => e.kind === kind), filtres)
 
   return (
     <section className="carte pile pile--serree">
-      <div className="carte__titre">
-        <span className="etiquette">Catalogue</span>
-      </div>
-
-      <div className="onglets" role="tablist">
-        {(Object.keys(LIBELLE_ONGLET) as Onglet[]).map((cle) => (
-          <button
-            key={cle}
-            type="button"
-            role="tab"
-            aria-selected={onglet === cle}
-            className={`onglet ${onglet === cle ? 'onglet--actif' : ''}`}
-            onClick={() => changerOnglet(cle)}
-          >
-            {LIBELLE_ONGLET[cle]}
-          </button>
-        ))}
-      </div>
-
       <FiltresCatalogue
-        kind={onglet}
+        kind={kind}
         valeur={filtres}
         catalog={catalog}
         total={entrees.length}
         onChange={setFiltres}
       />
 
-      {entrees.length === 0 && !edition && <p className="vide">Rien pour l'instant.</p>}
+      {entrees.length === 0 && !edition && (
+        <p className="vide">Rien pour l'instant. L'onglet Création en fabrique.</p>
+      )}
 
       {entrees.map((e) => (
-        <div key={e.id} className="objet">
-          <Icone nom={e.icone} taille={28} teinte={RARETES[e.rarete ?? 'commun'].teinte} />
-          <span className="objet__corps">
-            <span className="objet__nom">{e.nom}</span>
-            <span className="objet__meta">{resume(e, catalog)}</span>
-          </span>
-          <button type="button" className="btn" onClick={() => setEdition(e)}>
-            Modifier
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger"
-            onClick={() => {
-              // Les entrées livrées se suppriment aussi : c'est le seul moyen de
-              // nettoyer le catalogue de mes exemples.
-              const avertissement = e.seed
-                ? ` Elle reviendra si vous réinitialisez le catalogue.`
-                : ''
-              if (confirm(`Supprimer « ${e.nom} » du catalogue ?${avertissement}`)) {
-                void supprimerEntreeCatalogue(e)
-              }
-            }}
-            aria-label={`Supprimer ${e.nom}`}
-          >
-            ×
-          </button>
+        <LigneEntree key={e.id} entree={e} catalog={catalog} onModifier={() => setEdition(e)} />
+      ))}
+
+      {edition && (
+        <Formulaire catalog={catalog} entree={edition} onFerme={() => setEdition(null)} />
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Les dossiers, et ce qu'ils contiennent.
+ *
+ * Un dossier est **polyvalent** : il range indifféremment des sorts, des
+ * équipements et des améliorations. C'est tout son intérêt — « Poisons » réunit
+ * trois sorts et deux bibelots — et c'est pourquoi son contenu se consulte ici
+ * plutôt qu'en filtrant chaque famille l'une après l'autre.
+ */
+export function EditeurDossiers({ catalog }: { catalog: Catalog }) {
+  const [ouvert, setOuvert] = useState<string | null>(null)
+  const [edition, setEdition] = useState<EntreeCatalogue | null>(null)
+
+  const dossiers = dossiersDe(catalog)
+  const contenu = ouvert ? catalog.toutes().filter((e) => e.dossierId === ouvert) : []
+
+  return (
+    <section className="carte pile pile--serree">
+      {dossiers.length === 0 && (
+        <p className="vide">Aucun dossier. L'onglet Création en fabrique.</p>
+      )}
+
+      {dossiers.map((d) => (
+        <div key={d.id} className="pile pile--serree">
+          <div className={`objet ${ouvert === d.id ? 'objet--actif' : ''}`}>
+            <Icone nom={d.icone} taille={28} teinte={RARETES[d.rarete ?? 'commun'].teinte} />
+            <button
+              type="button"
+              className="objet__corps"
+              style={{ textAlign: 'left', background: 'none', border: 0, padding: 0 }}
+              aria-expanded={ouvert === d.id}
+              onClick={() => setOuvert(ouvert === d.id ? null : d.id)}
+            >
+              <span className="objet__nom">{d.nom}</span>
+              <span className="objet__meta">{resumeDossier(d, catalog)}</span>
+            </button>
+            <button type="button" className="btn" onClick={() => setEdition(d)}>
+              Modifier
+            </button>
+            <BoutonSupprimer entree={d} />
+          </div>
+
+          {ouvert === d.id && (
+            <div className="pile pile--serree" style={{ paddingLeft: 12 }}>
+              {contenu.length === 0 && (
+                <p className="tres-discret" style={{ margin: 0 }}>
+                  Ce dossier est vide. On y range une entrée depuis son propre onglet.
+                </p>
+              )}
+              {contenu.map((e) => (
+                <LigneEntree
+                  key={e.id}
+                  entree={e}
+                  catalog={catalog}
+                  onModifier={() => setEdition(e)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ))}
 
-      {edition ? (
-        <Formulaire
-          entree={edition}
-          classes={catalog.classes()}
-          typesMagiques={catalog.typesMagiques()}
-          dossiers={catalog.dossiers()}
-          onAnnuler={() => setEdition(null)}
-          // Le formulaire ne se ferme qu'une fois l'écriture acceptée : sinon un
-          // refus de Firestore — que le bandeau d'erreur signale — laissait
-          // croire à un enregistrement réussi, et la saisie était perdue.
-          onEnregistrer={async (e) => {
-            await enregistrerEntreeCatalogue(e)
-            setEdition(null)
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          className="btn btn--principal btn--large"
-          onClick={() => setEdition(vierge(onglet, catalog.typesMagiques()))}
-        >
-          Ajouter — {LIBELLE_ONGLET[onglet].toLowerCase()}
-        </button>
+      {edition && (
+        <Formulaire catalog={catalog} entree={edition} onFerme={() => setEdition(null)} />
       )}
     </section>
+  )
+}
+
+/** Ce qu'on veut savoir d'un dossier : ce qu'il contient, pas ce qu'il vise. */
+function resumeDossier(dossier: Dossier, catalog: Catalog): string {
+  const n = catalog.toutes().filter((e) => e.dossierId === dossier.id).length
+  return n === 0 ? 'vide' : `${n} entrée(s)`
+}
+
+// ---------------------------------------------------------------------------
+
+function LigneEntree({
+  entree,
+  catalog,
+  onModifier,
+}: {
+  entree: EntreeCatalogue
+  catalog: Catalog
+  onModifier: () => void
+}) {
+  return (
+    <div className="objet">
+      <Icone nom={entree.icone} taille={28} teinte={RARETES[entree.rarete ?? 'commun'].teinte} />
+      <span className="objet__corps">
+        <span className="objet__nom">{entree.nom}</span>
+        <span className="objet__meta">{resume(entree, catalog)}</span>
+      </span>
+      <button type="button" className="btn" onClick={onModifier}>
+        Modifier
+      </button>
+      <BoutonSupprimer entree={entree} />
+    </div>
+  )
+}
+
+function BoutonSupprimer({ entree }: { entree: EntreeCatalogue }) {
+  return (
+    <button
+      type="button"
+      className="btn btn--danger"
+      onClick={() => {
+        // Les entrées livrées se suppriment aussi : c'est le seul moyen de
+        // nettoyer le catalogue de mes exemples.
+        const avertissement = entree.seed
+          ? ` Elle reviendra si vous réinitialisez le catalogue.`
+          : ''
+        if (confirm(`Supprimer « ${entree.nom} » du catalogue ?${avertissement}`)) {
+          void supprimerEntreeCatalogue(entree)
+        }
+      }}
+      aria-label={`Supprimer ${entree.nom}`}
+    >
+      ×
+    </button>
+  )
+}
+
+/**
+ * Le formulaire d'édition, monté sur une entrée existante.
+ *
+ * Il ne se ferme qu'une fois l'écriture acceptée : sinon un refus de Firestore
+ * — que le bandeau d'erreur signale — laissait croire à un enregistrement
+ * réussi, et la saisie était perdue.
+ */
+function Formulaire({
+  catalog,
+  entree,
+  onFerme,
+}: {
+  catalog: Catalog
+  entree: EntreeCatalogue
+  onFerme: () => void
+}) {
+  return (
+    <FormulaireCatalogue
+      entree={entree}
+      classes={catalog.classes()}
+      typesMagiques={catalog.typesMagiques()}
+      dossiers={catalog.dossiers()}
+      sorts={catalog.sorts()}
+      onAnnuler={onFerme}
+      onEnregistrer={async (e) => {
+        await enregistrerEntreeCatalogue(e)
+        onFerme()
+      }}
+    />
   )
 }
 
@@ -186,498 +252,18 @@ function resume(e: EntreeCatalogue, catalog: Catalog): string {
     case 'sort':
       return `${libelleMagie(e.magieId, catalog)}${prix ? ` · ${prix} ʟ` : ' · hors boutique'}`
     case 'dossier':
-      return `Dossier · ${LIBELLE_CIBLE_DOSSIER[e.cible]}`
-    default:
-      return ''
+      return resumeDossier(e, catalog)
+    // Les deux familles qui n'étaient créables nulle part avant l'onglet
+    // Création. Sans ces cas, leur ligne de méta serait restée vide.
+    case 'classe':
+      return [
+        `${e.fatigueMax} Fatigue · ${e.sixthSensBase} 6th Sens`,
+        `${e.sortsIds.length} sort(s)`,
+        e.choix?.length ? `${e.choix.length} choix` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    case 'type-magique':
+      return [e.deParDefaut, e.cristal ? 'à cristal' : null].filter(Boolean).join(' · ') || 'Type magique'
   }
 }
-
-/**
- * Nettoie l'entrée avant écriture.
- *
- * ⚠️ Il fallait aussi, jusqu'ici, réaligner à la main le libellé de chaque
- * passif sur le nom de l'entrée : ce libellé était figé au moment de la
- * saisie, si bien que renommer l'objet ensuite — ou le nommer *après* avoir
- * composé ses passifs, ce qui est l'ordre naturel — laissait un « Objet »
- * générique sur la fiche de la joueuse. Le repli est désormais dans le moteur
- * (`compilerPassif`, `modifiers.ts`), qui relit le nom du porteur à chaque
- * rendu : il n'y a plus rien à recopier, ni à ne pas oublier de recopier.
- */
-function nettoyer(entree: EntreeCatalogue): EntreeCatalogue {
-  return { ...entree, nom: entree.nom.trim() }
-}
-
-function nouvelId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `cat-${Date.now()}`
-}
-
-function vierge(onglet: Onglet, typesMagiques: TypeMagique[]): EntreeCatalogue {
-  // `creeLe` n'est posé qu'ici : les entrées écrites avant son existence n'en
-  // ont pas, et se trient comme les plus anciennes. C'est le comportement
-  // attendu, et il évite d'inventer une date qu'on ne connaît pas.
-  const base = { id: nouvelId(), nom: '', icone: 'crystal-shine', creeLe: Date.now() }
-  switch (onglet) {
-    case 'equipement':
-      return { ...base, kind: 'equipement', slot: 'arme' } as Equipement
-    case 'amelioration':
-      return { ...base, kind: 'amelioration', prix: 50, effetTexte: '' } as Amelioration
-    case 'investissement':
-      return {
-        ...base,
-        kind: 'investissement',
-        cout: 50,
-        beneficeTexte: '',
-        risqueTexte: '',
-        limiteTexte: '',
-      } as Investissement
-    case 'dossier':
-      // Le dossier « ALL » n'est jamais créé : c'est l'absence de filtre.
-      return { ...base, kind: 'dossier', cible: 'equipement', ordre: 0 } as Dossier
-    case 'sort':
-      return {
-        ...base,
-        kind: 'sort',
-        magieId: typesMagiques[0]?.id ?? 'arcane',
-        cout: COUT_GRATUIT,
-        de: null,
-        duree: 'Instantané',
-        effet: '',
-      } as Sort
-  }
-}
-
-// ---------------------------------------------------------------------------
-
-function Formulaire({
-  entree,
-  classes,
-  typesMagiques,
-  dossiers,
-  onAnnuler,
-  onEnregistrer,
-}: {
-  entree: EntreeCatalogue
-  classes: Classe[]
-  typesMagiques: TypeMagique[]
-  dossiers: Dossier[]
-  onAnnuler: () => void
-  onEnregistrer: (e: EntreeCatalogue) => Promise<void>
-}) {
-  const [brouillon, setBrouillon] = useState<EntreeCatalogue>(entree)
-  const famille = familleRangeable(brouillon.kind)
-
-  // Toutes les options de classe, pour désigner celle qui débloque un sort.
-  const optionsDeClasse = classes.flatMap((c) =>
-    (c.choix ?? []).flatMap((ch) => ch.options.map((o) => ({ ...o, classe: c.nom }))),
-  )
-  const maj = (patch: Record<string, unknown>) =>
-    setBrouillon({ ...brouillon, ...patch } as EntreeCatalogue)
-
-  /** Un champ numérique vide vaut « non renseigné », pas zéro. */
-  const nombre = (v: string): number | undefined => (v === '' ? undefined : Math.max(0, Number(v) || 0))
-
-  return (
-    <div className="carte pile pile--serree" style={{ background: 'var(--encre)' }}>
-      <span className="etiquette">{entree.nom ? `Modifier — ${entree.nom}` : 'Nouvelle entrée'}</span>
-
-      <label className="champ">
-        <span className="tres-discret">Nom</span>
-        <input type="text" value={brouillon.nom} onChange={(e) => maj({ nom: e.target.value })} />
-      </label>
-
-      <label className="champ">
-        <span className="tres-discret">Description</span>
-        <textarea
-          value={brouillon.description ?? ''}
-          onChange={(e) => maj({ description: e.target.value })}
-          placeholder="Ce que la joueuse lira en touchant l'objet."
-        />
-      </label>
-
-      {/* La rareté vaut pour toute entrée du catalogue, sort compris : c'est le
-          palier qu'une joueuse lit en boutique avant de dépenser ses Lumens. */}
-      <label className="champ">
-        <span className="tres-discret">Rareté — donne sa couleur à l'icône</span>
-        <select
-          value={brouillon.rarete ?? 'commun'}
-          onChange={(e) => maj({ rarete: e.target.value as Rarete })}
-        >
-          {(Object.keys(RARETES) as Rarete[]).map((r) => (
-            <option key={r} value={r}>
-              {RARETES[r].libelle}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {/* Le rangement : une entrée appartient à zéro ou un dossier. */}
-      {famille && (
-        <label className="champ">
-          <span className="tres-discret">Dossier</span>
-          <select
-            value={brouillon.dossierId ?? ''}
-            onChange={(e) => maj({ dossierId: e.target.value || undefined })}
-          >
-            <option value="">Non classé</option>
-            {dossiersDe({ dossiers: () => dossiers }, famille).map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nom}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {brouillon.kind === 'dossier' && (
-        <label className="champ">
-          <span className="tres-discret">Ce que ce dossier range</span>
-          <select
-            value={brouillon.cible}
-            onChange={(e) => maj({ cible: e.target.value as Dossier['cible'] })}
-          >
-            {(Object.keys(LIBELLE_CIBLE_DOSSIER) as Dossier['cible'][]).map((c) => (
-              <option key={c} value={c}>
-                {LIBELLE_CIBLE_DOSSIER[c]}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {brouillon.kind === 'equipement' && (
-        <>
-          <div className="rangee">
-            <label className="champ" style={{ flex: 1, minWidth: 120 }}>
-              <span className="tres-discret">Emplacement</span>
-              <select value={brouillon.slot} onChange={(e) => maj({ slot: e.target.value })}>
-                {SLOTS_EQUIPEMENT.map((s) => (
-                  <option key={s} value={s}>
-                    {LIBELLE_SLOT[s]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Prix (ʟ)</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.prix ?? ''}
-                placeholder="hors boutique"
-                onChange={(e) => maj({ prix: nombre(e.target.value) })}
-              />
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Évasion</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.bonusEvasion ?? ''}
-                placeholder="—"
-                onChange={(e) => maj({ bonusEvasion: nombre(e.target.value) })}
-              />
-            </label>
-          </div>
-          <label className="rangee" style={{ gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={brouillon.materielDeBase ?? false}
-              onChange={(e) => maj({ materielDeBase: e.target.checked })}
-            />
-            <span className="tres-discret">
-              Matériel de base — hors des 3 emplacements, exclu du Détachement et de la boutique
-            </span>
-          </label>
-
-          <EditeurPassifs
-            valeur={brouillon.passifs ?? []}
-            onChange={(passifs) => maj({ passifs })}
-          />
-
-          <EditeurActifs
-            valeur={brouillon.actifs ?? []}
-            nomPorteur={brouillon.nom}
-            onChange={(actifs) => maj({ actifs })}
-          />
-        </>
-      )}
-
-      {brouillon.kind === 'amelioration' && (
-        <>
-          <label className="champ">
-            <span className="tres-discret">Prix (ʟ)</span>
-            <input
-              type="number"
-              min={0}
-              value={brouillon.prix}
-              onChange={(e) => maj({ prix: Math.max(0, Number(e.target.value) || 0) })}
-            />
-          </label>
-          <label className="champ">
-            <span className="tres-discret">Effet</span>
-            <input
-              type="text"
-              value={brouillon.effetTexte}
-              onChange={(e) => maj({ effetTexte: e.target.value })}
-            />
-          </label>
-
-          {/* Une amélioration n'a pas d'emplacement : ses passifs valent dès
-              qu'elle est possédée. */}
-          <EditeurPassifs
-            valeur={brouillon.passifs ?? []}
-            onChange={(passifs) => maj({ passifs })}
-          />
-        </>
-      )}
-
-      {brouillon.kind === 'investissement' && (
-        <>
-          <div className="rangee">
-            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Coût (ʟ)</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.cout}
-                onChange={(e) => maj({ cout: Math.max(0, Number(e.target.value) || 0) })}
-              />
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 120 }}>
-              <span className="tres-discret">Risque (0 à 1)</span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={brouillon.probabiliteRisque ?? ''}
-                placeholder="—"
-                onChange={(e) =>
-                  maj({
-                    probabiliteRisque:
-                      e.target.value === '' ? undefined : Math.min(1, Math.max(0, Number(e.target.value) || 0)),
-                  })
-                }
-              />
-            </label>
-          </div>
-
-          <p className="tres-discret" style={{ margin: 0 }}>
-            Le risque est la probabilité que le <em>mauvais</em> dénouement survienne. S'il
-            s'accompagne d'un coût de risque, il fait payer ce montant ; sinon il annule le bénéfice.
-          </p>
-
-          <div className="rangee">
-            {(
-              [
-                ['gainImmediat', 'Gain immédiat'],
-                ['gainProchainSession', 'Gain prochaine session'],
-                ['gainRecurrent', 'Gain récurrent'],
-                ['coutRisque', 'Coût du risque'],
-              ] as const
-            ).map(([cle, libelle]) => (
-              <label key={cle} className="champ" style={{ flex: 1, minWidth: 110 }}>
-                <span className="tres-discret">{libelle}</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={brouillon[cle] ?? ''}
-                  placeholder="—"
-                  onChange={(e) => maj({ [cle]: nombre(e.target.value) })}
-                />
-              </label>
-            ))}
-          </div>
-
-          <div className="rangee">
-            <label className="champ" style={{ flex: 1, minWidth: 110 }}>
-              <span className="tres-discret">Limite totale</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.limiteTotale ?? ''}
-                placeholder="—"
-                onChange={(e) => maj({ limiteTotale: nombre(e.target.value) })}
-              />
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 110 }}>
-              <span className="tres-discret">Limite par session</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.limiteParSession ?? ''}
-                placeholder="—"
-                onChange={(e) => maj({ limiteParSession: nombre(e.target.value) })}
-              />
-            </label>
-          </div>
-
-          {(
-            [
-              ['beneficeTexte', 'Bénéfice, en toutes lettres'],
-              ['risqueTexte', 'Risque, en toutes lettres'],
-              ['limiteTexte', 'Limite, en toutes lettres'],
-            ] as const
-          ).map(([cle, libelle]) => (
-            <label key={cle} className="champ">
-              <span className="tres-discret">{libelle}</span>
-              <input type="text" value={brouillon[cle]} onChange={(e) => maj({ [cle]: e.target.value })} />
-            </label>
-          ))}
-        </>
-      )}
-
-      {brouillon.kind === 'sort' && (
-        <>
-          <div className="rangee">
-            <label className="champ" style={{ flex: 1, minWidth: 120 }}>
-              <span className="tres-discret">Magie</span>
-              {/* Les types magiques sont du contenu : en créer un le fait
-                  apparaître ici, sans toucher au code. */}
-              <select value={brouillon.magieId} onChange={(e) => maj({ magieId: e.target.value })}>
-                {typesMagiques.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nom}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Dé</span>
-              <input
-                type="text"
-                value={brouillon.de ?? ''}
-                placeholder="1d6"
-                onChange={(e) => maj({ de: e.target.value || null })}
-              />
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Prix (ʟ)</span>
-              <input
-                type="number"
-                min={0}
-                value={brouillon.prix ?? ''}
-                placeholder="hors boutique"
-                onChange={(e) => maj({ prix: nombre(e.target.value) })}
-              />
-            </label>
-          </div>
-          <label className="champ">
-            <span className="tres-discret">Durée</span>
-            <input type="text" value={brouillon.duree} onChange={(e) => maj({ duree: e.target.value })} />
-          </label>
-          <label className="champ">
-            <span className="tres-discret">Effet</span>
-            <textarea value={brouillon.effet} onChange={(e) => maj({ effet: e.target.value })} />
-          </label>
-
-          {/* Le coût d'un sort n'était éditable nulle part : tout sort composé
-              depuis cet écran naissait gratuit, quoi qu'en dise son texte. */}
-          <EditeurCout
-            valeur={brouillon.cout}
-            label="Coût du sort"
-            onChange={(cout) => maj({ cout })}
-          />
-
-          <EditeurActifs
-            valeur={brouillon.actifs ?? []}
-            nomPorteur={brouillon.nom}
-            onChange={(actifs) => maj({ actifs })}
-          />
-
-          {/* Rien de coché = ouvert à toutes les classes. C'est la lecture la
-              plus permissive, et elle n'oblige à rien renseigner pour un sort
-              commun. */}
-          <div className="champ">
-            <span className="tres-discret">
-              Classes éligibles — aucune cochée : ouvert à toutes
-            </span>
-            <div className="rangee">
-              {classes.map((c) => {
-                const choisies = classesDuSort(brouillon as Sort)
-                const actif = choisies.includes(c.id)
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`btn ${actif ? 'btn--principal' : ''}`}
-                    aria-pressed={actif}
-                    onClick={() =>
-                      maj({
-                        classesIds: actif
-                          ? choisies.filter((id) => id !== c.id)
-                          : [...choisies, c.id],
-                        // L'ancien champ au singulier disparaît dès qu'on touche
-                        // à la liste, sinon les deux divergeraient.
-                        classeId: undefined,
-                      })
-                    }
-                  >
-                    {c.nom}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Généralise l'ancienne case « Illusion » : n'importe quelle option
-              de classe peut désormais débloquer un sort, et pas seulement la
-              voie Illusionniste du Trickster. */}
-          <label className="champ">
-            <span className="tres-discret">
-              Débloqué par un passif de classe — hors des 3 emplacements et hors boutique
-            </span>
-            <select
-              value={brouillon.requiertPassif ?? ''}
-              onChange={(e) => maj({ requiertPassif: e.target.value || undefined })}
-            >
-              <option value="">Aucun — sort ordinaire</option>
-              {optionsDeClasse.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.nom} ({o.classe})
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
-
-      <div className="champ">
-        <span className="tres-discret">Icône</span>
-        <div className="grille-icones" role="radiogroup" aria-label="Icône">
-          {ICONES_DISPONIBLES.map((nom) => (
-            <button
-              key={nom}
-              type="button"
-              role="radio"
-              aria-checked={brouillon.icone === nom}
-              aria-label={nom}
-              title={nom}
-              className={`choix-icone ${brouillon.icone === nom ? 'choix-icone--actif' : ''}`}
-              onClick={() => maj({ icone: nom })}
-            >
-              <Icone nom={nom} taille={30} />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="rangee">
-        <button type="button" className="btn btn--fantome" onClick={onAnnuler}>
-          Annuler
-        </button>
-        <button
-          type="button"
-          className="btn btn--principal"
-          style={{ flex: 1 }}
-          onClick={() => void onEnregistrer(nettoyer(brouillon))}
-          disabled={!brouillon.nom.trim()}
-        >
-          Enregistrer
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------

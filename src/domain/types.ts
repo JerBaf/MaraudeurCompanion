@@ -559,13 +559,17 @@ export interface TypeMagique extends EntreeCatalogueBase, PorteurEffets {
 /**
  * Un dossier de rangement.
  *
- * `cible` le limite à une famille : mêler sorts et équipements dans un même
- * dossier n'aurait pas de sens, les écrans qui les listent étant distincts.
- * Le dossier « ALL » n'existe pas en base — il se dérive.
+ * ⚠️ **Polyvalent** : un même dossier range indifféremment des sorts, des
+ * équipements et des améliorations. Il portait d'abord une `cible` qui le
+ * limitait à une famille — c'était une erreur de lecture : un dossier de table
+ * est thématique (« Poisons », « Butin du donjon ») et mêle naturellement les
+ * trois. La `cible` des documents déjà écrits est retirée à la lecture par
+ * `normaliserEntree`.
+ *
+ * Le dossier « ALL » n'existe pas en base — il se dérive de l'absence de filtre.
  */
 export interface Dossier extends EntreeCatalogueBase {
   kind: 'dossier'
-  cible: 'sort' | 'equipement' | 'amelioration'
   ordre: number
 }
 

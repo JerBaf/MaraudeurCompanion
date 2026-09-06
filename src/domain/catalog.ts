@@ -72,6 +72,16 @@ export function normaliserEntree(brut: EntreeCatalogue): EntreeCatalogue {
       }
     case 'amelioration':
       return { ...brut, passifs: normaliserPassifs(brut) }
+    case 'dossier': {
+      /*
+       * Un dossier portait une `cible` qui le limitait à une famille. Le champ
+       * est retiré ici plutôt que laissé mourir en base : sans cela le
+       * formulaire le recopierait à chaque enregistrement, par son
+       * `{ ...brouillon }`, et il survivrait indéfiniment.
+       */
+      const { cible: _heritee, ...propre } = brut as Dossier & { cible?: string }
+      return propre
+    }
     case 'sort':
       return {
         ...brut,
