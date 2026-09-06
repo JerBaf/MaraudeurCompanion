@@ -309,6 +309,53 @@ describe('outillage de table', () => {
   }
 
   /**
+   * Régression : le formulaire d'édition vivait en bas de la liste, monté une
+   * fois pour toutes. Son brouillon vit en `useState` initialisé sur la prop —
+   * passer de l'objet A à l'objet B réutilisait donc le même composant, et
+   * l'écran continuait d'afficher A. Il fallait cliquer « Annuler » pour en
+   * sortir, ce que rien n'indiquait.
+   *
+   * Le formulaire est désormais **sous la ligne qu'on corrige** : changer
+   * d'entrée le remonte, et le brouillon repart du bon objet.
+   */
+  it('passe d’un objet à l’autre sans rester bloqué sur le premier', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+
+    // Deux équipements, créés d'affilée depuis l'atelier.
+    for (const nom of ['Dague brève', 'Masse lourde']) {
+      fireEvent.click(await screen.findByRole('button', { name: 'Équipement' }))
+      fireEvent.change(await screen.findByLabelText('Nom'), { target: { value: nom } })
+      fireEvent.click(screen.getByText('Enregistrer'))
+      await waitFor(() => expect(screen.getByText(new RegExp(`« ${nom} » créé`))).toBeTruthy())
+    }
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Équipements' }))
+    await waitFor(() => expect(screen.getByText('Dague brève')).toBeTruthy())
+
+    /** Le champ « Nom » du formulaire ouvert, s'il y en a un. */
+    const nomAffiche = () =>
+      (screen.queryByLabelText('Nom') as HTMLInputElement | null)?.value ?? null
+
+    /** Le bouton « Modifier » de la ligne qui porte ce nom — la liste est triée. */
+    const modifier = (nom: string) => {
+      const ligne = screen.getByText(nom).closest('.objet') as HTMLElement
+      return within(ligne).getByRole('button', { name: 'Modifier' })
+    }
+
+    // On ouvre la première…
+    fireEvent.click(modifier('Dague brève'))
+    await waitFor(() => expect(nomAffiche()).toBe('Dague brève'))
+
+    // …puis la seconde, sans passer par « Annuler ».
+    fireEvent.click(modifier('Masse lourde'))
+    await waitFor(() => expect(nomAffiche()).toBe('Masse lourde'))
+  })
+
+  /**
    * Le parcours complet du nouvel atelier : la MJ fabrique une **classe
    * entière** — champs de base, sorts fournis, et un choix à deux options —
    * depuis le seul onglet Création, et la joueuse peut aussitôt s'en servir.

@@ -42,112 +42,50 @@ export function Bestiaire() {
 
       {modeles.length === 0 && !edition && <p className="vide">Aucune créature enregistrée.</p>}
 
-      {modeles.map((m) => (
-        <div key={m.id} className="objet">
-          <Icone nom={m.icone} taille={30} />
-          <span className="objet__corps">
-            <span className="objet__nom">{m.nom}</span>
-            <span className="objet__meta">
-              Évasion {m.evasion}
-              {m.fatigueMax ? ` · seuil ${m.fatigueMax}` : ' · seuil non renseigné'}
-            </span>
-          </span>
-          <button type="button" className="btn" onClick={() => setEdition(m)}>
-            Modifier
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger"
-            onClick={() => {
-              if (confirm(`Supprimer « ${m.nom} » du bestiaire ?`)) void supprimerModele(m.id)
-            }}
-            aria-label={`Supprimer ${m.nom}`}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-
-      {edition ? (
-        <div className="carte pile pile--serree" style={{ background: 'var(--encre)' }}>
-          <span className="etiquette">
-            {modeles.some((m) => m.id === edition.id) ? 'Modifier la créature' : 'Nouvelle créature'}
-          </span>
-
-          <label className="champ">
-            <span className="tres-discret">Nom</span>
-            <input
-              type="text"
-              value={edition.nom}
-              onChange={(e) => setEdition({ ...edition, nom: e.target.value })}
-              placeholder="Carcasse"
-            />
-          </label>
-
-          <div className="rangee">
-            <label className="champ" style={{ flex: 1, minWidth: 110 }}>
-              <span className="tres-discret">Évasion</span>
-              <input
-                type="number"
-                min={0}
-                value={edition.evasion}
-                onChange={(e) =>
-                  setEdition({ ...edition, evasion: Math.max(0, Number(e.target.value) || 0) })
-                }
-              />
-            </label>
-            <label className="champ" style={{ flex: 1, minWidth: 110 }}>
-              <span className="tres-discret">Seuil de Fatigue 🔒</span>
-              <input
-                type="number"
-                min={0}
-                value={edition.fatigueMax || ''}
-                placeholder="—"
-                onChange={(e) =>
-                  setEdition({ ...edition, fatigueMax: Math.max(0, Number(e.target.value) || 0) })
-                }
-              />
-            </label>
-          </div>
-
-          <div className="champ">
-            <span className="tres-discret">
-              Icône — {ICONES_DISPONIBLES.length} disponibles. Pour en ajouter, déposez un SVG dans
-              public/icons et relancez <code>npm run icons</code>.
-            </span>
-            <div className="grille-icones" role="radiogroup" aria-label="Icône de la créature">
-              {ICONES_DISPONIBLES.map((nom) => (
-                <button
-                  key={nom}
-                  type="button"
-                  role="radio"
-                  aria-checked={edition.icone === nom}
-                  aria-label={nom}
-                  title={nom}
-                  className={`choix-icone ${edition.icone === nom ? 'choix-icone--actif' : ''}`}
-                  onClick={() => setEdition({ ...edition, icone: nom })}
-                >
-                  <Icone nom={nom} taille={30} />
-                </button>
-              ))}
+      {modeles.map((m) => {
+        const ouvert = edition?.id === m.id
+        return (
+          <div key={m.id} className="pile pile--serree">
+            <div className={`objet ${ouvert ? 'objet--actif' : ''}`}>
+              <Icone nom={m.icone} taille={30} />
+              <span className="objet__corps">
+                <span className="objet__nom">{m.nom}</span>
+                <span className="objet__meta">
+                  Évasion {m.evasion}
+                  {m.fatigueMax ? ` · seuil ${m.fatigueMax}` : ' · seuil non renseigné'}
+                </span>
+              </span>
+              <button
+                type="button"
+                className={`btn ${ouvert ? 'btn--principal' : ''}`}
+                aria-expanded={ouvert}
+                onClick={() => setEdition(ouvert ? null : m)}
+              >
+                {ouvert ? 'Fermer' : 'Modifier'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  if (confirm(`Supprimer « ${m.nom} » du bestiaire ?`)) void supprimerModele(m.id)
+                }}
+                aria-label={`Supprimer ${m.nom}`}
+              >
+                ×
+              </button>
             </div>
-          </div>
 
-          <div className="rangee">
-            <button type="button" className="btn btn--fantome" onClick={() => setEdition(null)}>
-              Annuler
-            </button>
-            <button
-              type="button"
-              className="btn btn--principal"
-              style={{ flex: 1 }}
-              onClick={() => void enregistrer()}
-              disabled={!edition.nom.trim()}
-            >
-              Enregistrer
-            </button>
+            {/* Le formulaire au ras de la créature qu'on corrige, et non en bas
+                de la liste : le bestiaire d'une table s'allonge, et il fallait
+                le dérouler entier pour retoucher la première entrée. */}
+            {ouvert && <FormulaireCreature />}
           </div>
-        </div>
+        )
+      })}
+
+      {/* Une créature neuve n'a pas encore de ligne : son formulaire s'ouvre ici. */}
+      {edition && !modeles.some((m) => m.id === edition.id) ? (
+        <FormulaireCreature />
       ) : (
         <button
           type="button"
@@ -159,4 +97,97 @@ export function Bestiaire() {
       )}
     </section>
   )
+
+  /**
+   * Le formulaire d'une créature.
+   *
+   * Déclaré à l'intérieur pour lire `edition` et `setEdition` sans les faire
+   * transiter : il est monté à deux endroits — sous la ligne qu'on corrige, ou
+   * en bas pour une créature neuve — et dupliquer ses quarante lignes aurait
+   * garanti qu'elles divergent.
+   */
+  function FormulaireCreature() {
+    if (!edition) return null
+    return (
+      <div className="carte pile pile--serree" style={{ background: 'var(--encre)' }}>
+        <span className="etiquette">
+          {modeles.some((m) => m.id === edition.id) ? 'Modifier la créature' : 'Nouvelle créature'}
+        </span>
+
+        <label className="champ">
+          <span className="tres-discret">Nom</span>
+          <input
+            type="text"
+            value={edition.nom}
+            onChange={(e) => setEdition({ ...edition, nom: e.target.value })}
+            placeholder="Carcasse"
+          />
+        </label>
+
+        <div className="rangee">
+          <label className="champ" style={{ flex: 1, minWidth: 110 }}>
+            <span className="tres-discret">Évasion</span>
+            <input
+              type="number"
+              min={0}
+              value={edition.evasion}
+              onChange={(e) =>
+                setEdition({ ...edition, evasion: Math.max(0, Number(e.target.value) || 0) })
+              }
+            />
+          </label>
+          <label className="champ" style={{ flex: 1, minWidth: 110 }}>
+            <span className="tres-discret">Seuil de Fatigue 🔒</span>
+            <input
+              type="number"
+              min={0}
+              value={edition.fatigueMax || ''}
+              placeholder="—"
+              onChange={(e) =>
+                setEdition({ ...edition, fatigueMax: Math.max(0, Number(e.target.value) || 0) })
+              }
+            />
+          </label>
+        </div>
+
+        <div className="champ">
+          <span className="tres-discret">
+            Icône — {ICONES_DISPONIBLES.length} disponibles. Pour en ajouter, déposez un SVG dans
+            public/icons et relancez <code>npm run icons</code>.
+          </span>
+          <div className="grille-icones" role="radiogroup" aria-label="Icône de la créature">
+            {ICONES_DISPONIBLES.map((nom) => (
+              <button
+                key={nom}
+                type="button"
+                role="radio"
+                aria-checked={edition.icone === nom}
+                aria-label={nom}
+                title={nom}
+                className={`choix-icone ${edition.icone === nom ? 'choix-icone--actif' : ''}`}
+                onClick={() => setEdition({ ...edition, icone: nom })}
+              >
+                <Icone nom={nom} taille={30} />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rangee">
+          <button type="button" className="btn btn--fantome" onClick={() => setEdition(null)}>
+            Annuler
+          </button>
+          <button
+            type="button"
+            className="btn btn--principal"
+            style={{ flex: 1 }}
+            onClick={() => void enregistrer()}
+            disabled={!edition.nom.trim()}
+          >
+            Enregistrer
+          </button>
+        </div>
+      </div>
+    )
+  }
 }

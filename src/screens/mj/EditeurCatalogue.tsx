@@ -65,12 +65,14 @@ export function EditeurCatalogue({
       )}
 
       {entrees.map((e) => (
-        <LigneEntree key={e.id} entree={e} catalog={catalog} onModifier={() => setEdition(e)} />
+        <EntreeModifiable
+          key={e.id}
+          entree={e}
+          catalog={catalog}
+          edition={edition}
+          onEdition={setEdition}
+        />
       ))}
-
-      {edition && (
-        <Formulaire catalog={catalog} entree={edition} onFerme={() => setEdition(null)} />
-      )}
     </section>
   )
 }
@@ -112,11 +114,16 @@ export function EditeurDossiers({ catalog }: { catalog: Catalog }) {
               <span className="objet__nom">{d.nom}</span>
               <span className="objet__meta">{resumeDossier(d, catalog)}</span>
             </button>
-            <button type="button" className="btn" onClick={() => setEdition(d)}>
-              Modifier
-            </button>
+            <BoutonModifier
+              ouvert={edition?.id === d.id}
+              onClick={() => setEdition(edition?.id === d.id ? null : d)}
+            />
             <BoutonSupprimer entree={d} />
           </div>
+
+          {edition?.id === d.id && (
+            <Formulaire catalog={catalog} entree={d} onFerme={() => setEdition(null)} />
+          )}
 
           {ouvert === d.id && (
             <div className="pile pile--serree" style={{ paddingLeft: 12 }}>
@@ -126,21 +133,18 @@ export function EditeurDossiers({ catalog }: { catalog: Catalog }) {
                 </p>
               )}
               {contenu.map((e) => (
-                <LigneEntree
+                <EntreeModifiable
                   key={e.id}
                   entree={e}
                   catalog={catalog}
-                  onModifier={() => setEdition(e)}
+                  edition={edition}
+                  onEdition={setEdition}
                 />
               ))}
             </div>
           )}
         </div>
       ))}
-
-      {edition && (
-        <Formulaire catalog={catalog} entree={edition} onFerme={() => setEdition(null)} />
-      )}
     </section>
   )
 }
@@ -153,27 +157,62 @@ function resumeDossier(dossier: Dossier, catalog: Catalog): string {
 
 // ---------------------------------------------------------------------------
 
-function LigneEntree({
+/**
+ * Une ligne, et son formulaire replié dessous.
+ *
+ * ⚠️ **Le formulaire vit ici, au ras de la ligne, et non en bas de la liste.**
+ * Il y était, et il fallait dérouler tout le catalogue pour corriger la
+ * première entrée. Deux conséquences de ce déplacement, toutes deux voulues :
+ *
+ *  - passer d'une entrée à l'autre **remonte le formulaire**, puisqu'il change
+ *    de position dans l'arbre. C'est ce qui corrige le bug d'état : le
+ *    brouillon vit en `useState` initialisé sur la prop, et un formulaire
+ *    réutilisé gardait l'entrée précédente tant qu'on n'avait pas annulé ;
+ *  - le bouton devient une bascule — rouvrir ferme, comme partout ailleurs
+ *    dans l'app.
+ */
+function EntreeModifiable({
   entree,
   catalog,
-  onModifier,
+  edition,
+  onEdition,
 }: {
   entree: EntreeCatalogue
   catalog: Catalog
-  onModifier: () => void
+  edition: EntreeCatalogue | null
+  onEdition: (e: EntreeCatalogue | null) => void
 }) {
+  const ouvert = edition?.id === entree.id
+
   return (
-    <div className="objet">
-      <Icone nom={entree.icone} taille={28} teinte={RARETES[entree.rarete ?? 'commun'].teinte} />
-      <span className="objet__corps">
-        <span className="objet__nom">{entree.nom}</span>
-        <span className="objet__meta">{resume(entree, catalog)}</span>
-      </span>
-      <button type="button" className="btn" onClick={onModifier}>
-        Modifier
-      </button>
-      <BoutonSupprimer entree={entree} />
+    <div className="pile pile--serree">
+      <div className={`objet ${ouvert ? 'objet--actif' : ''}`}>
+        <Icone nom={entree.icone} taille={28} teinte={RARETES[entree.rarete ?? 'commun'].teinte} />
+        <span className="objet__corps">
+          <span className="objet__nom">{entree.nom}</span>
+          <span className="objet__meta">{resume(entree, catalog)}</span>
+        </span>
+        <BoutonModifier ouvert={ouvert} onClick={() => onEdition(ouvert ? null : entree)} />
+        <BoutonSupprimer entree={entree} />
+      </div>
+
+      {ouvert && (
+        <Formulaire catalog={catalog} entree={entree} onFerme={() => onEdition(null)} />
+      )}
     </div>
+  )
+}
+
+function BoutonModifier({ ouvert, onClick }: { ouvert: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`btn ${ouvert ? 'btn--principal' : ''}`}
+      aria-expanded={ouvert}
+      onClick={onClick}
+    >
+      {ouvert ? 'Fermer' : 'Modifier'}
+    </button>
   )
 }
 
