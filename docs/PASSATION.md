@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 279 tests — 237 de domaine, 7 de stockage, 35 de rendu |
+| `npm test` | 285 tests — 242 de domaine, 7 de stockage, 36 de rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -333,7 +333,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |
 | Dés | physiques à table | l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
 | Combat | la joueuse saisit jet et cible, l'app applique | la MJ peut corriger |
-| Offres de boutique | tirage assisté que la MJ ajuste | 3 offres × 5 joueuses = trop de choix manuels |
+| Offres de boutique | tirage assisté que la MJ ajuste, **restreignable à des dossiers** | 3 offres × 5 joueuses = trop de choix manuels. Cocher « Poisons » et « Reliques » prépare une boutique thématique d'un geste ; rien de coché = tout le catalogue. Seul le **tirage** en tient compte — les listes de remplacement restent ouvertes, pour glisser une pièce hors thème |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |
 | Écran MJ pendant le camp | **miroir** de l'écran d'une joueuse, actions neutralisées, contrôles d'édition à leur place | un seul rendu à maintenir ; permet de retoucher brief et offres camp lancé |
 | Combat rapide | un **quatrième mode de table**, pas un overlay | la MJ le lance comme un Combat ; il ouvre un onglet et se termine explicitement — voir piège n° 11 |
@@ -697,7 +697,7 @@ le droit d'écrire**, et **n'écrire un vocabulaire qu'une fois**.
 2. `npm install && npm run dev`, deux onglets **du même navigateur** (MJ, PIN `1234` ;
    joueuse, code `ENTREMONDE`). Connectez-vous **en MJ d'abord** : le catalogue s'installe
    à ce moment-là.
-3. Parcourez `src/domain/rules.test.ts` — 237 tests qui décrivent le système mieux que
+3. Parcourez `src/domain/rules.test.ts` — 242 tests qui décrivent le système mieux que
    n'importe quelle prose.
 4. Demandez à la MJ ce qu'elle veut, et posez-lui vos questions avant de coder.
 

@@ -573,6 +573,33 @@ export interface Dossier extends EntreeCatalogueBase {
   ordre: number
 }
 
+/** Aucun filtre de dossier : le « ALL » virtuel, qui n'est jamais stocké. */
+export const DOSSIER_TOUS = ''
+
+/**
+ * Ce qui n'a été rangé nulle part.
+ *
+ * Une valeur sentinelle, et non l'absence de valeur : « non classé » est un
+ * choix qu'on peut cocher, au même titre qu'un dossier. Vit ici plutôt que dans
+ * `filtres.ts` parce que `campfire.ts` en a besoin lui aussi, et qu'il ne peut
+ * pas importer `filtres.ts` — celui-ci lui prend déjà `prixDe`.
+ */
+export const SANS_DOSSIER = 'sans-dossier'
+
+/**
+ * Vrai si l'entrée tombe dans l'un des dossiers retenus.
+ *
+ * Une liste **vide ne filtre rien** : c'est le « ALL » virtuel, et non « aucun
+ * dossier ». Sans cette lecture, préparer un camp sans rien cocher ne
+ * proposerait jamais la moindre offre.
+ */
+export function dansLesDossiers(entree: EntreeCatalogueBase, dossiers: readonly string[]): boolean {
+  if (dossiers.length === 0) return true
+  return entree.dossierId
+    ? dossiers.includes(entree.dossierId)
+    : dossiers.includes(SANS_DOSSIER)
+}
+
 /**
  * Rareté d'un objet, et sa teinte.
  *
@@ -994,8 +1021,18 @@ export interface Campfire {
   /** Phase pilotée par la MJ ; l'écran des joueuses suit. */
   phase: PhaseCampfire
   brief: string
-  /** Trois entrées de catalogue proposées, par identifiant de personnage. */
+  /** Les offres tirées, par identifiant de personnage. */
   offres: Record<string, string[]>
+  /**
+   * Dossiers où puiser les offres. **Vide = tout le catalogue.**
+   *
+   * Préparer une boutique thématique — « Poisons » et « Reliques » avant une
+   * descente — demandait jusqu'ici de remplacer chaque offre à la main, joueuse
+   * par joueuse. Le tirage seul en tient compte : les listes de remplacement
+   * restent ouvertes à tout, pour que la MJ puisse toujours glisser une pièce
+   * hors thème.
+   */
+  dossiersOffres?: string[]
   /** Investissements ouverts à la Banque. */
   investissementsProposes: string[]
   lanceLe: number | null

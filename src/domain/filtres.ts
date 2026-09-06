@@ -2,7 +2,9 @@ import { prixDe } from './campfire.ts'
 import type { Cout } from './couts.ts'
 import { sortOuvertA } from './magie.ts'
 import {
+  DOSSIER_TOUS,
   RARETES,
+  SANS_DOSSIER,
   type Dossier,
   type EntreeCatalogue,
   type Rarete,
@@ -31,12 +33,12 @@ export const LIBELLE_TRI: Record<CleTri, string> = {
   creation: 'Date de création',
 }
 
-/**
+/*
  * Le dossier « ALL » n'est pas stocké : c'est l'absence de filtre.
  * `SANS_DOSSIER` désigne au contraire ce qui n'a été rangé nulle part.
+ * Définis dans `types.ts`, que `campfire.ts` peut importer sans cycle.
  */
-export const DOSSIER_TOUS = ''
-export const SANS_DOSSIER = 'sans-dossier'
+export { DOSSIER_TOUS, SANS_DOSSIER } from './types.ts'
 
 export interface FiltresCatalogue {
   /** Recherche sur le nom et la description, insensible à la casse et aux accents. */

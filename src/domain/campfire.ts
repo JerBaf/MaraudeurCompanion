@@ -6,6 +6,7 @@ import { expireModifiers, FOI_DE_DEPART } from './modifiers.ts'
 import { resumeEquipement } from './objets.ts'
 import type { Rng } from './random.ts'
 import {
+  dansLesDossiers,
   PHASES_CAMPFIRE,
   RARETES,
   type Campfire,
@@ -146,6 +147,7 @@ export function normaliserCampfire(
     brief: brut.brief ?? '',
     offres: brut.offres ?? {},
     investissementsProposes: brut.investissementsProposes ?? [],
+    dossiersOffres: brut.dossiersOffres ?? [],
     lanceLe: brut.lanceLe ?? null,
   }
 }
@@ -460,20 +462,27 @@ export function entreesAchetables(char: Character, catalog: Catalog): EntreeCata
     .filter((e) => !dejaPossede(char, e))
 }
 
+export interface OptionsTirage {
+  /** Par défaut, dérivée de `slots-boutique` — un passif peut l'augmenter. */
+  taille?: number
+  /** Dossiers où puiser. **Vide = tout le catalogue.** */
+  dossiers?: readonly string[]
+}
+
 /**
- * Tire des offres distinctes pour une joueuse. Renvoie moins que `taille` si le
- * catalogue est court.
- *
- * `taille` se dérive par défaut de `slots-boutique` : un passif qui l'augmente
- * fait tirer une offre de plus, sans que cet appel ait à le savoir.
+ * Tire des offres distinctes pour une joueuse. Renvoie moins que demandé si le
+ * catalogue est court — ou si les dossiers retenus le sont.
  */
 export function tirerOffres(
   char: Character,
   catalog: Catalog,
   rng: Rng,
-  taille = tailleOffres(char, catalog),
+  options: OptionsTirage = {},
 ): string[] {
-  const pool = [...entreesAchetables(char, catalog)]
+  const taille = options.taille ?? tailleOffres(char, catalog)
+  const pool = entreesAchetables(char, catalog).filter((e) =>
+    dansLesDossiers(e, options.dossiers ?? []),
+  )
   const offres: string[] = []
   while (offres.length < taille && pool.length > 0) {
     const [tire] = pool.splice(rng.int(0, pool.length - 1), 1)

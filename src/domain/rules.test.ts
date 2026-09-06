@@ -2725,14 +2725,77 @@ describe('boutique', () => {
   })
 
   it('tire des offres distinctes', () => {
-    const offres = tirerOffres(riche(), catalog, seededRng(4), 3)
+    const offres = tirerOffres(riche(), catalog, seededRng(4), { taille: 3 })
     expect(offres).toHaveLength(3)
     expect(new Set(offres).size).toBe(3)
   })
 
   it('rend moins d’offres qu’attendu plutôt que d’inventer', () => {
     const maigre = createCatalog(SEED.filter((e) => e.kind !== 'equipement' && e.kind !== 'sort'))
-    expect(tirerOffres(riche(), maigre, seededRng(1), 3).length).toBeLessThan(3)
+    expect(tirerOffres(riche(), maigre, seededRng(1), { taille: 3 }).length).toBeLessThan(3)
+  })
+
+  /**
+   * Une boutique thématique : la MJ coche « Poisons » et « Reliques » avant une
+   * descente, et le tirage n'y puise plus qu'à cet endroit. Le faire à la main
+   * demandait de remplacer chaque offre, joueuse par joueuse.
+   */
+  describe('tirage restreint à des dossiers', () => {
+    const marchandise = (id: string, dossierId?: string): Equipement => ({
+      kind: 'equipement',
+      id,
+      nom: `Objet ${id}`,
+      icone: 'crystal-shine',
+      slot: 'bibelot',
+      prix: 10,
+      ...(dossierId ? { dossierId } : {}),
+    })
+
+    const boutique = createCatalog([
+      ...SEED,
+      marchandise('p1', 'poisons'),
+      marchandise('p2', 'poisons'),
+      marchandise('r1', 'reliques'),
+      marchandise('libre'),
+    ])
+
+    const tire = (dossiers: string[]) =>
+      tirerOffres(riche(), boutique, seededRng(7), { taille: 10, dossiers })
+
+    it('ne puise que dans les dossiers retenus', () => {
+      expect(tire(['poisons']).sort()).toEqual(['p1', 'p2'])
+    })
+
+    it('accepte plusieurs dossiers à la fois', () => {
+      expect(tire(['poisons', 'reliques']).sort()).toEqual(['p1', 'p2', 'r1'])
+    })
+
+    it('sait viser ce qui n’est rangé nulle part', () => {
+      // Le seed n'a que trois entrées à vendre, toutes non classées.
+      expect(tire([SANS_DOSSIER])).toContain('libre')
+      expect(tire([SANS_DOSSIER])).not.toContain('p1')
+    })
+
+    /**
+     * ⚠️ Une liste vide **ne filtre rien**. La lire comme « aucun dossier »
+     * rendrait une boutique vide à toute MJ qui n'a rien coché — c'est-à-dire
+     * au cas par défaut.
+     */
+    it('ne filtre rien quand aucun dossier n’est coché', () => {
+      const tout = tire([])
+      expect(tout).toContain('p1')
+      expect(tout).toContain('libre')
+    })
+
+    it('respecte les autres règles de la boutique', () => {
+      // Un objet du bon dossier mais déjà possédé ne revient pas au tirage.
+      const possede = { ...riche(), possede: { sorts: [], equipements: ['p1'], ameliorations: [] } }
+      const offres = tirerOffres(possede, boutique, seededRng(7), {
+        taille: 10,
+        dossiers: ['poisons'],
+      })
+      expect(offres).toEqual(['p2'])
+    })
   })
 
   it('débite les Lumens et range l’acquisition', () => {

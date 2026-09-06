@@ -23,10 +23,12 @@ import {
   tirerOffres,
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
-import { tailleInvestissements } from '../../domain/competences.ts'
+import { tailleInvestissements, tailleOffres } from '../../domain/competences.ts'
+import { dossiersDe } from '../../domain/filtres.ts'
 import { cryptoRng } from '../../domain/random.ts'
 import {
   LIBELLE_PHASE,
+  SANS_DOSSIER,
   type Campfire,
   type Character,
   type EtatTable,
@@ -341,11 +343,24 @@ function Offres({
   catalog: Catalog
   onMaj: (patch: Partial<Campfire>) => void
 }) {
+  const dossiers = dossiersDe(catalog)
+  const retenus = brouillon.dossiersOffres ?? []
+
+  function basculerDossier(id: string) {
+    onMaj({
+      dossiersOffres: retenus.includes(id)
+        ? retenus.filter((d) => d !== id)
+        : [...retenus, id],
+    })
+  }
+
   function tirerTout() {
     const offres: Record<string, string[]> = {}
     // Sans taille imposée : `tirerOffres` la dérive de `slots-boutique`, si
     // bien qu'un passif qui l'augmente vaut pour cette joueuse et pour elle seule.
-    for (const char of personnages) offres[char.id] = tirerOffres(char, catalog, cryptoRng)
+    for (const char of personnages) {
+      offres[char.id] = tirerOffres(char, catalog, cryptoRng, { dossiers: retenus })
+    }
     onMaj({ offres })
   }
 
@@ -362,24 +377,56 @@ function Offres({
   return (
     <div className="pile pile--serree">
       <div className="carte__titre" style={{ marginBottom: 0 }}>
-        <span className="etiquette">Boutique — 3 offres par joueuse</span>
+        <span className="etiquette">Boutique</span>
         <button type="button" className="btn" onClick={tirerTout}>
           Tirer les offres
         </button>
       </div>
+
+      {/* Une boutique thématique se prépare ici : cocher « Poisons » et
+          « Reliques » avant une descente évite de remplacer chaque offre à la
+          main, joueuse par joueuse. Rien de coché = tout le catalogue. */}
+      {dossiers.length > 0 && (
+        <div className="champ">
+          <span className="tres-discret">
+            Puiser dans — rien de coché : tout le catalogue
+          </span>
+          <div className="rangee">
+            {[...dossiers.map((d) => ({ id: d.id, nom: d.nom })), { id: SANS_DOSSIER, nom: 'Non classé' }].map(
+              (d) => {
+                const actif = retenus.includes(d.id)
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`btn ${actif ? 'btn--principal' : ''}`}
+                    aria-pressed={actif}
+                    onClick={() => basculerDossier(d.id)}
+                  >
+                    {d.nom}
+                  </button>
+                )
+              },
+            )}
+          </div>
+        </div>
+      )}
 
       {personnages.length === 0 && <p className="vide">Aucune joueuse à la table.</p>}
 
       {personnages.map((char) => {
         const offres = brouillon.offres[char.id] ?? []
         const candidats = entreesAchetables(char, catalog)
+        // Dérivé, comme le tirage : un passif qui accorde une offre de plus
+        // doit aussi donner l'emplacement où la relire et la remplacer.
+        const emplacements = Math.max(tailleOffres(char, catalog), offres.length)
 
         return (
           <div key={char.id} className="pile pile--serree">
             <span className="tres-discret">
               {char.nom} — {char.lumens} ʟ
             </span>
-            {[0, 1, 2].map((i) => (
+            {Array.from({ length: emplacements }, (_, i) => i).map((i) => (
               <select
                 key={i}
                 value={offres[i] ?? ''}
