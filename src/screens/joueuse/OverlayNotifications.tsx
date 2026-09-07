@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react'
 
 import { Icone } from '../../components/Icone.tsx'
+import { ImageZoomable } from '../../components/ImageZoomable.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { repondreNotification } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import {
   choixProposes,
   libelleType,
+  urlIllustration,
   type ChoixPropose,
   type Notification,
 } from '../../domain/notifications.ts'
@@ -110,6 +112,43 @@ function Carte({
         envoye.current = false
         setEnCours(false)
       })
+  }
+
+  // L'illustration prend tout l'écran : une carte de 480 px la rendrait
+  // illisible, et c'est bien la voir en grand qui est le but. Même verrou, même
+  // réponse — seule la mise en page change.
+  if (notif.contenu.kind === 'image') {
+    return (
+      <div className="overlay overlay--image" role="dialog" aria-modal="true" aria-label={libelleType(notif)}>
+        <ImageZoomable
+          url={urlIllustration(notif.contenu.url)}
+          alt={notif.texte || 'Illustration'}
+        />
+
+        <div className="illustration__pied pile pile--serree">
+          {notif.texte && <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{notif.texte}</p>}
+          <span className="tres-discret">Pincez ou double-touchez pour zoomer.</span>
+          {/*
+            Le type n'offre qu'une option, gratuite : la boucle rend exactement
+            un bouton « Passer ». Il ne dépend surtout pas du chargement de
+            l'image — une illustration qui ne vient pas ne doit pas enfermer la
+            joueuse dans l'overlay.
+          */}
+          {choix.map((c) => (
+            <button
+              key={c.option.id}
+              type="button"
+              className="btn btn--principal"
+              disabled={enCours}
+              onClick={() => repondre(c)}
+            >
+              {c.option.libelle}
+            </button>
+          ))}
+          {reste > 0 && <span className="tres-discret">+{reste} en attente</span>}
+        </div>
+      </div>
+    )
   }
 
   return (

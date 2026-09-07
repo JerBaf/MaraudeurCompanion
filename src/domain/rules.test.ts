@@ -169,11 +169,14 @@ import {
 } from './objets.ts'
 import {
   choixProposes,
+  contenuComplet,
   enAttente,
   libelleOption,
   optionCouteuse,
   optionsDe,
   repondre,
+  texteRequis,
+  urlIllustration,
   type ContenuNotification,
   type Notification,
 } from './notifications.ts'
@@ -3412,6 +3415,49 @@ describe('Notifications — suivi', () => {
     // La MJ doit repérer d'un coup d'œil la réponse qui a coûté quelque chose.
     expect(optionCouteuse(n, 'a')).toBe(true)
     expect(optionCouteuse(n, 'b')).toBe(false)
+  })
+})
+
+describe('Notifications — illustration', () => {
+  const illustration = (url: string): ContenuNotification => ({ kind: 'image', url })
+
+  it('n’offre que Passer, gratuitement — regarder une image ne coûte rien', () => {
+    const options = optionsDe(notif(illustration('https://cdn.cosmos.so/abc')))
+    expect(options.map((o) => o.id)).toEqual(['passer'])
+    expect(estGratuit(options[0]!.cout)).toBe(true)
+  })
+
+  it('laisse la légende facultative, alors que les autres types l’exigent', () => {
+    expect(texteRequis('image')).toBe(false)
+    expect(texteRequis('choix')).toBe(true)
+    expect(texteRequis('sixth-sens')).toBe(true)
+  })
+
+  it('refuse l’envoi tant que l’adresse n’est pas une URL', () => {
+    expect(contenuComplet(illustration(''))).toBe(false)
+    expect(contenuComplet(illustration('pas une url'))).toBe(false)
+    // Un lien de page Cosmos passe : l'app ne peut pas deviner qu'il ne rend
+    // pas une image. C'est l'aperçu de la MJ qui le lui montre.
+    expect(contenuComplet(illustration('https://cdn.cosmos.so/abc?w=400'))).toBe(true)
+  })
+
+  it('va chercher la pleine résolution d’une vignette Cosmos sans toucher au recadrage', () => {
+    expect(urlIllustration('https://cdn.cosmos.so/abc?format=webp&w=400')).toBe(
+      'https://cdn.cosmos.so/abc?format=webp',
+    )
+    expect(urlIllustration('https://cdn.cosmos.so/abc?rect=0%2C0%2C320%2C320&w=400')).toBe(
+      'https://cdn.cosmos.so/abc?rect=0%2C0%2C320%2C320',
+    )
+  })
+
+  it('laisse intacte toute autre source — la MJ n’est pas tenue à Cosmos', () => {
+    expect(urlIllustration('https://exemple.test/carte.jpg?w=400')).toBe(
+      'https://exemple.test/carte.jpg?w=400',
+    )
+    expect(urlIllustration('  https://exemple.test/carte.jpg  ')).toBe(
+      'https://exemple.test/carte.jpg',
+    )
+    expect(urlIllustration('pas une url')).toBe('pas une url')
   })
 })
 

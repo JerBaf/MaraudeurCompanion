@@ -1312,6 +1312,45 @@ describe('Notifications', () => {
     return localStorage.getItem(cle as string) as string
   }
 
+  it('montre une illustration en plein écran, sans légende, et la retire sur Passer', async () => {
+    await tableAvec('Ilma')
+
+    // --- La MJ colle une adresse et envoie, sans écrire un mot ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Illustration' }))
+    fireEvent.click(await screen.findByLabelText('Ilma'))
+    fireEvent.change(screen.getByLabelText('L’adresse de l’illustration'), {
+      target: { value: 'https://cdn.cosmos.so/abc?format=webp&w=400' },
+    })
+
+    // La légende est facultative : le bouton doit être actif malgré elle.
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }))
+    await waitFor(() => expect(screen.getByText('En attente…')).toBeTruthy())
+    cleanup()
+
+    // --- L'illustration arrive en plein écran, en pleine résolution ---
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const vue = await screen.findByRole('dialog')
+    expect(within(vue).getByRole('img').getAttribute('src')).toBe(
+      'https://cdn.cosmos.so/abc?format=webp',
+    )
+
+    fireEvent.click(within(vue).getByRole('button', { name: 'Passer' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    cleanup()
+
+    // --- Et la MJ sait qu'Ilma a fini de la regarder ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+    await waitFor(() => expect(screen.getByText('Passer')).toBeTruthy())
+  })
+
   it('pousse un 6th Sens, consomme le point sur Écouter, et le remonte à la MJ', async () => {
     await tableAvec('Ilma')
     await envoyerMJ('6th Sens', 'Ilma', "Un courant d'air froid vient du couloir de gauche.")

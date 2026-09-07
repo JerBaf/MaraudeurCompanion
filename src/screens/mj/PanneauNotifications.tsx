@@ -19,6 +19,8 @@ import {
   libelleOption,
   libelleType,
   optionCouteuse,
+  texteRequis,
+  urlIllustration,
   type ContenuNotification,
   type Notification,
   type OptionNotification,
@@ -55,7 +57,7 @@ export function PanneauNotifications({
 
   const pret =
     brouillon.cibles.length > 0 &&
-    brouillon.texte.trim() !== '' &&
+    (!texteRequis(brouillon.contenu.kind) || brouillon.texte.trim() !== '') &&
     contenuComplet(brouillon.contenu)
 
   async function envoyer() {
@@ -125,14 +127,18 @@ export function PanneauNotifications({
           <span className="tres-discret">
             {brouillon.contenu.kind === 'sixth-sens'
               ? "Ce qui titille son 6th Sens — l'amorce, pas l'information"
-              : 'Le contexte, affiché au-dessus des options'}
+              : brouillon.contenu.kind === 'image'
+                ? 'Une légende sous l’illustration — facultatif'
+                : 'Le contexte, affiché au-dessus des options'}
           </span>
           <textarea
             value={brouillon.texte}
             placeholder={
               brouillon.contenu.kind === 'sixth-sens'
                 ? "Un courant d'air froid vient du couloir de gauche."
-                : "Un buisson s'agite dans la pénombre."
+                : brouillon.contenu.kind === 'image'
+                  ? 'La grande halle des Fondeurs, un soir de brume.'
+                  : "Un buisson s'agite dans la pénombre."
             }
             onChange={(e) => maj({ texte: e.target.value })}
           />
@@ -208,7 +214,76 @@ function Contenu({
           onChange={(queteId) => onChange({ ...contenu, queteId })}
         />
       )
+
+    case 'image':
+      return (
+        <ChoisirIllustration
+          valeur={contenu.url}
+          onChange={(url) => onChange({ ...contenu, url })}
+        />
+      )
   }
+}
+
+/**
+ * L'illustration montrée.
+ *
+ * On garde l'adresse **telle qu'elle a été collée** : la normaliser à chaque
+ * frappe rendrait le champ impossible à corriger. C'est l'aperçu — et l'écran
+ * de la joueuse — qui appellent `urlIllustration`.
+ */
+function ChoisirIllustration({
+  valeur,
+  onChange,
+}: {
+  valeur: string
+  onChange: (url: string) => void
+}) {
+  const [casse, setCasse] = useState(false)
+  const url = urlIllustration(valeur)
+
+  return (
+    <div className="pile pile--serree">
+      <label className="champ">
+        <span className="tres-discret">L’adresse de l’illustration</span>
+        <input
+          type="url"
+          value={valeur}
+          placeholder="https://cdn.cosmos.so/…"
+          aria-label="L’adresse de l’illustration"
+          onChange={(e) => {
+            setCasse(false)
+            onChange(e.target.value)
+          }}
+        />
+      </label>
+
+      <p className="discret" style={{ margin: 0 }}>
+        Sur Cosmos : clic droit sur l’image → <strong>Copier l’adresse de l’image</strong>. Un lien
+        de page (<code>cosmos.so/e/…</code>) ne fonctionnera pas — il faut l’image elle-même.
+      </p>
+
+      {url !== '' &&
+        (casse ? (
+          <p className="alerte alerte--erreur" style={{ margin: 0 }}>
+            Cette adresse ne donne pas une image.
+          </p>
+        ) : (
+          <img
+            src={url}
+            alt="Aperçu de l’illustration"
+            referrerPolicy="no-referrer"
+            style={{
+              maxWidth: '100%',
+              maxHeight: 200,
+              objectFit: 'contain',
+              borderRadius: 'var(--rayon)',
+            }}
+            onError={() => setCasse(true)}
+          />
+        ))}
+    </div>
+  )
 }
 
 /**
@@ -405,6 +480,21 @@ function Suivi({
           <Icone nom={objet.icone} taille={24} />
           <span className="tres-discret">{objet.nom}</span>
         </div>
+      )}
+
+      {/* La MJ doit voir ce qui s'affiche chez les joueuses, pas seulement son type. */}
+      {notif.contenu.kind === 'image' && (
+        <img
+          src={urlIllustration(notif.contenu.url)}
+          alt=""
+          referrerPolicy="no-referrer"
+          style={{
+            maxWidth: '100%',
+            maxHeight: 100,
+            objectFit: 'contain',
+            borderRadius: 'var(--rayon)',
+          }}
+        />
       )}
 
       {notif.cibles.map((id) => {

@@ -1074,6 +1074,56 @@ textarea {
   background: var(--encre-2);
 }
 
+/*
+  L'illustration montrée par la MJ.
+
+  Seule notification qui n'est pas une carte : l'image prend toute la place
+  disponible et la légende se pose dessous. Le fond est plus opaque que celui
+  des autres overlays — on regarde l'image, pas la fiche derrière.
+*/
+.overlay--image {
+  flex-direction: column;
+  padding: env(safe-area-inset-top) 0 0;
+  background: color-mix(in srgb, var(--encre) 97%, transparent);
+}
+
+.illustration {
+  position: relative;
+  flex: 1;
+  /* Sans quoi une image haute pousse le pied hors de l'écran. */
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* Le navigateur ne doit pas s'emparer du pincement ni du double-toucher. */
+  touch-action: none;
+  user-select: none;
+}
+
+/* C'est `contain` qui donne le bon format — portrait comme paysage, sans déformer. */
+.illustration img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+.illustration__message {
+  position: absolute;
+  max-width: 320px;
+  text-align: center;
+}
+
+.illustration__pied {
+  width: 100%;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--encre-4);
+  background: var(--encre-2);
+}
+
 .vide {
   padding: 24px 12px;
   text-align: center;

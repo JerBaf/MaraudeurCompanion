@@ -852,7 +852,12 @@ export async function envoyerNotification(
   const noms = envoyee.cibles
     .map((id) => personnages.find((c) => c.id === id)?.nom ?? id)
     .join(', ')
-  await journaliser('MJ', 'notification', `${libelleType(envoyee)} → ${noms} : ${envoyee.texte}`)
+  // Le texte est facultatif pour une Illustration : pas de « : » orphelin.
+  await journaliser(
+    'MJ',
+    'notification',
+    `${libelleType(envoyee)} → ${noms}` + (envoyee.texte ? ` : ${envoyee.texte}` : ''),
+  )
 }
 
 /**

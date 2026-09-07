@@ -21,12 +21,13 @@ import type { Character } from './types.ts'
  *
  * Une notification, c'est la MJ qui sollicite une ou plusieurs joueuses hors
  * des grands modes de table : titiller un 6th Sens, proposer un choix, remettre
- * un objet. Elle ne change pas le mode et n'interrompt pas le reste de la table.
+ * un objet, montrer une illustration. Elle ne change pas le mode et n'interrompt
+ * pas le reste de la table.
  *
  * Le modèle tient en une phrase : **une notification propose des options ;
  * répondre, c'est payer le coût d'une option et, éventuellement, en subir
- * l'effet sur sa fiche.** Les trois types d'aujourd'hui s'y ramènent tous, et
- * les suivants — Quête, Image — s'y ramèneront de la même façon.
+ * l'effet sur sa fiche.** Tous les types s'y ramènent, jusqu'à l'Illustration
+ * dont « Passer » n'est que l'unique option gratuite.
  *
  * Le coût réutilise le moteur de `couts.ts` sans rien y ajouter : « Payer 10
  * Lumens » s'écrit `coutDe(fixe('lumens', 10))`, et « 2 Foi OU 10 Lumens » était
@@ -58,6 +59,8 @@ export type ContenuNotification =
   | { kind: 'choix'; options: OptionNotification[] }
   | { kind: 'equipement'; equipementId: string }
   | { kind: 'quete'; queteId: string }
+  /** L'adresse **directe** de l'image, pas celle d'une page — voir `urlIllustration`. */
+  | { kind: 'image'; url: string }
 
 export type KindNotification = ContenuNotification['kind']
 
@@ -88,6 +91,8 @@ interface TypeNotification<C extends ContenuNotification> {
   options(contenu: C): OptionNotification[]
   /** Ce que la réponse fait à la fiche, au-delà du paiement du coût. */
   appliquer?(char: Character, contenu: C, optionId: string): Character
+  /** Absent = le texte de la MJ est obligatoire. Une illustration se passe de légende. */
+  texteRequis?: boolean
 }
 
 /**
@@ -149,10 +154,46 @@ const TYPES: { [K in KindNotification]: TypeNotification<Extract<ContenuNotifica
       }
     },
   },
+
+  image: {
+    libelle: 'Illustration',
+    // Regarder une image ne touche pas la fiche : pas d'`appliquer`. « Passer »
+    // n'est là que pour retirer l'illustration de l'écran — et la MJ voit du
+    // même coup qui a fini de la regarder.
+    texteRequis: false,
+    options: () => [{ id: 'passer', libelle: 'Passer', cout: COUT_GRATUIT }],
+  },
 }
 
 export function libelleType(notif: Notification): string {
   return TYPES[notif.contenu.kind].libelle
+}
+
+/** Vrai si la MJ doit écrire un texte avant de pouvoir envoyer ce type. */
+export function texteRequis(kind: KindNotification): boolean {
+  return TYPES[kind].texteRequis !== false
+}
+
+/**
+ * L'adresse d'affichage d'une illustration.
+ *
+ * Sur Cosmos, « Copier l'adresse de l'image » donne l'URL de la vignette telle
+ * qu'elle était affichée — `?format=webp&w=400` —, illisible en plein écran. On
+ * retire la largeur pour obtenir la pleine résolution, et rien d'autre : un
+ * `rect=` est un recadrage que la MJ a peut-être voulu. Toute autre source
+ * passe intacte, et une chaîne qui n'est pas une URL aussi — c'est
+ * `contenuComplet` qui refuse l'envoi, pas cette fonction.
+ */
+export function urlIllustration(url: string): string {
+  const brut = url.trim()
+  try {
+    const adresse = new URL(brut)
+    if (adresse.hostname !== 'cdn.cosmos.so') return brut
+    adresse.searchParams.delete('w')
+    return adresse.toString()
+  } catch {
+    return brut
+  }
 }
 
 export const KINDS_NOTIFICATION = Object.keys(TYPES) as KindNotification[]
@@ -300,6 +341,8 @@ export function contenuVierge(kind: KindNotification): ContenuNotification {
       return { kind, equipementId: '' }
     case 'quete':
       return { kind, queteId: '' }
+    case 'image':
+      return { kind, url: '' }
   }
 }
 
@@ -314,6 +357,8 @@ export function contenuComplet(contenu: ContenuNotification): boolean {
       return contenu.equipementId !== ''
     case 'quete':
       return contenu.queteId !== ''
+    case 'image':
+      return /^https?:\/\/\S+$/.test(contenu.url.trim())
   }
 }
 
