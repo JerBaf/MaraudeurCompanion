@@ -13,6 +13,7 @@ import type {
   Investissement,
   Modifier,
   Passif,
+  Quete,
   Sort,
   TypeMagique,
 } from './types.ts'
@@ -40,6 +41,7 @@ export interface Catalog {
   amelioration(id: string): Amelioration | undefined
   typeMagique(id: string): TypeMagique | undefined
   dossier(id: string): Dossier | undefined
+  quete(id: string): Quete | undefined
   entree(id: string): EntreeCatalogue | undefined
   toutes(): EntreeCatalogue[]
   classes(): Classe[]
@@ -49,6 +51,7 @@ export interface Catalog {
   ameliorations(): Amelioration[]
   typesMagiques(): TypeMagique[]
   dossiers(): Dossier[]
+  quetes(): Quete[]
 }
 
 /**
@@ -82,6 +85,10 @@ export function normaliserEntree(brut: EntreeCatalogue): EntreeCatalogue {
       const { cible: _heritee, ...propre } = brut as Dossier & { cible?: string }
       return propre
     }
+    case 'quete':
+      // Une quête importée d'un JSON retouché à la main peut arriver sans sa
+      // récompense ; sans ce repli, le premier `.map()` de l'écran lèverait.
+      return { ...brut, recompense: brut.recompense ?? { entrees: [] } }
     case 'sort':
       return {
         ...brut,
@@ -272,6 +279,7 @@ export function createCatalog(entreesBrutes: readonly EntreeCatalogue[]): Catalo
     amelioration: (id) => typed(id, 'amelioration'),
     typeMagique: (id) => typed(id, 'type-magique'),
     dossier: (id) => typed(id, 'dossier'),
+    quete: (id) => typed(id, 'quete'),
     entree: (id) => parId.get(id),
     toutes: () => [...entrees],
     classes: () => filtrer('classe'),
@@ -281,5 +289,6 @@ export function createCatalog(entreesBrutes: readonly EntreeCatalogue[]): Catalo
     ameliorations: () => filtrer('amelioration'),
     typesMagiques: () => filtrer('type-magique'),
     dossiers: () => filtrer('dossier'),
+    quetes: () => filtrer('quete'),
   }
 }

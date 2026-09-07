@@ -14,6 +14,7 @@ import { PanneauCampfire } from './PanneauCampfire.tsx'
 import { PanneauCombat } from './PanneauCombat.tsx'
 import { PanneauDuel } from './PanneauDuel.tsx'
 import { PanneauNotifications } from './PanneauNotifications.tsx'
+import { PanneauQuetes } from './PanneauQuetes.tsx'
 import {
   amorcerSiNecessaire,
   definirMode,
@@ -73,7 +74,7 @@ interface Props {
   onDeconnexion: () => void
 }
 
-type Onglet = 'table' | 'combat' | 'duel' | 'camp' | 'notifs' | 'journal' | 'reglages'
+type Onglet = 'table' | 'combat' | 'duel' | 'camp' | 'notifs' | 'quetes' | 'journal' | 'reglages'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   table: 'Table',
@@ -81,6 +82,7 @@ const LIBELLE_ONGLET: Record<Onglet, string> = {
   duel: 'Combat rapide',
   camp: 'Feu de camp',
   notifs: 'Notifications',
+  quetes: 'Quêtes',
   journal: 'Journal',
   reglages: 'Réglages',
 }
@@ -103,8 +105,8 @@ export function EcranMJ({
   // comme le Feu de camp — c'est là qu'on prépare le duel avant de le lancer.
   const onglets: Onglet[] =
     etat?.mode === 'combat'
-      ? ['table', 'combat', 'duel', 'camp', 'notifs', 'journal', 'reglages']
-      : ['table', 'duel', 'camp', 'notifs', 'journal', 'reglages']
+      ? ['table', 'combat', 'duel', 'camp', 'notifs', 'quetes', 'journal', 'reglages']
+      : ['table', 'duel', 'camp', 'notifs', 'quetes', 'journal', 'reglages']
 
   const ongletActif = onglets.includes(onglet) ? onglet : 'table'
 
@@ -169,6 +171,10 @@ export function EcranMJ({
             notifications={notifications}
             catalog={catalog}
           />
+        )}
+
+        {ongletActif === 'quetes' && (
+          <PanneauQuetes catalog={catalog} personnages={personnages} />
         )}
 
         {ongletActif === 'table' && (

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 
+import { Icone } from '../../components/Icone.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { repondreNotification } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
@@ -10,6 +11,7 @@ import {
   type Notification,
 } from '../../domain/notifications.ts'
 import { detailObjet, resumeEquipement } from '../../domain/objets.ts'
+import { decrireRecompense } from '../../domain/quetes.ts'
 import { RARETES, type Character } from '../../domain/types.ts'
 
 /**
@@ -124,6 +126,10 @@ function Carte({
           <FicheObjet char={char} catalog={catalog} equipementId={notif.contenu.equipementId} />
         )}
 
+        {notif.contenu.kind === 'quete' && (
+          <FicheQuete catalog={catalog} queteId={notif.contenu.queteId} />
+        )}
+
         <div className="pile pile--serree">
           {choix.map((c) => (
             <button
@@ -174,5 +180,33 @@ function FicheObjet({
       detail={detailObjet(eq)}
       teinte={RARETES[eq.rarete ?? 'commun'].teinte}
     />
+  )
+}
+
+/**
+ * La quête proposée.
+ *
+ * ⚠️ Contrairement à l'onglet Quêtes, **rien n'est replié** : la description est
+ * l'essentiel de ce sur quoi la joueuse s'engage, et c'est ici le moment de la
+ * décision. La cacher derrière un toucher ferait accepter à l'aveugle.
+ */
+function FicheQuete({ catalog, queteId }: { catalog: Catalog; queteId: string }) {
+  const quete = catalog.quete(queteId)
+  if (!quete) return <p className="alerte alerte--erreur">Quête introuvable au catalogue.</p>
+
+  return (
+    <div className="carte pile pile--serree">
+      <div className="rangee">
+        <Icone nom={quete.icone} taille={32} teinte={RARETES[quete.rarete ?? 'commun'].teinte} />
+        <strong>{quete.nom}</strong>
+      </div>
+      {quete.description && (
+        <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{quete.description}</p>
+      )}
+      <div className="rangee rangee--entre">
+        <span className="etiquette">Récompense</span>
+        <span>{decrireRecompense(quete.recompense, catalog)}</span>
+      </div>
+    </div>
   )
 }

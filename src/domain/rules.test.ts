@@ -177,6 +177,13 @@ import {
   type ContenuNotification,
   type Notification,
 } from './notifications.ts'
+import {
+  appliquerRecompense,
+  decrireRecompense,
+  porteusesDe,
+  quetesDe,
+  recompenseVide,
+} from './quetes.ts'
 import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import { ACTIONS_DUEL } from './types.ts'
 import type {
@@ -195,6 +202,7 @@ import type {
   ModeleAdversaire,
   Modifier,
   Passif,
+  Quete,
   Sort,
   VieSoulshifter,
 } from './types.ts'
@@ -924,7 +932,7 @@ describe('emplacements dérivés', () => {
     const am = ameliorationQuiAjoute(element, id)
     const catalogue = createCatalog([...SEED, am])
     const char = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [], ameliorations: [am.id] },
+      possede: { sorts: [], equipements: [], ameliorations: [am.id], quetes: [] },
     })
     return { catalogue, char }
   }
@@ -959,7 +967,7 @@ describe('emplacements dérivés', () => {
 
     const catalogue = createCatalog([...SEED, am, ...bibelots])
     const char = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [], ameliorations: [am.id] },
+      possede: { sorts: [], equipements: [], ameliorations: [am.id], quetes: [] },
     })
 
     expect(tailleOffres(char, catalogue)).toBe(4)
@@ -1003,7 +1011,7 @@ describe('emplacements dérivés', () => {
     }
     const catalogue = createCatalog([...SEED, punitif])
     const char = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [], ameliorations: [punitif.id] },
+      possede: { sorts: [], equipements: [], ameliorations: [punitif.id], quetes: [] },
     })
     expect(tailleGrimoire(char, catalogue)).toBe(1)
   })
@@ -1279,6 +1287,7 @@ describe('Illusions hors emplacement', () => {
         sorts: ['polymorph', 'tame', 'word-baboum', 'word-crackers', 'ya-gat-fooled', 'mage-hand'],
         equipements: [],
         ameliorations: [],
+        quetes: [],
       },
       passifs: { voieTrickster: 'illusionniste' },
     })
@@ -1318,7 +1327,7 @@ describe('Illusions hors emplacement', () => {
   it('les affiche pour un personnage créé avant l’ajout du passif', () => {
     // Fiche telle qu'elle existe déjà en base : aucune illusion à l'inventaire.
     const ancien = nouveauPerso('trickster', {
-      possede: { sorts: ['polymorph', 'tame', 'word-baboum'], equipements: [], ameliorations: [] },
+      possede: { sorts: ['polymorph', 'tame', 'word-baboum'], equipements: [], ameliorations: [], quetes: [] },
       grimoire: ['polymorph', 'tame', 'word-baboum'],
       passifs: { voieTrickster: 'illusionniste' },
     })
@@ -1688,7 +1697,7 @@ describe('plafonds de ressource', () => {
 
   const armee = (patch: Partial<Character> = {}) =>
     nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: [dague.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [dague.id], ameliorations: [], quetes: [] },
       equipe: { arme: dague.id, armure: null, bibelot: null },
       ...patch,
     })
@@ -1698,7 +1707,7 @@ describe('plafonds de ressource', () => {
     expect(computeFatigueMax(armee(), avecDague).max).toBe(4)
 
     const rangee = nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: [dague.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [dague.id], ameliorations: [], quetes: [] },
     })
     expect(computeFatigueMax(rangee, avecDague).max).toBe(5)
   })
@@ -1707,7 +1716,7 @@ describe('plafonds de ressource', () => {
     const bibelot: Equipement = { ...dague, id: 'os-maudit', nom: 'Os maudit', slot: 'bibelot' }
     const catalogue = createCatalog([...SEED, dague, bibelot])
     const char = nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: [dague.id, bibelot.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [dague.id, bibelot.id], ameliorations: [], quetes: [] },
       equipe: { arme: dague.id, armure: null, bibelot: bibelot.id },
     })
     expect(computeFatigueMax(char, catalogue).max).toBe(3)
@@ -1752,7 +1761,7 @@ describe('passifs réactifs', () => {
 
   const portant = (patch: Partial<Character> = {}) =>
     nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [], quetes: [] },
       equipe: { arme: null, armure: null, bibelot: sceau.id },
       ...patch,
     })
@@ -1778,7 +1787,7 @@ describe('passifs réactifs', () => {
   /** Même régime que les modificateurs : au fond du sac, il ne réagit à rien. */
   it('reste muet si l’objet n’est pas porté', () => {
     const avant = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [], quetes: [] },
       marques: 0,
       foi: 2,
     })
@@ -1827,7 +1836,7 @@ describe('passifs réactifs', () => {
     }
     const catalogue = createCatalog([...SEED, amelioration])
     const char = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [], ameliorations: [amelioration.id] },
+      possede: { sorts: [], equipements: [], ameliorations: [amelioration.id], quetes: [] },
     })
 
     const effet = effetsActifs(char, catalogue).find((e) => e.nom === 'Pacte de sang')
@@ -1838,7 +1847,7 @@ describe('passifs réactifs', () => {
 
   it('disparaît des effets en cours quand l’objet n’est plus porté', () => {
     const range = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [sceau.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [sceau.id], ameliorations: [], quetes: [] },
     })
     expect(effetsActifs(range, avecSceau).some((e) => e.nom === 'Sceau du Martyr')).toBe(false)
 
@@ -1850,7 +1859,7 @@ describe('passifs réactifs', () => {
     const second: Equipement = { ...sceau, id: 'autre-sceau', nom: 'Autre sceau', slot: 'arme' }
     const catalogue = createCatalog([...SEED, sceau, second])
     const avant = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: [sceau.id, second.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [sceau.id, second.id], ameliorations: [], quetes: [] },
       equipe: { arme: second.id, armure: null, bibelot: sceau.id },
       marques: 0,
       foi: 2,
@@ -1899,7 +1908,7 @@ describe('passifs réactifs', () => {
 
     const liee = (patch: Partial<Character> = {}) => ({
       ...nouveauPerso('trickster', {
-        possede: { sorts: [], equipements: [], ameliorations: [solidaire.id] },
+        possede: { sorts: [], equipements: [], ameliorations: [solidaire.id], quetes: [] },
         ...patch,
       }),
       id: 'b-alliee',
@@ -2030,7 +2039,7 @@ describe('objets à effets actifs', () => {
 
   const porteuse = (eq: Equipement, patch: Partial<Character> = {}) =>
     nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: [eq.id], ameliorations: [] },
+      possede: { sorts: [], equipements: [eq.id], ameliorations: [], quetes: [] },
       equipe: { arme: eq.id, armure: null, bibelot: null },
       ...patch,
     })
@@ -2166,7 +2175,7 @@ describe('objets à effets actifs', () => {
     const avecTalisman = createCatalog([...SEED, talisman])
 
     const porte = nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: ['talisman'], ameliorations: [] },
+      possede: { sorts: [], equipements: ['talisman'], ameliorations: [], quetes: [] },
       equipe: { arme: null, armure: null, bibelot: 'talisman' },
     })
     expect(computeEvasion(porte, avecTalisman).total).toBe(EVASION_DE_BASE + 2)
@@ -2174,7 +2183,7 @@ describe('objets à effets actifs', () => {
 
     // Au fond du sac, il ne protège personne.
     const range = nouveauPerso('dusk-hunter', {
-      possede: { sorts: [], equipements: ['talisman'], ameliorations: [] },
+      possede: { sorts: [], equipements: ['talisman'], ameliorations: [], quetes: [] },
     })
     expect(computeEvasion(range, avecTalisman).total).toBe(EVASION_DE_BASE)
     expect(computeCompetence(range, avecTalisman, 'social').net).toBe('neutre')
@@ -2187,6 +2196,7 @@ describe('Détachement', () => {
       sorts: ['polymorph', 'tame', 'word-baboum', 'word-crackers'],
       equipements: ['lame-simple', 'cuirasse-usee', 'catalyseur', 'rations'],
       ameliorations: ['une-amelioration'],
+      quetes: [],
     },
   }
 
@@ -2222,7 +2232,7 @@ describe('Détachement', () => {
 
   it('ne casse pas sur un personnage sans rien à perdre', () => {
     const char = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: ['rations'], ameliorations: [] },
+      possede: { sorts: [], equipements: ['rations'], ameliorations: [], quetes: [] },
     })
     expect(effectuerDetachement(char, catalog, seededRng(1)).perdu).toBeNull()
   })
@@ -2234,7 +2244,7 @@ describe('grille de Fatigue pleine', () => {
   it('consomme un cycle, détache, cicatrise et restaure la Fatigue', () => {
     const char = nouveauPerso('trickster', {
       fatigue: { max: 4, coches: 4 },
-      possede: { sorts: ['polymorph', 'tame'], equipements: ['lame-simple'], ameliorations: [] },
+      possede: { sorts: ['polymorph', 'tame'], equipements: ['lame-simple'], ameliorations: [], quetes: [] },
     })
 
     const r = resoudreGrillePleine(char, secret, catalog, seededRng(5))
@@ -2394,7 +2404,7 @@ describe('effets actifs', () => {
 
   it('n’affiche que l’armure portée, pas celle du sac à dos', () => {
     const range = nouveauPerso('trickster', {
-      possede: { sorts: [], equipements: ['cuirasse-usee'], ameliorations: [] },
+      possede: { sorts: [], equipements: ['cuirasse-usee'], ameliorations: [], quetes: [] },
     })
     expect(effetsActifs(range, catalog).some((e) => e.nom === 'Cuirasse usée')).toBe(false)
 
@@ -2432,7 +2442,7 @@ describe('normalisation des fiches lues en base', () => {
       actionsRapidesUtilisees: 0,
       equipe: { arme: null, armure: null, bibelot: null },
       grimoire: ['polymorph'],
-      possede: { sorts: ['polymorph'], equipements: [], ameliorations: [] },
+      possede: { sorts: ['polymorph'], equipements: [], ameliorations: [], quetes: [] },
       sortsEpuises: [],
       cicatrices: [],
       passifs: {},
@@ -2700,7 +2710,7 @@ describe('boutique', () => {
 
     expect(entreesAchetables(riche(), avecBurst).map((e) => e.id)).not.toContain('burst')
 
-    const dusk = nouveauPerso('dusk-hunter', { lumens: 500, possede: { sorts: [], equipements: [], ameliorations: [] } })
+    const dusk = nouveauPerso('dusk-hunter', { lumens: 500, possede: { sorts: [], equipements: [], ameliorations: [], quetes: [] } })
     expect(entreesAchetables(dusk, avecBurst).map((e) => e.id)).toContain('burst')
   })
 
@@ -2789,7 +2799,7 @@ describe('boutique', () => {
 
     it('respecte les autres règles de la boutique', () => {
       // Un objet du bon dossier mais déjà possédé ne revient pas au tirage.
-      const possede = { ...riche(), possede: { sorts: [], equipements: ['p1'], ameliorations: [] } }
+      const possede = { ...riche(), possede: { sorts: [], equipements: ['p1'], ameliorations: [], quetes: [] } }
       const offres = tirerOffres(possede, boutique, seededRng(7), {
         taille: 10,
         dossiers: ['poisons'],
@@ -3402,5 +3412,136 @@ describe('Notifications — suivi', () => {
     // La MJ doit repérer d'un coup d'œil la réponse qui a coûté quelque chose.
     expect(optionCouteuse(n, 'a')).toBe(true)
     expect(optionCouteuse(n, 'b')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+const QUETE_COLLIER: Quete = {
+  id: 'q-collier',
+  kind: 'quete',
+  nom: 'Le collier de Vhal',
+  icone: 'scroll-unfurled',
+  etat: 'en-cours',
+  recompense: { lumens: 15, entrees: ['lame-simple'] },
+}
+
+/** Le catalogue de test, augmenté d'une quête. */
+function catalogueAvecQuete(patch: Partial<Quete> = {}) {
+  return createCatalog([...SEED, { ...QUETE_COLLIER, ...patch }])
+}
+
+describe('Quêtes — accepter et refuser', () => {
+  const proposition: ContenuNotification = { kind: 'quete', queteId: QUETE_COLLIER.id }
+
+  it('offre deux réponses gratuites', () => {
+    const options = optionsDe(notif(proposition))
+    expect(options.map((o) => o.id)).toEqual(['accepter', 'refuser'])
+    expect(options.every((o) => estGratuit(o.cout))).toBe(true)
+  })
+
+  it('donne la quête à qui l’accepte', () => {
+    const char = nouveauPerso('trickster')
+    const { char: apres } = repondre(char, catalog, notif(proposition), 'accepter')
+    expect(apres.possede.quetes).toEqual([QUETE_COLLIER.id])
+  })
+
+  it('ne donne rien à qui la refuse', () => {
+    const char = nouveauPerso('trickster')
+    const { char: apres } = repondre(char, catalog, notif(proposition), 'refuser')
+    expect(apres.possede.quetes).toEqual([])
+  })
+
+  it('n’inscrit pas deux fois la même quête', () => {
+    const char = nouveauPerso('trickster', { possede: { sorts: [], equipements: [], ameliorations: [], quetes: [QUETE_COLLIER.id] } })
+    const { char: apres } = repondre(char, catalog, notif(proposition), 'accepter')
+    expect(apres.possede.quetes).toEqual([QUETE_COLLIER.id])
+  })
+})
+
+describe('Quêtes — la récompense', () => {
+  it('verse les Lumens et range le butin au bon endroit', () => {
+    const cat = catalogueAvecQuete()
+    const char = nouveauPerso('trickster', { lumens: 10 })
+    const apres = appliquerRecompense(char, QUETE_COLLIER.recompense, cat)
+
+    expect(apres.lumens).toBe(25)
+    expect(apres.possede.equipements).toContain('lame-simple')
+  })
+
+  it('range chaque famille dans son tableau', () => {
+    const char = nouveauPerso('trickster', { possede: { sorts: [], equipements: [], ameliorations: [], quetes: [] } })
+    const apres = appliquerRecompense(
+      char,
+      { entrees: ['polymorph', 'lame-simple', 'une-amelioration'] },
+      createCatalog([
+        ...SEED,
+        { id: 'une-amelioration', kind: 'amelioration', nom: 'Bourse', icone: 'x', prix: 10, effetTexte: '' },
+      ]),
+    )
+
+    expect(apres.possede.sorts).toContain('polymorph')
+    expect(apres.possede.equipements).toContain('lame-simple')
+    expect(apres.possede.ameliorations).toContain('une-amelioration')
+  })
+
+  it('ne double pas une entrée déjà possédée', () => {
+    const cat = catalogueAvecQuete()
+    const char = nouveauPerso('trickster', { possede: { sorts: [], equipements: ['lame-simple'], ameliorations: [], quetes: [] } })
+    const apres = appliquerRecompense(char, { entrees: ['lame-simple'] }, cat)
+
+    expect(apres.possede.equipements).toEqual(['lame-simple'])
+  })
+
+  // Une entrée supprimée du catalogue ne doit pas faire tomber la validation
+  // de toute la table : on verse ce qu'on peut, et le nom orphelin reste lisible.
+  it('ignore une entrée disparue du catalogue', () => {
+    const cat = catalogueAvecQuete()
+    const char = nouveauPerso('trickster')
+    const apres = appliquerRecompense(char, { lumens: 5, entrees: ['fantome'] }, cat)
+
+    expect(apres.lumens).toBe(char.lumens + 5)
+    expect(decrireRecompense({ lumens: 5, entrees: ['fantome'] }, cat)).toBe('5 ʟ · fantome')
+  })
+
+  it('décrit une récompense vide plutôt que de rendre une chaîne creuse', () => {
+    const cat = catalogueAvecQuete()
+    expect(recompenseVide({ entrees: [] })).toBe(true)
+    expect(decrireRecompense({ entrees: [] }, cat)).toBe('Aucune récompense')
+  })
+})
+
+describe('Quêtes — ce que la joueuse voit', () => {
+  it('sépare les quêtes en cours des quêtes passées', () => {
+    const cat = createCatalog([
+      ...SEED,
+      QUETE_COLLIER,
+      { ...QUETE_COLLIER, id: 'q-close', nom: 'La dette', etat: 'validee' },
+    ])
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [], quetes: ['q-collier', 'q-close'] },
+    })
+
+    const miennes = quetesDe(char, cat)
+    expect(miennes.filter((q) => q.etat === 'en-cours').map((q) => q.nom)).toEqual(['Le collier de Vhal'])
+    expect(miennes.filter((q) => q.etat === 'validee').map((q) => q.nom)).toEqual(['La dette'])
+  })
+
+  it('ignore une quête supprimée du catalogue', () => {
+    const cat = catalogueAvecQuete()
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [], quetes: ['q-collier', 'q-disparue'] },
+    })
+
+    expect(quetesDe(char, cat).map((q) => q.id)).toEqual(['q-collier'])
+  })
+
+  it('nomme les porteuses d’une quête, et elles seules', () => {
+    const maya = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [], quetes: ['q-collier'] },
+    })
+    const lila = { ...nouveauPerso('trickster'), id: 'pj-2', nom: 'Lila' }
+
+    expect(porteusesDe(QUETE_COLLIER, [maya, lila]).map((c) => c.nom)).toEqual(['Maya'])
   })
 })

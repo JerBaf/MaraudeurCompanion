@@ -19,8 +19,10 @@ import {
   type Classe,
   type Dossier,
   type EntreeCatalogue,
+  type EntreeCatalogueBase,
   type Equipement,
   type Investissement,
+  type Quete,
   type Rarete,
   type Sort,
   type TypeMagique,
@@ -139,6 +141,25 @@ export function entreeVierge(kind: KindCreable, typesMagiques: TypeMagique[]): E
   }
 }
 
+/**
+ * Une quête vierge.
+ *
+ * Hors du `switch` d'`entreeVierge`, dont le rôle est de garder exhaustifs les
+ * types de l'onglet Création : une quête ne s'y crée pas, elle naît dans son
+ * propre onglet MJ, où on la suit et où on la valide.
+ */
+export function queteVierge(): Quete {
+  return {
+    id: nouvelId(),
+    nom: '',
+    icone: 'scroll-unfurled',
+    creeLe: Date.now(),
+    kind: 'quete',
+    etat: 'en-cours',
+    recompense: { entrees: [] },
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 export function FormulaireCatalogue({
@@ -147,6 +168,8 @@ export function FormulaireCatalogue({
   typesMagiques,
   dossiers,
   sorts,
+  equipements,
+  ameliorations,
   onAnnuler,
   onEnregistrer,
 }: {
@@ -156,6 +179,9 @@ export function FormulaireCatalogue({
   dossiers: Dossier[]
   /** Pour composer les sorts qu'une classe fournit d'office. */
   sorts: Sort[]
+  /** Avec `sorts`, le butin qu'une quête peut verser. */
+  equipements: Equipement[]
+  ameliorations: Amelioration[]
   onAnnuler: () => void
   onEnregistrer: (e: EntreeCatalogue) => Promise<void>
 }) {
@@ -452,6 +478,16 @@ export function FormulaireCatalogue({
         </>
       )}
 
+      {brouillon.kind === 'quete' && (
+        <FragmentQuete
+          quete={brouillon}
+          sorts={sorts}
+          equipements={equipements}
+          ameliorations={ameliorations}
+          maj={maj}
+        />
+      )}
+
       {brouillon.kind === 'investissement' && (
         <>
           <div className="rangee">
@@ -698,5 +734,107 @@ export function FormulaireCatalogue({
         </button>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * La récompense d'une quête : des Lumens, et du butin pris au catalogue.
+ *
+ * Le butin est une simple liste d'identifiants : l'entrée sait déjà si elle est
+ * un sort, un équipement ou une amélioration, si bien qu'un seul sélecteur —
+ * groupé par famille — suffit aux trois.
+ *
+ * ⚠️ L'état de la quête ne se saisit pas ici. En changer verse la récompense à
+ * toutes les porteuses, ce qu'un formulaire de contenu n'a pas à faire : c'est
+ * `validerQuete` qui en a la charge, depuis l'onglet Quêtes.
+ */
+function FragmentQuete({
+  quete,
+  sorts,
+  equipements,
+  ameliorations,
+  maj,
+}: {
+  quete: Quete
+  sorts: Sort[]
+  equipements: Equipement[]
+  ameliorations: Amelioration[]
+  maj: (patch: Record<string, unknown>) => void
+}) {
+  const { recompense } = quete
+  // Typé sur la base commune : seuls l'identifiant et le nom servent ici, et
+  // sans cela TypeScript infère une union de trois tableaux distincts.
+  const familles: { libelle: string; entrees: EntreeCatalogueBase[] }[] = [
+    { libelle: 'Sorts', entrees: sorts },
+    { libelle: 'Équipements', entrees: equipements },
+    { libelle: 'Améliorations', entrees: ameliorations },
+  ]
+  const nomDe = (id: string) =>
+    familles.flatMap((f) => f.entrees).find((e) => e.id === id)?.nom ?? id
+
+  const majRecompense = (patch: Partial<typeof recompense>) =>
+    maj({ recompense: { ...recompense, ...patch } })
+
+  return (
+    <>
+      <label className="champ">
+        <span className="tres-discret">Récompense — Lumens</span>
+        <input
+          type="number"
+          min={0}
+          value={recompense.lumens ?? ''}
+          onChange={(e) =>
+            majRecompense({
+              // Un champ vide vaut « pas de Lumens », pas zéro.
+              lumens: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0),
+            })
+          }
+        />
+      </label>
+
+      <div className="champ">
+        <span className="tres-discret">Récompense — butin</span>
+        {recompense.entrees.length === 0 && <p className="vide">Aucun objet, sort ni amélioration.</p>}
+        {recompense.entrees.map((id, index) => (
+          <div key={`${id}-${index}`} className="rangee rangee--entre">
+            <span>{nomDe(id)}</span>
+            <button
+              type="button"
+              className="btn btn--fantome pas"
+              aria-label={`Retirer ${nomDe(id)} de la récompense`}
+              onClick={() =>
+                majRecompense({ entrees: recompense.entrees.filter((_, i) => i !== index) })
+              }
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {/*
+          Contrôlé sur la valeur vide : le sélecteur retombe seul sur son
+          invite après chaque ajout, et sert donc autant de fois qu'on veut.
+        */}
+        <select
+          aria-label="Ajouter au butin"
+          value=""
+          onChange={(e) =>
+            e.target.value && majRecompense({ entrees: [...recompense.entrees, e.target.value] })
+          }
+        >
+          <option value="">Ajouter au butin…</option>
+          {familles.map((f) => (
+            <optgroup key={f.libelle} label={f.libelle}>
+              {f.entrees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nom}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+    </>
   )
 }

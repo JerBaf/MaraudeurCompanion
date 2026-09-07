@@ -57,6 +57,7 @@ export type ContenuNotification =
   | { kind: 'sixth-sens' }
   | { kind: 'choix'; options: OptionNotification[] }
   | { kind: 'equipement'; equipementId: string }
+  | { kind: 'quete'; queteId: string }
 
 export type KindNotification = ContenuNotification['kind']
 
@@ -127,6 +128,26 @@ const TYPES: { [K in KindNotification]: TypeNotification<Extract<ContenuNotifica
         equipements: [...char.possede.equipements, contenu.equipementId],
       },
     }),
+  },
+
+  quete: {
+    libelle: 'Quête',
+    // Les deux options sont gratuites : accepter une quête n'a pas de prix, et
+    // refuser doit rester sans conséquence. Ce qui les distingue est l'effet.
+    options: () => [
+      { id: 'accepter', libelle: 'Accepter', cout: COUT_GRATUIT },
+      { id: 'refuser', libelle: 'Refuser', cout: COUT_GRATUIT },
+    ],
+    appliquer: (char, contenu, optionId) => {
+      if (optionId !== 'accepter') return char
+      // La MJ peut proposer deux fois la même quête ; la possession est un
+      // ensemble, pas une pile.
+      if (char.possede.quetes.includes(contenu.queteId)) return char
+      return {
+        ...char,
+        possede: { ...char.possede, quetes: [...char.possede.quetes, contenu.queteId] },
+      }
+    },
   },
 }
 
@@ -277,6 +298,8 @@ export function contenuVierge(kind: KindNotification): ContenuNotification {
       }
     case 'equipement':
       return { kind, equipementId: '' }
+    case 'quete':
+      return { kind, queteId: '' }
   }
 }
 
@@ -289,6 +312,8 @@ export function contenuComplet(contenu: ContenuNotification): boolean {
       return contenu.options.length >= 2 && contenu.options.every((o) => o.libelle.trim() !== '')
     case 'equipement':
       return contenu.equipementId !== ''
+    case 'quete':
+      return contenu.queteId !== ''
   }
 }
 

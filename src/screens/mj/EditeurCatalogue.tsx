@@ -261,6 +261,8 @@ function Formulaire({
       typesMagiques={catalog.typesMagiques()}
       dossiers={catalog.dossiers()}
       sorts={catalog.sorts()}
+      equipements={catalog.equipements()}
+      ameliorations={catalog.ameliorations()}
       onAnnuler={onFerme}
       onEnregistrer={async (e) => {
         await enregistrerEntreeCatalogue(e)
@@ -304,5 +306,9 @@ function resume(e: EntreeCatalogue, catalog: Catalog): string {
         .join(' · ')
     case 'type-magique':
       return [e.deParDefaut, e.cristal ? 'à cristal' : null].filter(Boolean).join(' · ') || 'Type magique'
+    // Aucun onglet famille ne liste les quêtes — elles vivent dans leur propre
+    // onglet MJ. Le cas est là pour que le `switch` reste exhaustif.
+    case 'quete':
+      return e.etat === 'validee' ? 'Quête validée' : 'Quête en cours'
   }
 }

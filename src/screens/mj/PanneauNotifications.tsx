@@ -23,6 +23,7 @@ import {
   type Notification,
   type OptionNotification,
 } from '../../domain/notifications.ts'
+import { decrireRecompense } from '../../domain/quetes.ts'
 import type { Character, Equipement } from '../../domain/types.ts'
 
 /**
@@ -198,7 +199,67 @@ function Contenu({
           onChange={(equipementId) => onChange({ ...contenu, equipementId })}
         />
       )
+
+    case 'quete':
+      return (
+        <ChoisirQuete
+          catalog={catalog}
+          valeur={contenu.queteId}
+          onChange={(queteId) => onChange({ ...contenu, queteId })}
+        />
+      )
   }
+}
+
+/**
+ * La quête proposée.
+ *
+ * Pas de filtres ici, contrairement à l'équipement : une quête ne se range pas
+ * dans un dossier, et la liste ne contient que celles **en cours** — proposer
+ * une quête déjà validée donnerait une quête sans récompense.
+ */
+function ChoisirQuete({
+  catalog,
+  valeur,
+  onChange,
+}: {
+  catalog: Catalog
+  valeur: string
+  onChange: (id: string) => void
+}) {
+  const candidates = catalog.quetes().filter((q) => q.etat === 'en-cours')
+  const choisie = catalog.quete(valeur)
+
+  return (
+    <div className="pile pile--serree">
+      <label className="champ">
+        <span className="tres-discret">La quête proposée</span>
+        <select
+          aria-label="La quête proposée"
+          value={valeur}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">— choisir —</option>
+          {candidates.map((q) => (
+            <option key={q.id} value={q.id}>
+              {q.nom}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {candidates.length === 0 && (
+        <p className="vide">Aucune quête en cours. Composez-en une dans l'onglet Quêtes.</p>
+      )}
+
+      {choisie && (
+        <p className="alerte alerte--info" style={{ margin: 0 }}>
+          La joueuse verra le nom, la description et la récompense avant de répondre —{' '}
+          <strong>{decrireRecompense(choisie.recompense, catalog)}</strong>.
+        </p>
+      )}
+    </div>
+  )
 }
 
 /** Les options d'un Choix secret : un libellé, et ce qu'il en coûte de le prendre. */

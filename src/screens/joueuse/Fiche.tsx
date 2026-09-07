@@ -8,6 +8,7 @@ import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
 import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
 import { OngletDuel } from './OngletDuel.tsx'
+import { OngletQuetes } from './OngletQuetes.tsx'
 import { OverlayNotifications } from './OverlayNotifications.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { Vignette } from '../../components/Vignette.tsx'
@@ -93,13 +94,14 @@ interface Props {
   onQuitter: () => void
 }
 
-type Onglet = 'fiche' | 'combat' | 'duel' | 'camp' | 'sorts' | 'sac'
+type Onglet = 'fiche' | 'combat' | 'duel' | 'camp' | 'quetes' | 'sorts' | 'sac'
 
 const LIBELLE_ONGLET: Record<Onglet, string> = {
   fiche: 'Fiche',
   combat: 'Combat',
   duel: 'Combat rapide',
   camp: 'Feu de camp',
+  quetes: 'Quêtes',
   sorts: 'Sorts',
   // L'onglet montre désormais tout l'équipement, porté compris : « Sac à dos »
   // ne décrivait plus que la moitié de son contenu.
@@ -130,6 +132,7 @@ export function Fiche({
     ...(enCombat ? (['combat'] as const) : []),
     ...(enDuel ? (['duel'] as const) : []),
     ...(auCamp ? (['camp'] as const) : []),
+    'quetes',
     'sorts',
     'sac',
   ]
@@ -197,6 +200,7 @@ export function Fiche({
         {ongletActif === 'camp' && etat && (
           <OngletCampfire char={char} catalog={catalog} etat={etat} personnages={personnages} />
         )}
+        {ongletActif === 'quetes' && <OngletQuetes char={char} catalog={catalog} />}
         {ongletActif === 'sorts' && <OngletSorts char={char} catalog={catalog} maj={maj} />}
         {ongletActif === 'sac' && <OngletSac char={char} catalog={catalog} />}
       </div>

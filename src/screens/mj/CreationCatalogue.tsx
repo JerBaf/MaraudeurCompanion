@@ -78,6 +78,8 @@ export function CreationCatalogue({ catalog }: { catalog: Catalog }) {
         typesMagiques={catalog.typesMagiques()}
         dossiers={catalog.dossiers()}
         sorts={catalog.sorts()}
+        equipements={catalog.equipements()}
+        ameliorations={catalog.ameliorations()}
         onAnnuler={recommencer}
         // Le formulaire ne se vide qu'une fois l'écriture acceptée : sinon un
         // refus de Firestore — que le bandeau d'erreur signale — laisserait

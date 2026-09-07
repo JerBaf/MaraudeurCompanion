@@ -1346,6 +1346,92 @@ describe('Notifications', () => {
     expect(within(suivi).queryByText('En attente…')).toBeNull()
   })
 
+  /**
+   * Le parcours complet d'une quête : la MJ la compose dans son onglet, la
+   * propose par notification, la joueuse l'accepte et la retrouve dans son
+   * onglet, puis la validation verse la récompense et la fait passer.
+   */
+  it('propose une quête, la verse à la validation, et la range dans Passées', async () => {
+    await tableAvec('Ilma')
+
+    // --- La MJ compose la quête dans son propre onglet ---
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quêtes' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Nouvelle quête' }))
+
+    fireEvent.change(await screen.findByLabelText('Nom'), {
+      target: { value: 'Le collier de Vhal' },
+    })
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Retrouver le collier volé dans les canaux.' },
+    })
+    fireEvent.change(screen.getByLabelText('Récompense — Lumens'), { target: { value: '15' } })
+    fireEvent.change(screen.getByLabelText('Ajouter au butin'), {
+      target: { value: 'lame-simple' },
+    })
+    fireEvent.click(screen.getByText('Enregistrer'))
+
+    // Elle n'a encore été proposée à personne, et l'écran le dit.
+    expect(await screen.findByText(/Proposée à personne/)).toBeTruthy()
+    cleanup()
+
+    // --- Elle la propose par notification ---
+    await envoyerMJ('Quête', 'Ilma', 'Une vieille femme vous arrête sur le pont.')
+    const selecteur = await screen.findByLabelText('La quête proposée')
+    const option = within(selecteur).getByRole('option', { name: 'Le collier de Vhal' })
+    fireEvent.change(selecteur, { target: { value: (option as HTMLOptionElement).value } })
+    fireEvent.click(screen.getByRole('button', { name: 'Envoyer' }))
+    await waitFor(() => expect(screen.getByText('En attente…')).toBeTruthy())
+    cleanup()
+
+    // --- La joueuse voit tout avant de s'engager, puis accepte ---
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const carte = await screen.findByRole('dialog')
+    expect(within(carte).getByText('Le collier de Vhal')).toBeTruthy()
+    expect(within(carte).getByText(/canaux/)).toBeTruthy()
+    expect(within(carte).getByText(/15 ʟ · Lame simple/)).toBeTruthy()
+
+    fireEvent.click(within(carte).getByRole('button', { name: 'Accepter' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    // Elle la retrouve dans son onglet, sous « En Cours ».
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quêtes' }))
+    const enCours = (await screen.findByText('En Cours')).closest('section') as HTMLElement
+    expect(within(enCours).getByText('Le collier de Vhal')).toBeTruthy()
+    // La ligne n'annonce que la récompense ; la description attend le toucher.
+    expect(within(enCours).queryByText(/canaux/)).toBeNull()
+    fireEvent.click(within(enCours).getByText('Le collier de Vhal'))
+    expect(await within(enCours).findByText(/canaux/)).toBeTruthy()
+    cleanup()
+
+    // --- La MJ valide : la récompense part, la quête se clôt ---
+    const confirmer = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quêtes' }))
+    expect(await screen.findByText(/Portée par Ilma/)).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Valider' }))
+
+    await waitFor(() => expect(ficheDe('Ilma')).toContain('lame-simple'))
+    expect(ficheDe('Ilma')).toContain('"lumens":15')
+    // Plus rien à valider : le geste est définitif.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Valider' })).toBeNull())
+    confirmer.mockRestore()
+    cleanup()
+
+    // --- Et côté joueuse, elle est passée ---
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quêtes' }))
+    const passees = (await screen.findByText('Passées')).closest('section') as HTMLElement
+    expect(within(passees).getByText('Le collier de Vhal')).toBeTruthy()
+  })
+
   it('remet un équipement dans le sac, sans l’équiper', async () => {
     await tableAvec('Ilma')
     await envoyerMJ('Nouvel équipement', 'Ilma', 'La forgeronne vous tend une lame.')

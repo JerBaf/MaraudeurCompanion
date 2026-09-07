@@ -104,7 +104,7 @@ export function creerPersonnage(
     equipe: { arme: null, armure: null, bibelot: null },
     // Le Grimoire n'accepte que 3 sorts : les suivants attendent dans le sac à dos.
     grimoire: sorts.slice(0, TAILLE_GRIMOIRE),
-    possede: { sorts, equipements: [], ameliorations: [] },
+    possede: { sorts, equipements: [], ameliorations: [], quetes: [] },
     investissements: [],
     jetonsCamp: jetonsCampVierges(),
     chargesObjets: {},
@@ -178,6 +178,7 @@ export function normaliserPersonnage(brut: Character): Character {
       sorts: brut.possede?.sorts ?? [],
       equipements: brut.possede?.equipements ?? [],
       ameliorations: brut.possede?.ameliorations ?? [],
+      quetes: brut.possede?.quetes ?? [],
     },
     investissements: brut.investissements ?? [],
     jetonsCamp: { ...jetonsCampVierges(), ...(brut.jetonsCamp ?? {}) },

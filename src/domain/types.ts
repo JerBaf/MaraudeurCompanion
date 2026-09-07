@@ -557,6 +557,41 @@ export interface TypeMagique extends EntreeCatalogueBase, PorteurEffets {
 }
 
 /**
+ * Une quête.
+ *
+ * Entrée de catalogue et non collection à part : la MJ les prépare à l'avance
+ * dans l'onglet Création, avec les mêmes nom, icône, description et rareté que
+ * le reste du contenu. Les joueuses lisent déjà le catalogue en temps réel, et
+ * les règles Firestore y disent exactement ce qu'il faut — lecture pour la
+ * table, écriture pour la MJ seule, qui est la seule à changer l'état.
+ *
+ * ⚠️ L'état est porté par la **quête**, pas par chaque porteuse : la valider,
+ * c'est la clore pour toutes celles qui l'ont acceptée, et leur verser la
+ * récompense d'un seul geste. Une quête validée est donc consommée ; pour la
+ * rejouer, on en recrée une.
+ */
+export interface Quete extends EntreeCatalogueBase {
+  kind: 'quete'
+  etat: EtatQuete
+  recompense: Recompense
+}
+
+export type EtatQuete = 'en-cours' | 'validee'
+
+/**
+ * Ce que la validation d'une quête verse à chaque porteuse.
+ *
+ * `entrees` porte des identifiants de catalogue : l'entrée sait déjà si elle est
+ * un sort, un équipement ou une amélioration, si bien qu'un seul champ couvre
+ * les trois familles. Les Lumens, eux, ne sont pas une entrée de catalogue —
+ * d'où le champ à part.
+ */
+export interface Recompense {
+  lumens?: number
+  entrees: string[]
+}
+
+/**
  * Un dossier de rangement.
  *
  * ⚠️ **Polyvalent** : un même dossier range indifféremment des sorts, des
@@ -625,6 +660,7 @@ export type EntreeCatalogue =
   | Amelioration
   | TypeMagique
   | Dossier
+  | Quete
 
 // ---------------------------------------------------------------------------
 // Personnage
@@ -723,6 +759,8 @@ export interface Character {
     sorts: string[]
     equipements: string[]
     ameliorations: string[]
+    /** Quêtes acceptées, en cours comme passées. L'état se lit sur la quête. */
+    quetes: string[]
   }
 
   /**

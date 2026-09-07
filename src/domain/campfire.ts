@@ -417,6 +417,8 @@ export function resumeEntree(entree: EntreeCatalogue, char: Character, catalog: 
       return 'Type magique'
     case 'dossier':
       return 'Dossier'
+    case 'quete':
+      return `Quête · ${entree.etat === 'validee' ? 'validée' : 'en cours'}`
   }
 }
 
@@ -492,6 +494,29 @@ export function tirerOffres(
 }
 
 /**
+ * Range une entrée acquise au bon endroit de `possede`.
+ *
+ * Extrait d'`acheter` parce qu'on acquiert aussi autrement qu'en payant — la
+ * récompense d'une quête, par exemple. Le geste est le même ; seul le débit
+ * change, et il reste chez l'appelant.
+ *
+ * **Idempotent** : une entrée déjà possédée n'est pas ajoutée deux fois. La
+ * boutique filtrait déjà en amont (`dejaPossede`), mais une récompense peut
+ * parfaitement nommer un sort que la joueuse connaît.
+ */
+export function ajouterAuPossede(char: Character, entree: EntreeCatalogue): Character {
+  if (dejaPossede(char, entree)) return char
+
+  const possede = { ...char.possede }
+  if (entree.kind === 'sort') possede.sorts = [...possede.sorts, entree.id]
+  else if (entree.kind === 'equipement') possede.equipements = [...possede.equipements, entree.id]
+  else if (entree.kind === 'amelioration')
+    possede.ameliorations = [...possede.ameliorations, entree.id]
+
+  return { ...char, possede }
+}
+
+/**
  * Achat : débite les Lumens et range l'acquisition au bon endroit.
  * L'appelant a déjà vérifié `peutAcheter` — ici on refuse simplement de
  * produire un solde négatif.
@@ -501,13 +526,8 @@ export function acheter(char: Character, entree: EntreeCatalogue): Character {
   if (prix === null) throw new Error(`« ${entree.nom} » n'est pas en vente.`)
   if (prix > char.lumens) throw new Error('La maison ne fait pas crédit.')
 
-  const possede = { ...char.possede }
-  if (entree.kind === 'sort') possede.sorts = [...possede.sorts, entree.id]
-  else if (entree.kind === 'equipement') possede.equipements = [...possede.equipements, entree.id]
-  else if (entree.kind === 'amelioration')
-    possede.ameliorations = [...possede.ameliorations, entree.id]
-
-  return { ...char, lumens: char.lumens - prix, possede }
+  const acquis = ajouterAuPossede(char, entree)
+  return { ...acquis, lumens: acquis.lumens - prix }
 }
 
 // ---------------------------------------------------------------------------
