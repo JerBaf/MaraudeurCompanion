@@ -18,6 +18,28 @@ export interface Rng {
   roll(count: number, faces: number): number[]
 }
 
+/**
+ * Un lot de dés identiques : « 1d20 », « 2d4 ».
+ *
+ * Vit ici plutôt qu'avec les jets parce que c'est une notion de dé, pas de
+ * règle : les écrans s'en servent pour savoir quoi demander à la joueuse quand
+ * c'est elle qui lance.
+ */
+export interface Des {
+  nombre: number
+  faces: number
+}
+
+/** « 1d20 + 1d4 ». Vide quand il n'y a rien à lancer. */
+export function decrireDes(des: readonly Des[]): string {
+  return des.map((d) => `${d.nombre}d${d.faces}`).join(' + ')
+}
+
+/** Le nombre de valeurs qu'il faut saisir pour couvrir ces dés. */
+export function nombreDeDes(des: readonly Des[]): number {
+  return des.reduce((total, d) => total + d.nombre, 0)
+}
+
 function makeRng(next: () => number): Rng {
   const int = (min: number, max: number): number => {
     if (max < min) throw new Error(`Intervalle invalide : [${min}, ${max}]`)
@@ -48,6 +70,62 @@ export const cryptoRng: Rng = makeRng(() => {
   }
   return Math.random()
 })
+
+/**
+ * L'aléa que la joueuse apporte elle-même.
+ *
+ * Les valeurs sont rendues dans l'ordre où le domaine les demande : c'est ce qui
+ * permet à `lancerSort`, `utiliserActif` ou `tirerEffetAleatoire` d'accepter des
+ * dés physiques **sans qu'aucune règle ne change**. Les écrans annoncent ce
+ * qu'il faut saisir avec `desDuSort` et consorts, qui vivent à côté du code qui
+ * consomme les valeurs — c'est ce qui garantit que les deux restent d'accord.
+ *
+ * Trois refus délibérés :
+ *
+ * - `pick` et `chance` lèvent. Le Détachement, les risques d'investissement et
+ *   le tirage des offres ne sont pas des dés de joueuse ; les lui confier
+ *   reviendrait à lui laisser choisir ce qu'elle perd.
+ * - une valeur manquante lève. Mieux vaut un écran qui refuse qu'un effet tiré
+ *   au hasard à l'insu de la table.
+ * - une valeur hors des faces annoncées lève. Un 7 sur un d6 est une faute de
+ *   frappe, et elle se verrait trois effets plus loin.
+ */
+export function rngManuel(valeurs: readonly number[]): Rng {
+  let curseur = 0
+
+  const int = (min: number, max: number): number => {
+    // Un dé à une seule face ne se saisit pas : `int(1, 1)` ne peut rendre que
+    // 1, et le demander serait une question sans objet. `utiliserActif` appelle
+    // exactement ainsi pour une table déterministe.
+    if (max <= min) return min
+
+    const valeur = valeurs[curseur]
+    if (valeur === undefined) {
+      throw new Error(
+        `Il manque un résultat de dé : ${valeurs.length} saisi(s), un de plus est demandé.`,
+      )
+    }
+    if (valeur < min || valeur > max) {
+      throw new Error(`Résultat hors de [${min}, ${max}] : ${valeur}`)
+    }
+
+    curseur += 1
+    return valeur
+  }
+
+  return {
+    int,
+    pick<T>(): T {
+      throw new Error("Ce tirage n'est pas un dé de joueuse : il ne se saisit pas à la main.")
+    },
+    chance(): boolean {
+      throw new Error("Ce tirage n'est pas un dé de joueuse : il ne se saisit pas à la main.")
+    },
+    roll(count: number, faces: number): number[] {
+      return Array.from({ length: count }, () => int(1, faces))
+    },
+  }
+}
 
 /**
  * Générateur déterministe (mulberry32) pour les tests et les aperçus.

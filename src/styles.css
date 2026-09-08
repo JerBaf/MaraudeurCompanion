@@ -344,6 +344,45 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
+   Jets de dés
+   -------------------------------------------------------------------------- */
+
+/* Un résultat de dé tient en deux chiffres. Lui laisser la largeur d'un champ
+   ordinaire pousserait le bouton « Lancer » hors de l'écran dès qu'un jet
+   demande deux dés. Les flèches natives sont retirées pour la même raison. */
+.de-saisi {
+  width: 4.5ch;
+  min-width: 4.5ch;
+  flex: 0 0 auto;
+  padding-left: 6px;
+  padding-right: 6px;
+  text-align: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.de-saisi::-webkit-outer-spin-button,
+.de-saisi::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Le récit d'un jet : les termes, puis le total, en chiffres qu'on lit de loin. */
+.jet__total {
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.jet__termes {
+  font-size: 0.78rem;
+  color: var(--parchemin-faible);
+  line-height: 1.35;
+}
+
+/* --------------------------------------------------------------------------
    Compteurs à pastilles (Fatigue, Brûlures, Foi, Marques, 6th Sens)
    -------------------------------------------------------------------------- */
 
@@ -488,6 +527,9 @@ textarea {
    Compétences
    -------------------------------------------------------------------------- */
 
+/* Sur la fiche c'est un <button> — toucher la ligne ouvre son Test de
+   Compétence ; sur l'écran MJ, un <div> en lecture seule. Les deux se peignent
+   pareil, d'où la largeur pleine et l'alignement à gauche posés ici. */
 .competence {
   display: flex;
   align-items: center;
@@ -496,6 +538,8 @@ textarea {
   border-radius: var(--rayon);
   background: var(--encre-3);
   border: 1px solid transparent;
+  width: 100%;
+  text-align: left;
 }
 
 .competence--avantage {

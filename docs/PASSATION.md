@@ -99,6 +99,7 @@ coupés en deux pour éviter un cycle — ce n'est pas de la coquetterie, TypeSc
 un cycle sans broncher et la casse survient à l'exécution.
 
 ```
+random.ts       les dés : Rng, Des. Ne dépend de RIEN — c'est le plancher
 elements.ts     le vocabulaire : Élément Variable, Cible, registre. Ne dépend QUE de types.ts
 brulures.ts     la Magie du Sang. Extrait de magie.ts pour que couts.ts puisse l'utiliser
 modifiers.ts    l'agrégation, et le compilateur Passif → Modifier
@@ -108,7 +109,12 @@ notifications.ts ce que la MJ pousse vers une joueuse — a besoin des Coûts
 passifs.ts      ce que SONT les passifs, et lesquels sont en vigueur
 reactions.ts    ce qu'ils FONT — a besoin des plafonds, donc vient après
 lancement.ts    lancer un sort : payer, tirer, appliquer
+jets.ts         le Test de Compétence et le vocabulaire d'un jet — rien ne l'importe
 ```
+
+`Des` (« 1d20 », « 2d4 ») vit dans `random.ts` et non dans `jets.ts` : c'est une notion de
+dé et non de règle, et la mettre au plancher retire toute question d'ordre — `lancement.ts`
+et `objets.ts` l'utilisent pour annoncer ce qu'ils vont consommer sans importer `jets.ts`.
 
 `passifs.ts` / `reactions.ts` sont séparés parce que `modifiers.ts` appelle
 `passifsActifs` : y mettre la résolution refermerait
@@ -130,7 +136,7 @@ l'interface. Le choix se fait au chargement dans `store/index.ts`.
 
 ---
 
-## 3. Les deux abstractions centrales
+## 3. Les abstractions centrales
 
 ### Le moteur de modificateurs — `domain/modifiers.ts`, `domain/effets.ts`
 
@@ -208,6 +214,49 @@ calculent ces bornes, `expireModifiers` les applique.
 
 ⚠️ **L'expiration est évaluée à chaque changement de sous-groupe**, pas seulement au
 changement de tour (`avancerSousGroupe` dans `repo.ts`). Simplifier cela casse la règle.
+
+### Les jets — `domain/random.ts`, `domain/jets.ts`
+
+Deux mécanismes, et la fonctionnalité « lancer n'importe quel dé » tient dedans.
+
+**1. L'aléa était déjà injecté, il suffisait de le substituer.** `Rng` est passé en
+paramètre à toutes les résolutions — `lancerSort(…, rng)`, `utiliserActif(…, rng)`,
+`tirerEffetAleatoire(rng)`. `rngManuel(valeurs)` rend les nombres que la joueuse a saisis,
+dans l'ordre où le domaine les demande : **la saisie manuelle marche partout sans qu'une
+seule règle change**. `LanceurDes` rend donc un `Rng`, jamais un nombre — c'est ce qui lui
+permet d'alimenter indifféremment un sort, un objet ou un Test de Compétence sans rien
+connaître de leurs règles.
+
+Trois refus délibérés dans `rngManuel`, et ce sont eux qui portent la sécurité de la
+chose :
+
+- **`pick` et `chance` lèvent.** Le Détachement, les risques d'investissement et le tirage
+  des offres ne sont pas des dés de joueuse : les lui confier reviendrait à lui laisser
+  choisir ce qu'elle perd. Le refus est structurel, pas une convention d'écran.
+- **Une valeur manquante lève** — mieux vaut un écran qui refuse qu'un effet tiré à l'insu
+  de la table.
+- **Une valeur hors des faces lève** — un 7 sur un d6 est une faute de frappe, et elle se
+  verrait trois effets plus loin.
+
+⚠️ **Le corollaire à ne pas casser** : le nombre de dés annoncés doit être exactement celui
+que le domaine consomme. D'où `desDuSort` (dans `lancement.ts`, collé à `lancerSort`),
+`desDeActif` (dans `objets.ts`, collé à `utiliserActif`) et `desJetCompetence` — chacune
+**vit à côté du code qui consomme les valeurs**, jamais dans l'écran. Un dé à une seule face
+n'est jamais demandé : `rngManuel.int(1, 1)` rend 1 sans rien consommer, parce que
+`utiliserActif` appelle exactement ainsi sur une table déterministe. Des tests alimentent
+les trois résolutions avec exactement ce que les fonctions d'annonce promettent ; si l'une
+change sans l'autre, ils lèvent.
+
+**2. Un `Jet` est une addition nommée**, pas une machine à résoudre : une liste de
+`Terme { libelle, valeur }`, un seuil facultatif, et l'état du Destin
+(`impossible | disponible | force`). Ce qui rend le total lisible à table —
+« d20 11 · maîtrise +3 · Brûlure +1 = 15 » — est exactement ce qui le rend journalisable :
+`decrireJet` sert l'écran **et** le journal, il n'y a pas un deuxième format à tenir.
+`issueJet` en déduit `reussite | echec | echec-critique | indetermine` ; sans seuil elle
+rend `indetermine` et l'app se garde de juger.
+
+Aucune valeur n'est stockée : la maîtrise et ses modificateurs repassent par
+`computeCompetence` au moment du jet, comme partout ailleurs.
 
 ---
 
@@ -331,7 +380,17 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |
-| Dés | physiques à table | l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
+| Dés | **au choix de la joueuse** — l'app lance, ou elle saisit son lancer physique | ⚠️ **révise la décision d'origine** (« physiques à table »). Un réglage par appareil bascule tous les jets ; chaque jet garde une exception ponctuelle. Voir l'encadré § 3 |
+| Où vivent les jets | **à l'endroit de la chose qu'on lance** | la MJ ne voulait pas d'un écran qui centralise les jets : une joueuse qui veut lancer son Physique touche son Physique, elle ne le re-choisit pas dans une liste |
+| Test de Compétence | 1d20 + maîtrise + modificateurs, ±1d4 selon le net | n'existait nulle part avant : le ±d4 n'était qu'une puce d'affichage |
+| Seuil (DC) | **facultatif** | la MJ l'annonce à voix haute, ou pas. Sans seuil, l'app affiche le total et ne juge rien — `issueJet` rend `indetermine` |
+| Marque sur échec critique | **proposée d'un bouton**, jamais prise d'office | « la MJ *tentera* d'ajouter une Marque » ; cohérent avec « les Marques, rien d'automatique » |
+| Forcer le Destin | un second d20, **une seule fois** | `forcerDestin` lève au deuxième appel : l'écran le cache déjà, mais la règle ne peut pas dépendre d'un écran |
+| Brûlures sur un jet | **+1 par brûlure**, sur tout jet qui a un total | la règle existait au PDF et dans un commentaire de `brulures.ts`, sans aucune UI. Passe par `consommerBrulures`, donc la Combustion à la neuvième part toute seule |
+| Jet d'Arcane | `resoudreArcane` **branché** | il était écrit et testé mais appelé par aucun écran. PE annoncés, cristal épuisé automatique sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en **correction** |
+| Osselets saisis à la main | la joueuse annonce **le nombre de points rouges** | elle les a comptés en regardant ses osselets ; lui redemander les quatre faces serait une double saisie pour le même résultat. Seul cas volontairement hors de `LanceurDes` |
+| Remontée des jets | **journal 🔒 seulement** | aucun document nouveau, aucune règle Firestore à toucher. La MJ les relit dans son onglet Journal |
+| Réglage de dés | `localStorage`, **jamais sur la fiche** | ce n'est pas un fait de fiction ; deux joueuses partageant un personnage n'auraient pas à partager leurs dés, et `Character` n'a pas un champ de plus à normaliser |
 | Combat | la joueuse saisit jet et cible, l'app applique | la MJ peut corriger |
 | Offres de boutique | tirage assisté que la MJ ajuste, **restreignable à des dossiers** | 3 offres × 5 joueuses = trop de choix manuels. Cocher « Poisons » et « Reliques » prépare une boutique thématique d'un geste ; rien de coché = tout le catalogue. Seul le **tirage** en tient compte — les listes de remplacement restent ouvertes, pour glisser une pièce hors thème |
 | Rythme du camp | la MJ pilote la phase | garde la table groupée |

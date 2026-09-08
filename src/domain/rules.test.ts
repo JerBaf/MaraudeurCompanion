@@ -109,11 +109,24 @@ import {
   modificateurDiversion,
   modificateurEsquive,
   modificateurFardeau,
+  modificateurMarque,
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
 import { resoudrePassifs } from './reactions.ts'
-import { dissiperEffet, estPoseParUnSort, lancerSort } from './lancement.ts'
+import { desDuSort, dissiperEffet, estPoseParUnSort, lancerSort } from './lancement.ts'
+import {
+  ajouterTerme,
+  DE_COMPETENCE,
+  decrireJet,
+  desJetCompetence,
+  forcerDestin,
+  issueJet,
+  jetCompetence,
+  termeBrulure,
+  totalJet,
+  type Jet,
+} from './jets.ts'
 import { normaliserCible, type Cible, type CibleHeritee, type CleElement } from './elements.ts'
 import {
   DOSSIER_TOUS,
@@ -160,6 +173,7 @@ import {
 import {
   actifsDe,
   chargesRestantes,
+  desDeActif,
   detailObjet,
   estEpuise,
   peutUtiliser,
@@ -187,7 +201,7 @@ import {
   quetesDe,
   recompenseVide,
 } from './quetes.ts'
-import { seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
+import { nombreDeDes, rngManuel, seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
 import { ACTIONS_DUEL } from './types.ts'
 import type {
   ActionDuel,
@@ -3009,6 +3023,244 @@ describe('tirages', () => {
 
   it('la même graine produit la même suite', () => {
     expect(seededRng(9).roll(5, 20)).toEqual(seededRng(9).roll(5, 20))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Jets — l'application lance, ou la joueuse saisit ses propres dés
+// ---------------------------------------------------------------------------
+
+describe('dés saisis à la main', () => {
+  it('rend les valeurs dans l’ordre où le domaine les demande', () => {
+    const rng = rngManuel([3, 1, 4])
+    expect(rng.int(1, 6)).toBe(3)
+    expect(rng.int(1, 4)).toBe(1)
+    expect(rng.int(1, 4)).toBe(4)
+  })
+
+  it('lève quand il manque un résultat', () => {
+    const rng = rngManuel([2])
+    expect(rng.int(1, 6)).toBe(2)
+    expect(() => rng.int(1, 6)).toThrow(/manque/)
+  })
+
+  it('lève sur un résultat hors des faces annoncées', () => {
+    expect(() => rngManuel([7]).int(1, 6)).toThrow(/hors de/)
+    expect(() => rngManuel([0]).int(1, 6)).toThrow(/hors de/)
+  })
+
+  /**
+   * `utiliserActif` appelle `int(1, 1)` sur une table déterministe. Consommer
+   * une valeur là décalerait tous les dés suivants d'un cran.
+   */
+  it('ne consomme rien pour un dé à une seule face', () => {
+    const rng = rngManuel([5])
+    expect(rng.int(1, 1)).toBe(1)
+    expect(rng.int(1, 6)).toBe(5)
+  })
+
+  /*
+   * Le Détachement, les risques d'investissement et le tirage des offres ne
+   * sont pas des dés de joueuse : les lui confier reviendrait à lui laisser
+   * choisir ce qu'elle perd.
+   */
+  it('refuse les tirages qui ne sont pas des dés de joueuse', () => {
+    expect(() => rngManuel([1]).pick([1, 2, 3])).toThrow()
+    expect(() => rngManuel([1]).chance(0.5)).toThrow()
+  })
+})
+
+/**
+ * Le vrai risque de la saisie manuelle : que l'écran demande un nombre de dés
+ * différent de celui que le domaine consomme. Ces tests alimentent les
+ * résolutions avec **exactement** ce que les fonctions d'annonce promettent —
+ * une valeur de trop resterait inutilisée, une de moins ferait lever.
+ */
+describe('les dés annoncés sont ceux qui sont consommés', () => {
+  it('un sort à dé seul', () => {
+    const polymorph = catalog.sort('polymorph') as Sort
+    const char = nouveauPerso('trickster', { grimoire: [polymorph.id] })
+
+    expect(desDuSort(polymorph)).toEqual([{ nombre: 1, faces: 6 }])
+    const r = lancerSort(char, catalog, { sortId: polymorph.id }, rngManuel([5]))
+    expect(r.de).toBe(5)
+  })
+
+  it('un sort sans dé ne demande rien', () => {
+    const crackers = catalog.sort('word-crackers') as Sort
+    const char = nouveauPerso('trickster', { grimoire: [crackers.id], foi: 5 })
+
+    expect(desDuSort(crackers)).toEqual([])
+    expect(lancerSort(char, catalog, { sortId: crackers.id }, rngManuel([])).de).toBeNull()
+  })
+
+  it('un sort à dé et à tables : le dé d’abord, puis chaque table', () => {
+    // Trois tables, dont une déterministe — celle-là ne se saisit pas.
+    const rituel: Sort = {
+      kind: 'sort',
+      id: 'rituel-test',
+      nom: 'Rituel',
+      icone: 'orbital',
+      magieId: 'arcane',
+      cout: { branches: [] },
+      de: '1d6',
+      duree: 'Instantané',
+      effet: 'Trois tables.',
+      actifs: [
+        { id: 'a', nom: 'A', table: { faces: 4, entrees: [1, 2, 3, 4].map((n) => ({ texte: `A${n}` })) } },
+        { id: 'b', nom: 'B', table: { faces: 1, entrees: [{ texte: 'B unique' }] } },
+        { id: 'c', nom: 'C', table: { faces: 8, entrees: Array.from({ length: 8 }, (_, i) => ({ texte: `C${i + 1}` })) } },
+      ],
+    }
+    const catalogue = createCatalog([...SEED, rituel])
+    const char = nouveauPerso('soulshifter', { grimoire: [rituel.id] })
+
+    expect(desDuSort(rituel)).toEqual([
+      { nombre: 1, faces: 6 },
+      { nombre: 1, faces: 4 },
+      { nombre: 1, faces: 8 },
+    ])
+
+    const r = lancerSort(char, catalogue, { sortId: rituel.id }, rngManuel([6, 3, 7]))
+    expect(r.de).toBe(6)
+    expect(r.effets).toContain('A3')
+    // La table déterministe rend toujours sa seule entrée, sans consommer de dé.
+    expect(r.effets).toContain('B unique')
+    expect(r.effets).toContain('C7')
+  })
+
+  it('l’Actif d’un objet', () => {
+    const eq: Equipement = {
+      kind: 'equipement',
+      id: 'fiole-test',
+      nom: 'Fiole',
+      icone: 'potion-ball',
+      slot: 'bibelot',
+      actifs: [
+        {
+          id: 'boire',
+          nom: 'Boire',
+          table: { faces: 4, entrees: [1, 2, 3, 4].map((n) => ({ texte: `Gorgée ${n}` })) },
+        },
+        { id: 'jeter', nom: 'Jeter', table: { faces: 1, entrees: [{ texte: 'Éclate' }] } },
+      ],
+    }
+    const avecFiole = createCatalog([...SEED, eq])
+    const converti = avecFiole.equipement(eq.id) as Equipement
+    const [boire, jeter] = actifsDe(converti) as [Actif, Actif]
+
+    expect(desDeActif(boire)).toEqual([{ nombre: 1, faces: 4 }])
+    expect(desDeActif(jeter)).toEqual([])
+
+    const char = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [eq.id], ameliorations: [], quetes: [] },
+      equipe: { arme: null, armure: null, bibelot: eq.id },
+    })
+
+    expect(utiliserActif(char, avecFiole, converti, boire, rngManuel([2])).effet).toBe('Gorgée 2')
+    // Rien à saisir : une table déterministe se résout sans dé.
+    expect(utiliserActif(char, avecFiole, converti, jeter, rngManuel([])).effet).toBe('Éclate')
+  })
+
+  it('nombreDeDes compte ce qu’il faut saisir', () => {
+    expect(nombreDeDes(desJetCompetence('neutre'))).toBe(1)
+    expect(nombreDeDes(desJetCompetence('avantage'))).toBe(2)
+    expect(nombreDeDes([{ nombre: 2, faces: 4 }])).toBe(2)
+  })
+
+  it('l’Effet Aléatoire de l’Arcane se saisit en 2d4', () => {
+    const r = tirerEffetAleatoire(rngManuel([3, 3]))
+    expect(r.blanc).toBe(3)
+    expect(r.noir).toBe(3)
+    expect(r.cicatrice).toBe(true)
+  })
+})
+
+describe('Test de Compétence', () => {
+  /** Physique et roublardise à +3, esprit à 0, social à −3 (`appliquerProfil`). */
+  const maya = () => nouveauPerso('trickster')
+
+  it('demande un d20 seul quand le net est neutre', () => {
+    expect(desJetCompetence('neutre')).toEqual([{ nombre: 1, faces: DE_COMPETENCE }])
+  })
+
+  it('ajoute un d4 sous avantage comme sous désavantage', () => {
+    expect(desJetCompetence('avantage')).toHaveLength(2)
+    expect(desJetCompetence('desavantage')).toHaveLength(2)
+  })
+
+  it('additionne le d20 et la maîtrise', () => {
+    const jet = jetCompetence(maya(), catalog, 'physique', null, rngManuel([11]))
+    expect(totalJet(jet)).toBe(14)
+    expect(jet.termes.map((t) => t.libelle)).toEqual(['d20', 'maîtrise'])
+  })
+
+  it('soustrait le d4 sous désavantage', () => {
+    const marquee = nouveauPerso('trickster', { modifiers: [modificateurMarque('physique')] })
+    // Le d4 est consommé après le d20, dans l'ordre annoncé par `desJetCompetence`.
+    const jet = jetCompetence(marquee, catalog, 'physique', null, rngManuel([11, 3]))
+    expect(totalJet(jet)).toBe(11 - 3 + 3)
+  })
+
+  it('sépare la maîtrise de ses modificateurs', () => {
+    const serment = nouveauPerso('trickster', { modifiers: [modificateurSerment('social')] })
+    const jet = jetCompetence(serment, catalog, 'physique', 10, rngManuel([10]))
+    expect(jet.termes.map((t) => t.libelle)).toEqual(['d20', 'maîtrise', 'modificateurs'])
+    expect(totalJet(jet)).toBe(10 + 3 - 4)
+  })
+
+  it('ne juge rien sans seuil', () => {
+    const jet = jetCompetence(maya(), catalog, 'physique', null, rngManuel([1]))
+    expect(issueJet(jet)).toBe('indetermine')
+  })
+
+  it('compare au seuil quand la MJ l’a annoncé', () => {
+    expect(issueJet(jetCompetence(maya(), catalog, 'physique', 15, rngManuel([12])))).toBe('reussite')
+    expect(issueJet(jetCompetence(maya(), catalog, 'physique', 15, rngManuel([11])))).toBe('echec')
+  })
+
+  /*
+   * « Si le score total est inférieur au seuil, alors le test est un échec
+   * critique. » Un échec ne devient critique qu'**après** avoir forcé le Destin.
+   */
+  it('ne devient critique qu’après avoir forcé le Destin', () => {
+    const rate = jetCompetence(maya(), catalog, 'physique', 30, rngManuel([5]))
+    expect(issueJet(rate)).toBe('echec')
+
+    const force = forcerDestin(rate, rngManuel([4]))
+    expect(totalJet(force)).toBe(5 + 3 + 4)
+    expect(issueJet(force)).toBe('echec-critique')
+  })
+
+  it('sauve le jet quand le Destin suffit', () => {
+    const rate = jetCompetence(maya(), catalog, 'physique', 15, rngManuel([2]))
+    expect(issueJet(rate)).toBe('echec')
+    expect(issueJet(forcerDestin(rate, rngManuel([15])))).toBe('reussite')
+  })
+
+  it('ne se force qu’une fois', () => {
+    const jet = forcerDestin(jetCompetence(maya(), catalog, 'physique', 15, rngManuel([2])), rngManuel([2]))
+    expect(() => forcerDestin(jet, rngManuel([20]))).toThrow()
+  })
+
+  /** « Ajouter un +1 à n'importe quel jet par brûlure utilisée. » */
+  it('accepte un +1 par brûlure dépensée', () => {
+    const jet = jetCompetence(maya(), catalog, 'physique', 15, rngManuel([11]))
+    expect(issueJet(jet)).toBe('echec')
+
+    const aide = ajouterTerme(jet, termeBrulure())
+    expect(totalJet(aide)).toBe(15)
+    expect(issueJet(aide)).toBe('reussite')
+  })
+
+  it('se raconte en une ligne, seuil compris', () => {
+    const jet = jetCompetence(maya(), catalog, 'physique', 15, rngManuel([11]))
+    expect(decrireJet(jet)).toBe('Physique : d20 11 · maîtrise +3 = 14 contre 15 → échec')
+  })
+
+  it('se raconte sans seuil quand la MJ n’en a pas donné', () => {
+    const jet: Jet = { libelle: 'Esprit', termes: [{ libelle: 'd20', valeur: 8 }], seuil: null, destin: 'disponible' }
+    expect(decrireJet(jet)).toBe('Esprit : d20 8 = 8')
   })
 })
 

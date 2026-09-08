@@ -4,7 +4,7 @@ import { decrireCible } from './elements.ts'
 import { disponibiliteSort, type RaisonIndisponible } from './magie.ts'
 import { estEcritureDirecte } from './passifs.ts'
 import { appliquerEcriture } from './reactions.ts'
-import type { Rng } from './random.ts'
+import type { Des, Rng } from './random.ts'
 import type { Character, Modifier, ModifierExpiry, Operation, Sort } from './types.ts'
 
 /**
@@ -57,6 +57,32 @@ let compteur = 0
 function nouvelId(sortId: string): string {
   compteur += 1
   return `sort:${sortId}:${compteur}`
+}
+
+/**
+ * Les dés que `lancerSort` va consommer, **dans le même ordre**.
+ *
+ * Vit ici, collé à la fonction qui les consomme, et non dans l'écran : c'est la
+ * seule façon de garantir qu'une joueuse qui saisit ses dés physiques en saisit
+ * exactement autant qu'il en faut.
+ *
+ * Un dé à une seule face n'est jamais demandé : son résultat ne peut être que 1,
+ * et `rngManuel` le rend sans rien consommer. C'est le cas d'une table
+ * déterministe comme d'un `Sort.de` illisible, que `facesDuDe` ramène à 1.
+ */
+export function desDuSort(sort: Sort): Des[] {
+  const des: Des[] = []
+
+  if (sort.de) {
+    const faces = facesDuDe(sort.de)
+    if (faces > 1) des.push({ nombre: 1, faces })
+  }
+
+  for (const actif of sort.actifs ?? []) {
+    if (actif.table.faces > 1) des.push({ nombre: 1, faces: actif.table.faces })
+  }
+
+  return des
 }
 
 /**

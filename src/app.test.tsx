@@ -20,6 +20,17 @@ async function monter() {
   return render(<App />)
 }
 
+/**
+ * Fait passer l'appareil en « je lance mes propres dés ».
+ *
+ * Indispensable dès qu'un test a besoin d'un résultat **choisi** : sans ça
+ * l'écran propose un bouton « Lancer » et le dé tombe où il veut. C'est aussi
+ * la seule façon de retrouver les six boutons d'initiative.
+ */
+function mesPropresDes() {
+  localStorage.setItem('maraudeur:des', 'main')
+}
+
 /** Les clés d'un Storage se lisent par `key(i)`, pas par `Object.keys()`. */
 function clesStockage(): string[] {
   return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(
@@ -168,6 +179,7 @@ describe('mode Combat', () => {
   })
 
   it('dépose un adversaire visible de la joueuse, sans lui livrer le seuil', async () => {
+    mesPropresDes()
     await tablePreteAvecPersonnage()
 
     // --- La MJ démarre le combat et crée une Carcasse à la volée ---
@@ -219,6 +231,7 @@ describe('mode Combat', () => {
    * adversaires, rien de plus.
    */
   it('n’offre aucune saisie à une joueuse dont ce n’est pas le tour', async () => {
+    mesPropresDes()
     await tablePreteAvecPersonnage()
 
     sessionStorage.setItem('maraudeur:role', 'mj')
@@ -244,6 +257,7 @@ describe('mode Combat', () => {
   })
 
   it('laisse la joueuse déposer son initiative et lui dit quand c’est son tour', async () => {
+    mesPropresDes()
     await tablePreteAvecPersonnage()
 
     sessionStorage.setItem('maraudeur:role', 'mj')
@@ -260,6 +274,12 @@ describe('mode Combat', () => {
     // Un 5 la place « avant la MJ », qui est le sous-groupe actif au premier tour.
     fireEvent.click(await screen.findByRole('button', { name: '5' }))
     await waitFor(() => expect(screen.getByText("C'est à vous de jouer.")).toBeTruthy())
+
+    // Le champ de saisie reste la source de vérité quel que soit le mode : un
+    // Point d'Énergie peut venir d'ailleurs que d'un dé.
+    expect(screen.getByPlaceholderText('3')).toBeTruthy()
+    // Ses propres dés étant déclarés, l'app ne propose pas d'en lancer un.
+    expect(screen.queryByLabelText('Dé à lancer')).toBeNull()
   })
 })
 
@@ -760,6 +780,65 @@ describe('outillage de table', () => {
     sessionStorage.setItem('maraudeur:role', 'joueuse')
     await monter()
     await waitFor(() => expect(screen.getByText('−d4')).toBeTruthy())
+  })
+
+  /*
+   * Le Test de Compétence, de bout en bout. Ilma a +3 en Physique
+   * (`tablePreteAvecPersonnage`), et la joueuse lance ses propres dés : c'est
+   * la seule façon d'écrire un scénario dont l'issue est connue d'avance.
+   */
+  it('lance un Test de Compétence depuis la ligne de la compétence', async () => {
+    mesPropresDes()
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+
+    // Le jet vit sous la compétence qu'il lance : on touche « Physique ».
+    fireEvent.click(await screen.findByRole('button', { name: /^Physique/ }))
+
+    fireEvent.change(
+      screen.getByPlaceholderText('Aucun : l’app affichera seulement le total'),
+      { target: { value: '20' } },
+    )
+    fireEvent.change(screen.getByLabelText('Résultat du d20'), { target: { value: '11' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lancer' }))
+
+    // 11 au d20, +3 de maîtrise : 14 contre 20.
+    await waitFor(() => expect(screen.getByText('14')).toBeTruthy())
+    expect(screen.getByText('échec')).toBeTruthy()
+
+    // Forcer le Destin ajoute un second d20 — et ne suffit pas ici.
+    const d20 = screen.getAllByLabelText('Résultat du d20')
+    fireEvent.change(d20[1] as HTMLElement, { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Forcer le Destin' }))
+
+    await waitFor(() => expect(screen.getByText('échec critique')).toBeTruthy())
+    expect(screen.getByText('16')).toBeTruthy()
+
+    // Rien d'automatique : la Marque se prend d'un geste.
+    fireEvent.click(screen.getByRole('button', { name: 'Prendre une Marque' }))
+    await waitFor(() => expect(screen.getByText(/Marque prise/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByLabelText('Marques : 1')).toBeTruthy())
+  })
+
+  it('lance le dé elle-même quand la joueuse n’a pas les siens', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('button', { name: /^Physique/ }))
+
+    // Mode par défaut : aucun champ à remplir, un seul bouton.
+    expect(screen.queryByLabelText('Résultat du d20')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Lancer/ }))
+
+    // Le dé est inconnu, mais le total doit tenir dans [1+3, 20+3].
+    await waitFor(() => expect(screen.getByText(/^d20 \d+ · maîtrise \+3$/)).toBeTruthy())
+
+    // La bascule fait passer tous les jets en saisie, sans quitter la fiche.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Je lance mes propres dés/ }))
+    await waitFor(() => expect(screen.getAllByLabelText('Résultat du d20').length).toBeGreaterThan(0))
   })
 })
 

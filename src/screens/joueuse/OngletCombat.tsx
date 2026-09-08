@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
 import { Icone } from '../../components/Icone.tsx'
+import { LanceurDes } from '../../components/LanceurDes.tsx'
+import { PasBrulure } from '../../components/PasBrulure.tsx'
+import { useModeDes } from '../../hooks/useDes.ts'
 import {
   definirInitiative,
   enregistrerAdversaire,
@@ -21,8 +24,18 @@ import {
 } from '../../domain/combat.ts'
 import { computeBonusEnergieAttaque } from '../../domain/competences.ts'
 import { modificateurDiversion, modificateurEsquive } from '../../domain/modifiers.ts'
-import type { Adversaire, Character, EtatCombat, EtatTable } from '../../domain/types.ts'
+import { cryptoRng, tirerInitiative, type Des } from '../../domain/random.ts'
+import {
+  FACES_TABLE,
+  type Adversaire,
+  type Character,
+  type EtatCombat,
+  type EtatTable,
+} from '../../domain/types.ts'
 import { RappelsCombat } from './RappelsCombat.tsx'
+
+/** « Étape 0 — Initiative : chaque joueuse lance un d6. » */
+const DE_INITIATIVE: Des[] = [{ nombre: 1, faces: 6 }]
 
 /**
  * Écran de combat de la joueuse.
@@ -90,26 +103,40 @@ export function OngletCombat({
 // ---------------------------------------------------------------------------
 
 function SaisieInitiative({ etat, char }: { etat: EtatTable; char: Character }) {
+  const modeDes = useModeDes()
+
   return (
     <section className="carte pile">
       <span className="etiquette">Votre initiative</span>
       <p className="discret" style={{ margin: 0 }}>
-        Lancez votre d6 et saisissez le résultat. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après.
-        Le reste de l'écran s'ouvrira ensuite.
+        {modeDes === 'app'
+          ? 'Lancez votre d6. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après. Le reste de l’écran s’ouvrira ensuite.'
+          : 'Lancez votre d6 et touchez le résultat. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après. Le reste de l’écran s’ouvrira ensuite.'}
       </p>
-      <div className="rangee">
-        {[1, 2, 3, 4, 5, 6].map((d) => (
-          <button
-            key={d}
-            type="button"
-            className={`pas ${d >= 4 ? 'pas--avant' : ''}`}
-            style={{ flex: 1 }}
-            onClick={() => void definirInitiative(etat, char.id, d)}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
+
+      {/* Six boutons plutôt qu'un champ quand la joueuse a lancé elle-même :
+          sur six valeurs possibles, toucher est plus rapide que saisir. */}
+      {modeDes === 'main' ? (
+        <div className="rangee">
+          {[1, 2, 3, 4, 5, 6].map((d) => (
+            <button
+              key={d}
+              type="button"
+              className={`pas ${d >= 4 ? 'pas--avant' : ''}`}
+              style={{ flex: 1 }}
+              onClick={() => void definirInitiative(etat, char.id, d)}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <LanceurDes
+          des={DE_INITIATIVE}
+          libelle="Lancer l’initiative"
+          onJet={(rng) => void definirInitiative(etat, char.id, tirerInitiative(rng))}
+        />
+      )}
     </section>
   )
 }
@@ -168,7 +195,14 @@ function Attaque({
   const [jet, setJet] = useState('')
   const [resultat, setResultat] = useState<string | null>(null)
   const [alternative, setAlternative] = useState(false)
+  // « Toutes les armes infligent un nombre de Points d'Énergie correspondant à
+  // un jet de d4 » — mais un sort ou un Actif peut en demander un autre, et
+  // seule la joueuse sait ce qu'elle entreprend.
+  const [faces, setFaces] = useState(4)
+  const [brulures, setBrulures] = useState(0)
+  const [recitBrulure, setRecitBrulure] = useState<string | null>(null)
 
+  const modeDes = useModeDes()
   const bonus = computeBonusEnergieAttaque(char, catalog).bonus
   const cible = adversaires.find((a) => a.id === cibleId)
   const jetNombre = Number(jet)
@@ -177,7 +211,7 @@ function Attaque({
   async function resoudre() {
     if (!cible || !saisieValide) return
 
-    const pointsEnergie = jetNombre + bonus
+    const pointsEnergie = jetNombre + bonus + brulures
     const r = resoudreAttaque(pointsEnergie, cible.evasion)
 
     if (r.touche) {
@@ -198,6 +232,8 @@ function Attaque({
       setAlternative(true)
     }
     setJet('')
+    setBrulures(0)
+    setRecitBrulure(null)
   }
 
   return (
@@ -225,6 +261,33 @@ function Attaque({
           </select>
         </label>
 
+        {/* Le champ libre reste la source de vérité : un Point d'Énergie peut
+            venir d'ailleurs que d'un dé, et la joueuse doit pouvoir corriger.
+            Quand l'app lance, le bouton ne fait que le remplir. */}
+        {modeDes === 'app' && (
+          <div className="rangee">
+            <select
+              value={faces}
+              aria-label="Dé à lancer"
+              onChange={(e) => setFaces(Number(e.target.value))}
+            >
+              {FACES_TABLE.filter((f) => f > 1).map((f) => (
+                <option key={f} value={f}>
+                  1d{f}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn"
+              style={{ flex: 1 }}
+              onClick={() => setJet(String(cryptoRng.int(1, faces)))}
+            >
+              Lancer
+            </button>
+          </div>
+        )}
+
         <label className="champ">
           <span className="tres-discret">
             Résultat de votre dé{bonus !== 0 ? ` — ${bonus > 0 ? '+' : ''}${bonus} sera ajouté` : ''}
@@ -238,15 +301,29 @@ function Attaque({
           />
         </label>
 
+        {/* « Ajouter un +1 à n'importe quel jet par brûlure utilisée. » */}
+        <div className="rangee rangee--entre">
+          <PasBrulure
+            char={char}
+            catalog={catalog}
+            onDepense={(r) => {
+              setBrulures((b) => b + 1)
+              setRecitBrulure(r)
+            }}
+          />
+          {brulures > 0 && <span className="puce puce--ambre">+{brulures} PE</span>}
+        </div>
+
         <button
           type="button"
           className="btn btn--principal btn--large"
           onClick={() => void resoudre()}
           disabled={!saisieValide}
         >
-          Résoudre
+          Résoudre{saisieValide ? ` — ${jetNombre + bonus + brulures} PE` : ''}
         </button>
 
+        {recitBrulure && <p className="alerte alerte--info">{recitBrulure}</p>}
         {resultat && <p className="alerte alerte--info">{resultat}</p>}
       </section>
 

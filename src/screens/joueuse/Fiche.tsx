@@ -4,7 +4,11 @@ import { Avatar } from '../../components/Avatar.tsx'
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
 import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
+import { LanceurDes } from '../../components/LanceurDes.tsx'
 import { ObjetDetaillable } from '../../components/ObjetDetaillable.tsx'
+import { definirModeDes, useModeDes } from '../../hooks/useDes.ts'
+import { EffetAleatoire } from './EffetAleatoire.tsx'
+import { JetCompetence } from './JetCompetence.tsx'
 import { OngletCampfire } from './OngletCampfire.tsx'
 import { OngletCombat } from './OngletCombat.tsx'
 import { OngletDuel } from './OngletDuel.tsx'
@@ -35,7 +39,7 @@ import {
   filtrerEntrees,
   type FiltresCatalogue as Filtres,
 } from '../../domain/filtres.ts'
-import { lancerSort, type DemandeLancement } from '../../domain/lancement.ts'
+import { desDuSort, lancerSort, type DemandeLancement } from '../../domain/lancement.ts'
 import type { Notification } from '../../domain/notifications.ts'
 import {
   appliquerGainBrulures,
@@ -45,19 +49,21 @@ import {
   disponibiliteSort,
   grimoireEffectif,
   libelleMagie,
+  resoudreArcane,
   resumeSort,
   sortAUnCristal,
 } from '../../domain/magie.ts'
 import {
   aDesEffetsActifs,
   actifsDe,
+  desDeActif,
   detailObjet,
   raisonsIndisponible,
   resumeEquipement,
   utiliserActif,
 } from '../../domain/objets.ts'
 import { EVASION_DE_BASE, paliersFlammeAtteints } from '../../domain/modifiers.ts'
-import { cryptoRng, tirerOsselets } from '../../domain/random.ts'
+import { cryptoRng, tirerOsselets, type Rng } from '../../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
@@ -66,6 +72,7 @@ import {
   type Actif,
   type Adversaire,
   type Character,
+  type Competence,
   type Equipement,
   type EtatTable,
   type SlotEquipement,
@@ -236,6 +243,12 @@ function OngletFiche({
 
   const [dernierJet, setDernierJet] = useState<string | null>(null)
   const [slotOuvert, setSlotOuvert] = useState<SlotEquipement | null>(null)
+  const [jetOuvert, setJetOuvert] = useState<Competence | null>(null)
+
+  const modeDes = useModeDes()
+  // Le compte de points rouges quand la joueuse a jeté ses propres osselets.
+  const [osselets, setOsselets] = useState('')
+  const osseletsValides = osselets !== '' && Number(osselets) >= 0 && Number(osselets) <= 4
   // Le récit d'usage vit hors de la ligne de l'objet : un objet qui s'épuise
   // change d'état en même temps qu'il agit, et l'effet tiré doit rester lisible.
   const [dernierUsage, setDernierUsage] = useState<string | null>(null)
@@ -244,8 +257,8 @@ function OngletFiche({
   const objetOuvert = idOuvert ? catalog.equipement(idOuvert) : undefined
 
   /** Le dé de la table est lancé ici ; l'écran en donne le résultat et l'effet. */
-  function utiliser(eq: Equipement, actif: Actif) {
-    const r = utiliserActif(char, catalog, eq, actif, cryptoRng)
+  function utiliser(eq: Equipement, actif: Actif, rng: Rng) {
+    const r = utiliserActif(char, catalog, eq, actif, rng)
     setDernierUsage(
       `${actif.nom} — ` +
         // Une table à une seule entrée est déterministe : le dé n'a rien à dire.
@@ -259,16 +272,24 @@ function OngletFiche({
     maj(() => r.char)
   }
 
-  function lancerOsselets() {
-    const { des, brulures } = tirerOsselets(cryptoRng)
+  /**
+   * Le gain, qu'il vienne du tirage de l'app ou du compte annoncé par la
+   * joueuse. Overheat et le plafond s'appliquent des deux côtés.
+   */
+  function gagnerDesBrulures(brulures: number, tirage: string) {
     const resultat = appliquerGainBrulures(char, brulures)
     const perdu = char.brulures + resultat.gainEffectif - resultat.brulures
     setDernierJet(
-      `Osselets ${des.join(' · ')} → ${brulures} brûlure(s)` +
+      `${tirage} → ${brulures} brûlure(s)` +
         (resultat.gainEffectif !== brulures ? ` (Overheat : ${resultat.gainEffectif})` : '') +
         (perdu > 0 ? ` — ${perdu} perdue(s), vous êtes déjà marquée à ${bruluresMax}` : ''),
     )
     maj((c) => ({ ...c, brulures: resultat.brulures }))
+  }
+
+  function lancerOsselets() {
+    const { des, brulures } = tirerOsselets(cryptoRng)
+    gagnerDesBrulures(brulures, `Osselets ${des.join(' · ')}`)
   }
 
   /** Un clic fait tourner la case ; la neuvième dépensée déclenche la Combustion. */
@@ -392,7 +413,7 @@ function OngletFiche({
                           catalog={catalog}
                           eq={objetOuvert}
                           actif={actif}
-                          onUtiliser={() => utiliser(objetOuvert, actif)}
+                          onUtiliser={(rng) => utiliser(objetOuvert, actif, rng)}
                         />
                       ))}
                     </div>
@@ -411,7 +432,10 @@ function OngletFiche({
 
       {/* --- Compétences --- */}
       <section className="carte pile pile--serree">
-        <span className="etiquette">Compétences</span>
+        <div className="carte__titre">
+          <span className="etiquette">Compétences</span>
+          <span className="tres-discret">touchez-en une pour la lancer</span>
+        </div>
 
         {COMPETENCES.map((c) => {
           const v = competences[c]
@@ -419,17 +443,36 @@ function OngletFiche({
             v.net === 'avantage' ? 'competence--avantage' : v.net === 'desavantage' ? 'competence--desavantage' : ''
           const classeTotal =
             v.bonus > 0 ? 'competence__total--bonifie' : v.bonus < 0 ? 'competence__total--penalise' : ''
+          const ouvert = jetOuvert === c
 
           return (
-            <div key={c} className={`competence ${classeNet}`}>
-              <span className="competence__nom">{LIBELLE_COMPETENCE[c]}</span>
-              {v.net !== 'neutre' && (
-                <span className={`puce puce--${v.net}`}>{v.net === 'avantage' ? '+d4' : '−d4'}</span>
+            <div key={c}>
+              {/* La ligne devient le bouton du jet : le Test de Compétence vit
+                  sous la compétence qu'il lance, pas dans un écran à part. */}
+              <button
+                type="button"
+                className={`competence ${classeNet}`}
+                aria-expanded={ouvert}
+                onClick={() => setJetOuvert(ouvert ? null : c)}
+              >
+                <span className="competence__nom">{LIBELLE_COMPETENCE[c]}</span>
+                {v.net !== 'neutre' && (
+                  <span className={`puce puce--${v.net}`}>{v.net === 'avantage' ? '+d4' : '−d4'}</span>
+                )}
+                <span className={`competence__total ${classeTotal}`}>
+                  {v.total > 0 ? '+' : ''}
+                  {v.total}
+                </span>
+                <span className="tres-discret" aria-hidden="true" style={{ fontSize: '0.7rem' }}>
+                  {ouvert ? '▾' : '▸'}
+                </span>
+              </button>
+
+              {/* Un seul jet ouvert à la fois : deux panneaux dépliés ne
+                  tiendraient pas sur un téléphone. */}
+              {ouvert && (
+                <JetCompetence char={char} catalog={catalog} competence={c} valeur={v} />
               )}
-              <span className={`competence__total ${classeTotal}`}>
-                {v.total > 0 ? '+' : ''}
-                {v.total}
-              </span>
             </div>
           )
         })}
@@ -483,10 +526,41 @@ function OngletFiche({
           ].join(' · ')}
         />
 
+        {/* Les osselets restent hors de `LanceurDes`, et c'est voulu : la
+            joueuse qui les a jetés a déjà compté ses points rouges en les
+            regardant. Lui redemander les quatre faces serait une double saisie
+            pour le même résultat. */}
         <div className="rangee">
-          <button type="button" className="btn" onClick={lancerOsselets}>
-            Tirer les osselets
-          </button>
+          {modeDes === 'app' ? (
+            <button type="button" className="btn" onClick={lancerOsselets}>
+              Tirer les osselets
+            </button>
+          ) : (
+            <>
+              <input
+                type="number"
+                inputMode="numeric"
+                className="de-saisi"
+                min={0}
+                max={4}
+                value={osselets}
+                placeholder="0-4"
+                aria-label="Points rouges obtenus aux osselets"
+                onChange={(e) => setOsselets(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn"
+                disabled={!osseletsValides}
+                onClick={() => {
+                  gagnerDesBrulures(Number(osselets), 'Osselets annoncés')
+                  setOsselets('')
+                }}
+              >
+                Compter mes points rouges
+              </button>
+            </>
+          )}
           <button type="button" className="btn btn--danger" onClick={declencherCombustion}>
             Combustion
           </button>
@@ -530,6 +604,28 @@ function OngletFiche({
           ))}
         </section>
       )}
+
+      {/* --- Qui lance les dés ---
+          Une joueuse a ses dés ou ne les a pas, et ça ne change pas trois fois
+          dans la soirée : un seul réglage vaut pour tous les jets de l'app, ce
+          qui laisse un bouton unique par jet sur un téléphone. */}
+      <section className="carte">
+        <label className="rangee" style={{ gap: 10, alignItems: 'flex-start' }}>
+          <input
+            type="checkbox"
+            checked={modeDes === 'main'}
+            style={{ minHeight: 0, width: 'auto', marginTop: 4 }}
+            onChange={(e) => definirModeDes(e.target.checked ? 'main' : 'app')}
+          />
+          <span className="objet__corps">
+            <span className="objet__nom">🎲 Je lance mes propres dés</span>
+            <span className="objet__meta">
+              Chaque jet vous demandera le résultat au lieu de le tirer. Réglage propre à cet
+              appareil ; chaque jet garde de quoi faire l’inverse une fois.
+            </span>
+          </span>
+        </label>
+      </section>
     </div>
   )
 }
@@ -554,7 +650,7 @@ function BoutonActif({
   catalog: Catalog
   eq: Equipement
   actif: Actif
-  onUtiliser: () => void
+  onUtiliser: (rng: Rng) => void
 }) {
   const raisons = raisonsIndisponible(char, catalog, eq, actif)
   const bloque = raisons.chargesEpuisees || raisons.coutImpayable
@@ -566,9 +662,7 @@ function BoutonActif({
       : actif.nom
 
   return (
-    <button type="button" className="btn btn--principal" disabled={bloque} onClick={onUtiliser}>
-      {libelle}
-    </button>
+    <LanceurDes des={desDeActif(actif)} libelle={libelle} disabled={bloque} onJet={onUtiliser} />
   )
 }
 
@@ -587,7 +681,7 @@ function LigneSort({
   /** Absent en lecture seule ; présent, il autorise la bascule de l'Hexite. */
   maj?: (t: (c: Character) => Character) => void
   /** Absent hors du Grimoire : on ne lance que ce qu'on a préparé. */
-  onLance?: (demande: DemandeLancement) => void
+  onLance?: (demande: DemandeLancement, rng: Rng) => void
 }) {
   // Le « X » d'un coût variable : la joueuse décide combien elle dépense, et
   // l'effet en dépend. Zéro tant qu'elle n'a rien saisi.
@@ -673,14 +767,15 @@ function LigneSort({
                   />
                 )}
 
-                <button
-                  type="button"
-                  className="btn btn--principal"
+                {/* Les dés demandés viennent de `desDuSort`, qui vit collé à
+                    `lancerSort` : la joueuse qui saisit ses propres dés en
+                    saisit toujours exactement le compte. */}
+                <LanceurDes
+                  des={desDuSort(sort)}
+                  libelle={dispo.disponible ? 'Lancer' : 'Indisponible'}
                   disabled={!dispo.disponible}
-                  onClick={() => onLance({ sortId: sort.id, brancheCout: branche, x })}
-                >
-                  {dispo.disponible ? 'Lancer' : 'Indisponible'}
-                </button>
+                  onJet={(rng) => onLance({ sortId: sort.id, brancheCout: branche, x }, rng)}
+                />
               </div>
             ),
           }
@@ -724,21 +819,61 @@ function OngletSorts({
   // Le récit du lancement vit hors de la ligne du sort : un effet tiré doit
   // rester lisible même quand le sort redevient indisponible dans la foulée.
   const [dernierLancement, setDernierLancement] = useState<string | null>(null)
+  // Le 6 de l'Arcane demande un second jet — 2d4 — que le dé du sort ne pouvait
+  // pas annoncer d'avance.
+  const [effetAleatoire, setEffetAleatoire] = useState<string | null>(null)
 
-  function lancer(demande: DemandeLancement) {
-    const r = lancerSort(char, catalog, demande, cryptoRng)
+  function lancer(demande: DemandeLancement, rng: Rng) {
+    const r = lancerSort(char, catalog, demande, rng)
+
+    /*
+     * Le dé d'un sort à cristal se lit : c'est le Jet d'Arcane. `resoudreArcane`
+     * existait et était testé, mais aucun écran ne l'appelait — la joueuse
+     * déclarait son Hexite épuisé à la main, ce qui laissait la règle « 1 et 2 »
+     * à sa mémoire. Un type magique créé par la MJ hérite de la mécanique dès
+     * qu'il porte `cristal`.
+     */
+    const arcane = r.de !== null && sortAUnCristal(r.sort, catalog) ? resoudreArcane(r.de) : null
+
     setDernierLancement(
       `${r.sort.nom}` +
         (r.de !== null ? ` — ${r.sort.de} → ${r.de}` : '') +
+        (arcane ? ` · ${arcane.pointsEnergie} Point(s) d'Énergie` : '') +
+        (arcane?.cristalEpuise ? ' · le cristal s’épuise' : '') +
+        (arcane?.effetAleatoire ? ' · la magie vous échappe' : '') +
         (r.effets.length ? ` · ${r.effets.join(' · ')}` : '') +
         (r.recits.length ? ` — ${r.recits.join(' · ')}` : ''),
     )
-    void journaliser(char.nom, 'sort', `${char.nom} lance ${r.sort.nom}.`)
-    maj((c) => ({ ...r.char, id: c.id }))
+    void journaliser(
+      char.nom,
+      'sort',
+      `${char.nom} lance ${r.sort.nom}${r.de !== null ? ` (${r.sort.de} → ${r.de})` : ''}.`,
+    )
+
+    if (arcane?.effetAleatoire) setEffetAleatoire(r.sort.nom)
+
+    maj((c) => ({
+      ...r.char,
+      id: c.id,
+      // Sur 1 et 2 l'Hexite ne répond plus jusqu'à l'avoir réétudié au camp.
+      // La case à cocher de la ligne reste, en correction.
+      sortsEpuises:
+        arcane?.cristalEpuise && !r.char.sortsEpuises.includes(r.sort.id)
+          ? [...r.char.sortsEpuises, r.sort.id]
+          : r.char.sortsEpuises,
+    }))
   }
 
   return (
     <div className="pile">
+      {effetAleatoire && (
+        <EffetAleatoire
+          char={char}
+          sortNom={effetAleatoire}
+          onFini={() => setEffetAleatoire(null)}
+        />
+      )}
+
       <section className="carte pile pile--serree">
         <div className="carte__titre">
           <span className="etiquette">Sorts préparés</span>

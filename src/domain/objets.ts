@@ -7,7 +7,7 @@ import {
   peutPayer,
   type ChoixPaiement,
 } from './couts.ts'
-import type { Rng } from './random.ts'
+import type { Des, Rng } from './random.ts'
 import {
   LIBELLE_SLOT,
   RARETES,
@@ -211,6 +211,17 @@ export interface ResultatUsage {
   restantes: number | null
   /** Ce que le paiement a entraîné : Combustion, grille de Fatigue pleine. */
   recits: string[]
+}
+
+/**
+ * Le dé que `utiliserActif` va consommer.
+ *
+ * Vit ici, collé à la fonction qui le consomme, pour que l'écran qui propose la
+ * saisie manuelle ne puisse jamais en demander un de trop. Une table à une seule
+ * face rend un effet déterministe : rien à lancer, donc rien à saisir.
+ */
+export function desDeActif(actif: Actif): Des[] {
+  return actif.table.faces > 1 ? [{ nombre: 1, faces: actif.table.faces }] : []
 }
 
 /**

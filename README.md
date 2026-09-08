@@ -171,7 +171,12 @@ Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
 | Cristal épuisé | sur **1 et 2** (le texte fait foi sur la table du PDF) |
 | Pool du Détachement | tous les sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base |
 | Feu de camp | qualifié **repos court** ou **fin de journée** — seul le second rend le 6th Sens et lève Fardeaux, Serments et Marques journalières |
-| Dés | physiques à table ; l'app ne tire que le Détachement, les osselets, la personnalité Soulshifter et les risques d'investissement |
+| Dés | **au choix de la joueuse** : chaque jet se lance d'un doigt dans l'app, ou se saisit après un lancer physique. Un réglage par appareil (« Je lance mes propres dés ») bascule tous les jets à la fois, et chaque jet garde de quoi faire l'inverse une fois. Le Détachement, les risques d'investissement et le tirage des offres restent tirés par l'app seule — ce ne sont pas des dés de joueuse |
+| Où vivent les jets | **là où vit la chose qu'on lance** : sur la ligne d'une compétence, sur le bouton d'un sort, sur l'Actif d'un objet. Aucun écran ne les regroupe |
+| Test de Compétence | 1d20 + maîtrise + modificateurs, ±1d4 si le net n'est pas neutre. Le **seuil est facultatif** : sans lui l'app affiche le total et se garde de juger |
+| Forcer le Destin | un second d20 ajouté au total, **une seule fois**. En dessous du seuil, l'échec devient critique et la Marque est **proposée d'un bouton**, jamais prise d'office |
+| Brûlures sur un jet | « +1 par brûlure utilisée » : un pas dans le panneau de jet, qui passe par `consommerBrulures` — la neuvième déclenche donc la Combustion comme ailleurs |
+| Jet d'Arcane | le dé d'un sort à cristal est **lu** : Points d'Énergie annoncés, cristal épuisé automatiquement sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en correction |
 | Cycles (1d4+2) | **saisis à la main par la MJ** depuis son écran, modifiables à tout moment. Jamais tirés par l'app : la valeur ne doit à aucun moment transiter par l'appareil d'une joueuse |
 | Bestiaire | écrit par la MJ, **hors du catalogue** : celui-ci est lisible par les joueuses, y ranger les Évasions et les seuils aurait tout révélé |
 | Seuil de Fatigue d'un adversaire | 🔒 jamais dans le document que lisent les joueuses ; elles ne voient que les dégâts cumulés |
