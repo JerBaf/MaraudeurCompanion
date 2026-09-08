@@ -1,4 +1,10 @@
-import type { Adversaire, Character, EtatCombat, ModeleAdversaire } from './types.ts'
+import type {
+  Adversaire,
+  Character,
+  EtatCombat,
+  ModeleAdversaire,
+  SousGroupe,
+} from './types.ts'
 
 /**
  * Résolution d'une attaque.
@@ -32,7 +38,9 @@ export function resoudreAttaque(pointsEnergie: number, evasionCible: number): Re
 // Initiative
 // ---------------------------------------------------------------------------
 
-export type SousGroupe = 'avant-mj' | 'mj' | 'apres-mj'
+// Déclaré dans `types.ts`, avec `EtatCombat` qui le porte ; ré-exporté ici, où
+// vit toute l'horloge de combat et où les appelants le cherchent.
+export type { SousGroupe }
 
 export const LIBELLE_SOUS_GROUPE: Record<SousGroupe, string> = {
   'avant-mj': 'Avant la MJ',

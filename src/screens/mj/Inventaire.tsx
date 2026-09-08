@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { FiltresCatalogue } from '../../components/FiltresCatalogue.tsx'
 import { Icone } from '../../components/Icone.tsx'
+import { ajouterAuPossede } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { tailleGrimoire } from '../../domain/competences.ts'
 import {
@@ -81,15 +82,17 @@ export function Inventaire({
     })
   }
 
-  function donnerSort(id: string) {
-    maj((c) => ({ ...c, possede: { ...c.possede, sorts: [...c.possede.sorts, id] } }))
-  }
-
-  function donnerAmelioration(id: string) {
-    maj((c) => ({
-      ...c,
-      possede: { ...c.possede, ameliorations: [...c.possede.ameliorations, id] },
-    }))
+  /**
+   * Accorder une entrée, quel que soit son type.
+   *
+   * Passe par `ajouterAuPossede`, qui range au bon endroit **et ne double
+   * jamais** : les trois versions manuscrites poussaient l'identifiant sans rien
+   * vérifier, si bien que donner deux fois le même sort le faisait apparaître
+   * deux fois sur la fiche. C'est aussi le chemin qu'emprunte la boutique.
+   */
+  function donner(id: string) {
+    const entree = catalog.entree(id)
+    if (entree) maj((c) => ajouterAuPossede(c, entree))
   }
 
   function retirerAmelioration(id: string, nom: string) {
@@ -97,13 +100,6 @@ export function Inventaire({
     maj((c) => ({
       ...c,
       possede: { ...c.possede, ameliorations: c.possede.ameliorations.filter((a) => a !== id) },
-    }))
-  }
-
-  function donnerEquipement(id: string) {
-    maj((c) => ({
-      ...c,
-      possede: { ...c.possede, equipements: [...c.possede.equipements, id] },
     }))
   }
 
@@ -211,7 +207,7 @@ export function Inventaire({
         kind="sort"
         candidats={sortsAccordables}
         catalog={catalog}
-        onChoisir={donnerSort}
+        onChoisir={donner}
       />
 
       <hr className="separateur" />
@@ -272,7 +268,7 @@ export function Inventaire({
         kind="equipement"
         candidats={equipementsAccordables}
         catalog={catalog}
-        onChoisir={donnerEquipement}
+        onChoisir={donner}
         suffixe={(e) => (e.kind === 'equipement' ? ` — ${LIBELLE_SLOT[e.slot]}` : '')}
       />
 
@@ -304,7 +300,7 @@ export function Inventaire({
         kind="amelioration"
         candidats={ameliorationsAccordables}
         catalog={catalog}
-        onChoisir={donnerAmelioration}
+        onChoisir={donner}
         suffixe={(e) => (e.kind === 'amelioration' ? ` — ${e.prix} ʟ` : '')}
       />
     </section>

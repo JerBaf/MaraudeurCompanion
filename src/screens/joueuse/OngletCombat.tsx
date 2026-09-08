@@ -24,7 +24,7 @@ import {
 } from '../../domain/combat.ts'
 import { computeBonusEnergieAttaque } from '../../domain/competences.ts'
 import { modificateurDiversion, modificateurEsquive } from '../../domain/modifiers.ts'
-import { cryptoRng, tirerInitiative, type Des } from '../../domain/random.ts'
+import { tirerInitiative, type Des } from '../../domain/random.ts'
 import {
   FACES_TABLE,
   type Adversaire,
@@ -103,40 +103,24 @@ export function OngletCombat({
 // ---------------------------------------------------------------------------
 
 function SaisieInitiative({ etat, char }: { etat: EtatTable; char: Character }) {
-  const modeDes = useModeDes()
-
   return (
     <section className="carte pile">
       <span className="etiquette">Votre initiative</span>
       <p className="discret" style={{ margin: 0 }}>
-        {modeDes === 'app'
-          ? 'Lancez votre d6. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après. Le reste de l’écran s’ouvrira ensuite.'
-          : 'Lancez votre d6 et touchez le résultat. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après. Le reste de l’écran s’ouvrira ensuite.'}
+        Lancez votre d6. 4 à 6 vous fait jouer avant la MJ, 1 à 3 après. Le reste de l’écran
+        s’ouvrira ensuite.
       </p>
 
-      {/* Six boutons plutôt qu'un champ quand la joueuse a lancé elle-même :
-          sur six valeurs possibles, toucher est plus rapide que saisir. */}
-      {modeDes === 'main' ? (
-        <div className="rangee">
-          {[1, 2, 3, 4, 5, 6].map((d) => (
-            <button
-              key={d}
-              type="button"
-              className={`pas ${d >= 4 ? 'pas--avant' : ''}`}
-              style={{ flex: 1 }}
-              onClick={() => void definirInitiative(etat, char.id, d)}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <LanceurDes
-          des={DE_INITIATIVE}
-          libelle="Lancer l’initiative"
-          onJet={(rng) => void definirInitiative(etat, char.id, tirerInitiative(rng))}
-        />
-      )}
+      {/* Un seul geste, comme partout ailleurs : `LanceurDes` sait déjà lancer
+          ou demander le résultat selon le réglage de l'appareil. L'écran portait
+          six boutons pour la saisie à la main — plus rapides à toucher, mais
+          c'était la seule initiative de l'app à ne pas ressembler aux autres
+          jets, et le réglage n'y valait que pour cette section. */}
+      <LanceurDes
+        des={DE_INITIATIVE}
+        libelle="Lancer l’initiative"
+        onJet={(rng) => void definirInitiative(etat, char.id, tirerInitiative(rng))}
+      />
     </section>
   )
 }
@@ -264,6 +248,11 @@ function Attaque({
         {/* Le champ libre reste la source de vérité : un Point d'Énergie peut
             venir d'ailleurs que d'un dé, et la joueuse doit pouvoir corriger.
             Quand l'app lance, le bouton ne fait que le remplir. */}
+        {/* Le lanceur ne s'affiche que si l'application tire : quand la joueuse
+            lance ses propres dés, le champ ci-dessous **est** sa saisie, et lui
+            en demander une seconde ferait deux champs pour un seul nombre. C'est
+            le dernier endroit qui consulte le réglage hors de `LanceurDes`, et
+            c'est pour l'éviter, pas pour le contourner. */}
         {modeDes === 'app' && (
           <div className="rangee">
             <select
@@ -277,14 +266,11 @@ function Attaque({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="btn"
-              style={{ flex: 1 }}
-              onClick={() => setJet(String(cryptoRng.int(1, faces)))}
-            >
-              Lancer
-            </button>
+            <LanceurDes
+              des={[{ nombre: 1, faces }]}
+              libelle="Lancer"
+              onJet={(rng) => setJet(String(rng.int(1, faces)))}
+            />
           </div>
         )}
 

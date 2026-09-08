@@ -25,7 +25,7 @@ import {
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { tailleGrimoire } from '../../domain/competences.ts'
-import { resumeSort } from '../../domain/magie.ts'
+import { ajusterFoi, GAINS_FOI, resumeSort } from '../../domain/magie.ts'
 import { detailObjet, resumeEquipement } from '../../domain/objets.ts'
 import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
@@ -538,8 +538,6 @@ function GainsDeFoi({
   const [cibleFardeau, setCibleFardeau] = useState('')
   const [message, setMessage] = useState<string | null>(null)
 
-  const ajouterFoi = (n: number) => Math.min(MAX_FOI, char.foi + n)
-
   // Chaque action pose son jeton dans la même écriture que sa récompense : le
   // jeton retient le numéro de session, ce qui le rend caduc de lui-même à la
   // suivante — plus rien à réinitialiser.
@@ -551,24 +549,24 @@ function GainsDeFoi({
     const tiree = cryptoRng.pick(THEMATIQUES_RECUEIL)
     await modifierPersonnage(char, (c) => ({
       ...c,
-      foi: ajouterFoi(2),
+      foi: ajusterFoi(c, GAINS_FOI.recueillir.gain),
       jetonsCamp: { ...c.jetonsCamp, recueillir: ctx.sessionNumero },
     }))
     await journaliser(char.nom, 'recueillir', `${char.nom} se recueille — « ${tiree} »`)
     setThematique(tiree)
-    setMessage('+2 Points de Foi. Écrivez vos 2 à 3 phrases dans votre carnet.')
+    setMessage(`+${GAINS_FOI.recueillir.gain} Points de Foi. Écrivez vos 2 à 3 phrases dans votre carnet.`)
   }
 
   async function fardeauDesavantage(competence: (typeof COMPETENCES)[number]) {
     if (!peutPrendreFardeau(ctx)) return
     await modifierPersonnage(char, (c) => ({
       ...c,
-      foi: ajouterFoi(3),
+      foi: ajusterFoi(c, GAINS_FOI.fardeau.gain),
       modifiers: [...c.modifiers, modificateurFardeau(competence)],
       jetonsCamp: { ...c.jetonsCamp, fardeau: ctx.sessionNumero },
     }))
     await journaliser(char.nom, 'fardeau', `${char.nom} prend un fardeau : désavantage en ${LIBELLE_COMPETENCE[competence]}.`)
-    setMessage(`+3 Points de Foi. Désavantage en ${LIBELLE_COMPETENCE[competence]} pour la session.`)
+    setMessage(`+${GAINS_FOI.fardeau.gain} Points de Foi. Désavantage en ${LIBELLE_COMPETENCE[competence]} pour la session.`)
   }
 
   async function fardeauFatigue() {
@@ -578,7 +576,7 @@ function GainsDeFoi({
     const { porteuse, couverte } = resoudreFardeauFatigue(char, cible)
     await modifierPersonnage(char, () => ({
       ...porteuse,
-      foi: ajouterFoi(3),
+      foi: ajusterFoi(porteuse, GAINS_FOI.fardeau.gain),
       jetonsCamp: { ...char.jetonsCamp, fardeau: ctx.sessionNumero },
     }))
     /*
@@ -593,7 +591,7 @@ function GainsDeFoi({
       'fardeau',
       `${char.nom} prend un Point de Fatigue à la place de ${cible.nom}.`,
     )
-    setMessage(`+3 Points de Foi, et un Point de Fatigue pris pour ${cible.nom}.`)
+    setMessage(`+${GAINS_FOI.fardeau.gain} Points de Foi, et un Point de Fatigue pris pour ${cible.nom}.`)
     setCibleFardeau('')
   }
 
@@ -607,12 +605,12 @@ function GainsDeFoi({
     const epargnee = cryptoRng.pick(COMPETENCES)
     await modifierPersonnage(char, (c) => ({
       ...c,
-      foi: ajouterFoi(4),
+      foi: ajusterFoi(c, GAINS_FOI.serment.gain),
       modifiers: [...c.modifiers, modificateurSerment(epargnee)],
       jetonsCamp: { ...c.jetonsCamp, serment: ctx.sessionNumero },
     }))
     await journaliser(char.nom, 'serment', `${char.nom} prononce un serment : ${LIBELLE_COMPETENCE[epargnee]} épargnée.`)
-    setMessage(`+4 Points de Foi. ${LIBELLE_COMPETENCE[epargnee]} est épargnée, les autres subissent −4.`)
+    setMessage(`+${GAINS_FOI.serment.gain} Points de Foi. ${LIBELLE_COMPETENCE[epargnee]} est épargnée, les autres subissent −4.`)
   }
 
   // Seules les alliées qui ont une case à céder peuvent être soulagées.
@@ -631,7 +629,7 @@ function GainsDeFoi({
 
       {/* --- Recueillir --- */}
       <div className="pile pile--serree">
-        <span className="objet__nom">Recueillir · +2</span>
+        <span className="objet__nom">{GAINS_FOI.recueillir.nom} · +{GAINS_FOI.recueillir.gain}</span>
         {peutRecueillir(ctx) ? (
           <>
             <p className="tres-discret" style={{ margin: 0 }}>
@@ -658,7 +656,7 @@ function GainsDeFoi({
 
       {/* --- Fardeau --- */}
       <div className="pile pile--serree">
-        <span className="objet__nom">Fardeau · +3</span>
+        <span className="objet__nom">{GAINS_FOI.fardeau.nom} · +{GAINS_FOI.fardeau.gain}</span>
         {peutPrendreFardeau(ctx) ? (
           <>
             <p className="tres-discret" style={{ margin: 0 }}>
@@ -719,7 +717,7 @@ function GainsDeFoi({
 
       {/* --- Serment --- */}
       <div className="pile pile--serree">
-        <span className="objet__nom">Serment · +4</span>
+        <span className="objet__nom">{GAINS_FOI.serment.nom} · +{GAINS_FOI.serment.gain}</span>
         {peutPrononcerSerment(ctx) ? (
           <>
             <p className="tres-discret" style={{ margin: 0 }}>

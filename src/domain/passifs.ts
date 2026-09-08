@@ -267,13 +267,6 @@ export function conditionRemplie(passif: Passif, char: Character): boolean {
   return lireElement(char, condition.element) >= condition.seuil
 }
 
-/** Les passifs permanents actuellement en vigueur, condition de seuil comprise. */
-export function passifsPermanents(char: Character, catalog: Catalog): PassifActif[] {
-  return passifsActifs(char, catalog).filter(
-    (p) => p.passif.declenchement.kind === 'permanent' && conditionRemplie(p.passif, char),
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Description
 // ---------------------------------------------------------------------------

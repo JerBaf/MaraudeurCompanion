@@ -180,6 +180,10 @@ export function createLocalAuth(codeTable: string, pinMJ: string): Auth {
     },
     onChange(cb) {
       ecouteurs.add(cb)
+      // Le rôle courant est émis à l'abonnement, comme le fait l'implémentation
+      // Firestore : les deux `Auth` doivent se comporter pareil, sans quoi un
+      // écran qui marche en local casse en production.
+      cb(role)
       return () => ecouteurs.delete(cb)
     },
   }

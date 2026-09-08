@@ -78,18 +78,28 @@ export function ajouterTerme(jet: Jet, terme: Terme): Jet {
   return { ...jet, termes: [...jet.termes, terme] }
 }
 
-/** Le jet en toutes lettres — le même texte à l'écran et au journal. */
-export function decrireJet(jet: Jet): string {
-  const detail = jet.termes
+/**
+ * Le détail chiffré : « d20 11 · maîtrise +3 · Brûlure +1 ».
+ *
+ * Le premier terme est le dé, donc sans signe ; les suivants s'ajoutent ou se
+ * retranchent. Exporté parce que l'écran du jet affiche exactement cette ligne :
+ * l'y réécrire laissait deux formats libres de diverger sans que rien ne le
+ * signale — et c'est le journal qui aurait fini par contredire l'écran.
+ */
+export function decrireTermes(termes: readonly Terme[]): string {
+  return termes
     .map((t, i) => (i === 0 ? `${t.libelle} ${t.valeur}` : `${t.libelle} ${signe(t.valeur)}`))
     .join(' · ')
+}
 
+/** Le jet en toutes lettres — le même texte à l'écran et au journal. */
+export function decrireJet(jet: Jet): string {
   const contre =
     jet.seuil === null
       ? ''
       : ` contre ${jet.seuil} → ${LIBELLE_ISSUE[issueJet(jet)]}`
 
-  return `${jet.libelle} : ${detail} = ${totalJet(jet)}${contre}`
+  return `${jet.libelle} : ${decrireTermes(jet.termes)} = ${totalJet(jet)}${contre}`
 }
 
 function signe(valeur: number): string {

@@ -1,7 +1,6 @@
 import { journaliser, modifierPersonnage } from '../data/repo.ts'
 import type { Catalog } from '../domain/catalog.ts'
-import { computeFatigueMax } from '../domain/competences.ts'
-import { bruluresDisponibles, consommerBrulures } from '../domain/magie.ts'
+import { appliquerConsommation, bruluresDisponibles, consommerBrulures } from '../domain/magie.ts'
 import type { Character } from '../domain/types.ts'
 
 /**
@@ -30,20 +29,12 @@ export function PasBrulure({
 
   function depenser() {
     if (disponibles === 0) return
-    const r = consommerBrulures(char, 1)
-    const fatigueMax = computeFatigueMax(char, catalog).max
+    const { char: apres, recit } = appliquerConsommation(char, catalog, consommerBrulures(char, 1))
 
-    void modifierPersonnage(char, (c) => ({
-      ...c,
-      brulures: r.brulures,
-      bruluresConsommees: r.bruluresConsommees,
-      fatigue: { ...c.fatigue, coches: Math.min(fatigueMax, c.fatigue.coches + r.fatigueAjoutee) },
-    }))
+    void modifierPersonnage(char, () => apres)
 
-    if (r.combustion) {
-      void journaliser(char.nom, 'combustion', `${char.nom} atteint la Combustion.`)
-    }
-    onDepense(r.combustion ? 'Combustion ! 1 Point de Fatigue, les marques s’effacent.' : null)
+    if (recit) void journaliser(char.nom, 'combustion', `${char.nom} atteint la Combustion.`)
+    onDepense(recit)
   }
 
   // Sans brûlure à dépenser, un bouton grisé n'est que du bruit sur un

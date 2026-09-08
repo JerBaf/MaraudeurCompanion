@@ -630,6 +630,3 @@ export const SEED: EntreeCatalogue[] = [
   ...EQUIPEMENTS,
   ...INVESTISSEMENTS,
 ]
-
-/** Tous les noms d'icônes référencés, pour le script de téléchargement. */
-export const ICONES_REFERENCEES = [...new Set(SEED.map((e) => e.icone))].sort()

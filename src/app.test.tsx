@@ -24,11 +24,23 @@ async function monter() {
  * Fait passer l'appareil en « je lance mes propres dés ».
  *
  * Indispensable dès qu'un test a besoin d'un résultat **choisi** : sans ça
- * l'écran propose un bouton « Lancer » et le dé tombe où il veut. C'est aussi
- * la seule façon de retrouver les six boutons d'initiative.
+ * l'écran propose un bouton « Lancer » et le dé tombe où il veut.
  */
 function mesPropresDes() {
   localStorage.setItem('maraudeur:des', 'main')
+}
+
+/**
+ * Dépose une initiative, avec ses propres dés : on saisit le d6 puis on valide.
+ *
+ * Le même geste que tous les autres jets de l'app. L'écran offrait auparavant
+ * six boutons numérotés, plus rapides à toucher mais uniques en leur genre.
+ */
+async function deposerInitiative(d6: number) {
+  fireEvent.change(await screen.findByLabelText('Résultat du d6'), {
+    target: { value: String(d6) },
+  })
+  fireEvent.click(screen.getByRole('button', { name: /Lancer l’initiative/ }))
 }
 
 /** Les clés d'un Storage se lisent par `key(i)`, pas par `Object.keys()`. */
@@ -211,7 +223,7 @@ describe('mode Combat', () => {
     expect(screen.queryByText('G pas touchão')).toBeNull()
 
     // --- Une fois l'initiative posée, la créature apparaît ---
-    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    await deposerInitiative(5)
     await waitFor(() => expect(screen.getByText('Carcasse')).toBeTruthy())
 
     // L'Évasion reste masquée tant que la MJ ne l'a pas rendue publique,
@@ -246,7 +258,7 @@ describe('mode Combat', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
 
     // Un 1 la place « après la MJ », alors que le tour actif est « avant la MJ ».
-    fireEvent.click(await screen.findByRole('button', { name: '1' }))
+    await deposerInitiative(1)
 
     await waitFor(() => expect(screen.getByText('Patientez.')).toBeTruthy())
     expect(screen.queryByText('Attaquer')).toBeNull()
@@ -272,7 +284,7 @@ describe('mode Combat', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Combat' }))
 
     // Un 5 la place « avant la MJ », qui est le sous-groupe actif au premier tour.
-    fireEvent.click(await screen.findByRole('button', { name: '5' }))
+    await deposerInitiative(5)
     await waitFor(() => expect(screen.getByText("C'est à vous de jouer.")).toBeTruthy())
 
     // Le champ de saisie reste la source de vérité quel que soit le mode : un
@@ -839,6 +851,23 @@ describe('outillage de table', () => {
     // La bascule fait passer tous les jets en saisie, sans quitter la fiche.
     fireEvent.click(screen.getByRole('checkbox', { name: /Je lance mes propres dés/ }))
     await waitFor(() => expect(screen.getAllByLabelText('Résultat du d20').length).toBeGreaterThan(0))
+  })
+
+  /**
+   * Régression : l'invocation d'une vie passée tirait par `cryptoRng` sans
+   * consulter le réglage de l'appareil, puis affichait « d2 → 1 » comme si la
+   * joueuse l'avait lancé. C'était le seul jet de l'app à contredire « Je lance
+   * mes propres dés ». Un Soulshifter neuf connaît deux vies, d'où le d2.
+   */
+  it('demande son résultat à la joueuse, jusque pour l’invocation d’une vie passée', async () => {
+    mesPropresDes()
+    await tablePreteAvecPersonnage('Soulshifter')
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+
+    expect(await screen.findByLabelText('Résultat du d2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Invoquer une vie passée/ })).toBeTruthy()
   })
 })
 

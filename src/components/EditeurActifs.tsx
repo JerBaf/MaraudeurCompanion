@@ -1,4 +1,5 @@
 import { COUT_GRATUIT } from '../domain/couts.ts'
+import { nouvelIdentifiant } from '../domain/random.ts'
 import { FACES_TABLE, type Actif, type Recharge, type Usages } from '../domain/types.ts'
 import { EditeurCout } from './EditeurCout.tsx'
 
@@ -27,13 +28,9 @@ const LIBELLE_RECHARGE: Record<ModeRecharge, string> = {
   aucune: 'Aucune — retrait à la main',
 }
 
-function nouvelId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `actif-${Date.now()}`
-}
-
 function actifVierge(nomPorteur: string): Actif {
   return {
-    id: nouvelId(),
+    id: nouvelIdentifiant(),
     nom: nomPorteur || 'Effet actif',
     table: { faces: 1, entrees: [{ texte: '' }] },
     usages: { max: 3, recharge: { kind: 'rituel', description: '' } },

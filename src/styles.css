@@ -699,7 +699,9 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
+  /* Le même que `.competence` : les deux sont des lignes pleine largeur, et
+     elles s'empilent dans les mêmes cartes. Elles avaient dérivé de 2 px. */
+  padding: 10px 12px;
   border-radius: var(--rayon);
   background: var(--encre-3);
   border: 1px solid transparent;

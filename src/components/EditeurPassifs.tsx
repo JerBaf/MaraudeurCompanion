@@ -6,6 +6,7 @@ import {
   type CleElement,
 } from '../domain/elements.ts'
 import { decrirePassif } from '../domain/passifs.ts'
+import { nouvelIdentifiant } from '../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
@@ -63,10 +64,6 @@ const LIBELLE_OP: Record<ModeOp, string> = {
   desavantage: 'Désavantage (−d4)',
 }
 
-function nouvelId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `passif-${Date.now()}`
-}
-
 function operationVierge(): Operation {
   return {
     kind: 'ajuster',
@@ -77,7 +74,7 @@ function operationVierge(): Operation {
 
 function passifVierge(): Passif {
   return {
-    id: nouvelId(),
+    id: nouvelIdentifiant(),
     libelle: '',
     declenchement: { kind: 'permanent' },
     effet: { texte: '', operations: [operationVierge()] },

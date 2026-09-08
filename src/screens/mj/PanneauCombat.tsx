@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Icone } from '../../components/Icone.tsx'
+import { nouvelIdentifiant } from '../../domain/random.ts'
 import {
   ajouterAdversaire,
   avancerSousGroupe,
@@ -204,7 +205,7 @@ function Adversaires({
   const [fatigueMax, setFatigueMax] = useState(0)
 
   function deposer(modele: ModeleAdversaire) {
-    const id = globalThis.crypto?.randomUUID?.() ?? `adv-${Date.now()}`
+    const id = nouvelIdentifiant()
     const adv = instancierAdversaire(modele, adversaires, id)
     void ajouterAdversaire(adv, modele.fatigueMax, seuils)
   }

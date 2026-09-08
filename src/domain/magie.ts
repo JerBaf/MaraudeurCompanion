@@ -1,5 +1,6 @@
 import type { Catalog } from './catalog.ts'
 import { decrireCout, montantPart, peutPayer } from './couts.ts'
+import { ajusterFatigue } from './fatigue.ts'
 import { MAX_FOI } from './modifiers.ts'
 import { aRetenu } from './passifs.ts'
 import { LIBELLE_MAGIE, type Character, type Magie, type Portee, type Sort } from './types.ts'
@@ -23,6 +24,35 @@ export {
   type ResultatBrulures,
   type ResultatConsommation,
 } from './brulures.ts'
+
+/** Ce que la Combustion raconte à la joueuse. Un seul texte, un seul endroit. */
+export const RECIT_COMBUSTION = 'Combustion ! 1 Point de Fatigue, les marques s’effacent.'
+
+/**
+ * Reporte sur la fiche ce qu'une consommation de brûlures a produit.
+ *
+ * `consommerBrulures`, `basculerCaseBrulure` et `combustionVolontaire` rendent
+ * toutes le même triplet sans l'appliquer — c'est ce qui les garde pures. Trois
+ * écrans faisaient le report à la main, en recopiant chacun le plafonnement de
+ * la Fatigue ; le voici une fois, avec le plafond **dérivé** via
+ * `ajusterFatigue` plutôt que recalculé sur place.
+ *
+ * Vit dans `magie.ts` et non dans `brulures.ts` : le plafond de Fatigue demande
+ * le catalogue, que `brulures.ts` ignore délibérément pour rester sous
+ * `couts.ts` dans l'ordre des couches.
+ */
+export function appliquerConsommation(
+  char: Character,
+  catalog: Catalog,
+  resultat: { brulures: number; bruluresConsommees: number; fatigueAjoutee: number },
+): { char: Character; recit: string | null } {
+  const { char: apres } = ajusterFatigue(
+    { ...char, brulures: resultat.brulures, bruluresConsommees: resultat.bruluresConsommees },
+    catalog,
+    resultat.fatigueAjoutee,
+  )
+  return { char: apres, recit: resultat.fatigueAjoutee > 0 ? RECIT_COMBUSTION : null }
+}
 
 // ---------------------------------------------------------------------------
 // Arcane
@@ -177,54 +207,33 @@ export function sortOuvertA(sort: Sort, classeId: string): boolean {
   return classes.length === 0 || classes.includes(classeId)
 }
 
-export function peutPayerFoi(char: Character, cout: number): boolean {
-  return char.foi >= cout
-}
-
 export function ajusterFoi(char: Character, delta: number): number {
   return Math.max(0, Math.min(MAX_FOI, char.foi + delta))
 }
 
-/** Gains de Points de Foi disponibles à la phase Grimoire du Feu de Camp. */
-export const GAINS_FOI = [
-  {
-    id: 'recueillir',
-    gain: 2,
-    nom: 'Recueillir',
-    description:
-      "Se recueillir dans un lieu de culte et écrire 2 à 3 phrases sur une thématique tirée au hasard.",
-    premierCampDuJour: true,
-    unParSession: true,
-  },
-  {
-    id: 'purifier',
-    gain: 2,
-    nom: 'Purifier',
-    description: "Rendre à la Lumière un lieu ou un être corrompu par l'Oblivion. Accordé par la MJ.",
-    premierCampDuJour: false,
-    unParSession: false,
-  },
-  {
-    id: 'fardeau',
-    gain: 3,
-    nom: 'Fardeau',
-    description:
-      "Prendre un désavantage sur une compétence pour la journée, ou un Point de Fatigue à la place d'une autre PJ.",
-    premierCampDuJour: false,
-    unParSession: true,
-  },
-  {
-    id: 'serment',
-    gain: 4,
-    nom: 'Serment',
-    description:
-      'Une compétence est tirée au sort ; toutes les autres subissent -4 jusqu\'à la fin de la journée.',
-    premierCampDuJour: true,
-    unParSession: true,
-  },
-] as const
+/**
+ * Ce que rapporte chaque façon de gagner des Points de Foi, et son nom.
+ *
+ * Indexé par identifiant plutôt que listé : l'écran du Feu de Camp ne parcourt
+ * pas cette table — chaque gain y a son geste propre (une thématique tirée, des
+ * boutons de compétence, le choix d'une alliée, une confirmation). Il vient
+ * chercher un montant et un nom, et rien d'autre.
+ *
+ * ⚠️ Les **conditions** ne sont pas ici : « premier camp du jour », « une fois
+ * par session » vivent dans `peutRecueillir` / `peutPrendreFardeau` /
+ * `peutPrononcerSerment` (`campfire.ts`), qui connaissent le contexte du camp.
+ * Les redire ici en aurait fait deux sources.
+ *
+ * `purifier` n'a pas d'écran : il s'accorde de vive voix par la MJ.
+ */
+export const GAINS_FOI = {
+  recueillir: { gain: 2, nom: 'Recueillir' },
+  purifier: { gain: 2, nom: 'Purifier' },
+  fardeau: { gain: 3, nom: 'Fardeau' },
+  serment: { gain: 4, nom: 'Serment' },
+} as const
 
-export type IdGainFoi = (typeof GAINS_FOI)[number]['id']
+export type IdGainFoi = keyof typeof GAINS_FOI
 
 // ---------------------------------------------------------------------------
 // Disponibilité d'un sort

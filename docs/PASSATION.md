@@ -21,7 +21,7 @@ un ordinateur, les joueuses depuis leur téléphone, tout se synchronise en temp
 | Commande | Effet |
 |---|---|
 | `npm run dev` | serveur de développement |
-| `npm test` | 285 tests — 242 de domaine, 7 de stockage, 36 de rendu |
+| `npm test` | les trois suites : règles du jeu, stockage, rendu |
 | `npm run typecheck` | TypeScript strict |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run icons` | télécharge les icônes manquantes et régénère `src/content/icones.ts` |
@@ -81,9 +81,13 @@ src/
   domain/      ⭐ les règles du jeu. TypeScript pur : ni React, ni Firebase, ni DOM.
   content/     le contenu livré (classes, sorts, exemples, rappels de règles)
   store/       stockage temps réel : implémentation locale et Firestore
-  data/repo.ts opérations métier sur la table — le seul écrivain
-  screens/     écrans joueuse et MJ
-  components/  avatar, compteurs, icônes, objets dépliables, filtres, éditeurs de contenu
+  config.ts    identifiants Firebase, code de table et PIN du mode local
+  data/repo.ts opérations métier sur la table — le seul écrivain. Façade sur
+               data/repo/, une section par sujet (voir plus bas)
+  hooks/       abonnement à la table, identité d'appareil, préférence de dés
+  screens/     écrans joueuse et MJ. Un onglet = un fichier, des deux côtés
+  components/  avatar, compteurs, icônes, objets dépliables, filtres, onglets,
+               lanceur de dés, éditeurs de contenu
 firebase/      règles de sécurité Firestore
 scripts/       téléchargement des icônes
 ```
@@ -121,6 +125,33 @@ et `objets.ts` l'utilisent pour annoncer ce qu'ils vont consommer sans importer 
 `modifiers → passifs → competences → modifiers`. Même raison pour la table des paiements,
 qui vit dans `couts.ts` et non dans le registre — dépenser une brûlure demande
 `brulures.ts`, qu'`elements.ts` ne peut pas importer.
+
+**`data/repo/` suit le même principe.** Le dépôt tenait ses quinze sections dans un
+fichier ; elles sont maintenant un module chacune, et `data/repo.ts` les ré-exporte —
+donc aucun écran n'a changé d'import. L'empilement ne remonte jamais :
+
+```
+chemins.ts       les chemins de documents. Ne dépend de rien
+table.ts         amorçage, abonnements, journal, personnages, Détachement.
+                 Porte les deux caches — roster et catalogue — que
+                 `modifierPersonnage` lit pour armer les passifs croisés
+catalogue.ts     les entrées, et l'export JSON
+combat.ts        bestiaire, adversaires, horloge de combat
+campfire.ts      sessions et Feu de Camp
+duel.ts          le Combat rapide
+notifications.ts ce que la MJ pousse sur un écran
+quetes.ts        acceptées, refusées, validées
+```
+
+Abonnements et personnages restent **dans le même module** : ils partagent les deux
+caches, et les séparer aurait demandé d'inventer des accesseurs autour d'un état
+mutable — de la plomberie pour le plaisir du découpage.
+
+**Un onglet = un fichier**, des deux côtés. `Fiche.tsx` et `EcranMJ.tsx` ne portent
+plus que le bandeau, la barre d'onglets (`components/Onglets.tsx`) et l'aiguillage.
+Trois onglets joueuse vivaient encore dans `Fiche.tsx` quand les quatre autres avaient
+déjà le leur ; ils sont désormais dans `OngletFiche.tsx`, `OngletSorts.tsx` et
+`OngletSac.tsx`.
 
 Le flux est à sens unique :
 
@@ -258,6 +289,27 @@ rend `indetermine` et l'app se garde de juger.
 Aucune valeur n'est stockée : la maîtrise et ses modificateurs repassent par
 `computeCompetence` au moment du jet, comme partout ailleurs.
 
+**3. `LanceurDes` est le seul geste de lancer.** Il lit la préférence d'appareil
+(`hooks/useDes.ts`) et décide seul s'il tire ou s'il demande le résultat ; un écran qui
+branche sa propre UI sur `useModeDes` refait son travail moins bien. Deux endroits l'ont
+fait et il ne faut pas y revenir : l'initiative portait six boutons numérotés, et
+l'invocation d'une vie passée tirait par `cryptoRng` **sans consulter le réglage du tout**,
+puis affichait « d2 → 1 » comme si la joueuse l'avait lancé. Les deux passent par
+`LanceurDes`.
+
+Il reste trois lectures du réglage hors du composant, et elles sont voulues :
+
+- **la case à cocher** qui le règle, sur l'onglet Fiche ;
+- **les osselets** : la joueuse qui les a jetés a déjà compté ses points rouges. Lui
+  redemander les quatre faces serait une double saisie pour le même résultat ;
+- **le dé d'attaque** : le champ libre du résultat est la source de vérité — un Point
+  d'Énergie peut venir d'ailleurs que d'un dé — donc le lanceur ne s'affiche que si
+  l'application tire. Sinon l'écran aurait deux champs pour un seul nombre.
+
+Les `cryptoRng` qui subsistent dans les écrans sont exactement les tirages que
+`rngManuel` refuse : risque d'investissement, thématique de recueil, compétence épargnée
+par le Serment. Ce ne sont pas des dés de joueuse.
+
 ---
 
 ## 4. Modèle Firestore et sécurité
@@ -380,7 +432,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
 | Cycles | **saisis à la main** par la MJ | ne doivent jamais transiter par l'appareil d'une joueuse |
-| Dés | **au choix de la joueuse** — l'app lance, ou elle saisit son lancer physique | ⚠️ **révise la décision d'origine** (« physiques à table »). Un réglage par appareil bascule tous les jets ; chaque jet garde une exception ponctuelle. Voir l'encadré § 3 |
+| Dés | **au choix de la joueuse** — l'app lance, ou elle saisit son lancer physique | ⚠️ **révise la décision d'origine** (« physiques à table »). Un réglage par appareil bascule tous les jets ; chaque jet garde une exception ponctuelle. **Tous** passent par `LanceurDes`, initiative et invocation de vie comprises — les trois exceptions sont listées § 3 |
 | Où vivent les jets | **à l'endroit de la chose qu'on lance** | la MJ ne voulait pas d'un écran qui centralise les jets : une joueuse qui veut lancer son Physique touche son Physique, elle ne le re-choisit pas dans une liste |
 | Test de Compétence | 1d20 + maîtrise + modificateurs, ±1d4 selon le net | n'existait nulle part avant : le ±d4 n'était qu'une puce d'affichage |
 | Seuil (DC) | **facultatif** | la MJ l'annonce à voix haute, ou pas. Sans seuil, l'app affiche le total et ne juge rien — `issueJet` rend `indetermine` |
@@ -523,7 +575,14 @@ Survenu trois fois — illusions, catalogue, puis `investissements` (qui faisait
 > **Si vous ajoutez un champ à `Character`, donnez-lui sa valeur neutre dans
 > `normaliserPersonnage`.** C'est la seule chose à retenir de cette section.
 
-Sept tests gardent cette régression (`describe('normalisation des fiches lues en base')`) — un par forme héritée.
+Des tests gardent cette régression (`describe('normalisation des fiches lues en base')`),
+un par forme héritée. **L'un d'eux garde la complétude** : il parcourt les champs d'une
+fiche fraîchement créée et vérifie qu'aucun ne ressort `undefined` d'une fiche minimale.
+Il a été écrit après une quatrième occurrence — `avatarSeed` avait échappé à la
+normalisation, et `Avatar` en lit la longueur pour en tirer une teinte ; comme
+l'application n'a **aucune error boundary**, une fiche antérieure au champ démontait
+l'écran entier, pas seulement l'avatar. La consigne ci-dessus reste vraie, mais elle
+n'est plus seule à tenir : le test échouera au prochain champ oublié.
 
 #### Piège n° 2 bis : le même piège vaut pour le catalogue
 
@@ -649,6 +708,7 @@ murs ; `overlay` reste utilisable pour ce qu'on ne fait que *pousser* vers un é
 
 | Piège | Détail |
 |---|---|
+| **Les règles Firestore ne sont pas déployées par le CI** | Elles ne vivent que dans la console Firebase : `git push` publie le code, jamais `firebase/firestore.rules`. Une collection ajoutée au code sans sa règle est refusée **en production**, et silencieusement du point de vue de la table — une action « qui ne marche pas », sans message. C'est arrivé pour `duels/` et `notifications/`, pendant que le README affirmait qu'aucune republication n'était nécessaire. **Republiez à chaque fois que ce fichier bouge** ; `git log -- firebase/firestore.rules` dit quand c'était la dernière. L'opération est idempotente : dans le doute, republiez. |
 | **Deux configs Vite** | `vite.config.ts` et `vitest.config.ts` sont séparés à dessein : vitest 2 embarque Vite 5, le projet utilise Vite 6, et les mélanger fait diverger les types du plugin React. Ne les fusionnez pas. |
 | **Firestore refuse un tableau de tableaux** | Et le store local, qui sérialise en JSON, l'accepte : le bug n'apparaîtrait qu'à la première sauvegarde de la MJ, **en production**. C'est pourquoi `Cout` s'écrit `{ branches: [{ parts: [...] }] }` et non un tableau nu à deux niveaux. Une assertion de forme garde le cas dans `firestore.test.ts`, faute d'émulateur. |
 | **Les tests forcent le mode local** | `SOUS_TEST` dans `store/index.ts`. Sans cela, la suite dépendrait de la présence d'une config Firebase — elle casserait dès que `src/config.ts` est renseigné, **et bloquerait le déploiement** puisque GitHub Actions lance les tests avant le build. |

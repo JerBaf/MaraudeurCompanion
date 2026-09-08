@@ -300,6 +300,11 @@ export function retirerObjet(char: Character, equipementId: string): Character {
  * joueuse, qui en règle le prix. Rien ne se recharge tout seul, pas même au feu
  * de camp.
  */
+export interface ResultatPaiementRecharge {
+  char: Character
+  recits: string[]
+}
+
 export function rechargerActif(
   char: Character,
   catalog: Catalog,
@@ -320,17 +325,3 @@ export function rechargerActif(
   return { char: poserCharges(char, eq, actif, max), recits: [] }
 }
 
-export interface ResultatPaiementRecharge {
-  char: Character
-  recits: string[]
-}
-
-/** Vrai si la joueuse peut déclencher elle-même la recharge — celle qui se paie. */
-export function peutRechargerSeule(
-  char: Character,
-  catalog: Catalog,
-  actif: Actif,
-): boolean {
-  const recharge = actif.usages?.recharge
-  return recharge?.kind === 'cout' && peutPayer(char, catalog, recharge.cout)
-}

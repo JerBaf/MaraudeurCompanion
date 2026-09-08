@@ -308,11 +308,6 @@ export function elementDepuisCle(cle: CleElement): ElementVariable {
   }
 }
 
-/** Vrai si l'élément est une jauge : une valeur stockée sur la fiche. */
-export function estJauge(element: ElementVariable): boolean {
-  return descripteur(element).lire !== undefined
-}
-
 /** La valeur courante d'une jauge. Lève sur un élément qui n'en est pas une. */
 export function lireElement(char: Character, element: ElementVariable): number {
   const lire = descripteur(element).lire

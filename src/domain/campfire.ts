@@ -65,10 +65,6 @@ export const PROFILS_CAMP: Record<TypeCamp, ProfilCamp> = {
   },
 }
 
-export function profilCamp(type: TypeCamp): ProfilCamp {
-  return PROFILS_CAMP[type]
-}
-
 export interface ResultatCamp {
   char: Character
   effets: string[]

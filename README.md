@@ -4,8 +4,10 @@ Companion app de table pour le jeu de rôle **Entre-Monde**.
 La MJ pilote depuis un ordinateur, les joueuses depuis leur téléphone, et tout
 se synchronise en temps réel.
 
-État : **les trois lots sont livrés** — socle technique, phase Standard, mode Combat
-et Feu de Camp.
+**En service à la table.** La fiche de personnage et la phase Standard, le mode Combat,
+le Feu de Camp, le Combat rapide, les Quêtes, les Notifications poussées sur l'écran
+d'une joueuse, et les jets de dés — au choix de chacune, dans l'app ou saisis après un
+lancer physique. La MJ saisit son contenu depuis l'éditeur de catalogue.
 
 ---
 
@@ -67,10 +69,16 @@ qui permet d'être MJ dans l'un et joueuse dans l'autre en même temps.
 Copiez le contenu de [`firebase/firestore.rules`](firebase/firestore.rules)
 dans **Firestore → Règles**, puis **Publier**.
 
-> ⚠️ **À republier après le lot 2** : le bestiaire a besoin de sa règle, et la
-> règle du combat a été resserrée pour qu'une joueuse ne puisse plus faire
-> avancer le tour. Le lot 3 n'a en revanche demandé **aucune** modification :
-> le feu de camp en préparation se range dans la collection déjà réservée à la MJ.
+> ⚠️ **À republier après chaque mise à jour qui touche ce fichier.** Les règles
+> ne sont pas déployées par le CI : elles ne vivent que dans la console Firebase,
+> et une collection ajoutée au code sans sa règle est refusée en production —
+> silencieusement du point de vue de la table, qui voit juste une action « qui ne
+> marche pas ». C'est arrivé pour `duels/` et `notifications/`, ajoutées après
+> le bestiaire.
+>
+> En cas de doute, republiez : l'opération est idempotente et sans risque.
+> `git log -- firebase/firestore.rules` dit quand le fichier a bougé pour la
+> dernière fois.
 
 ⚠️ **Ne sautez pas cette étape.** C'est le seul mécanisme qui empêche une
 joueuse de lire son nombre de cycles restants — et donc de savoir combien de vies
@@ -132,9 +140,10 @@ src/
   domain/     ⭐ les règles du jeu — TypeScript pur, sans React ni Firebase
   content/    le contenu livré (classes, sorts, équipement de base)
   store/      stockage temps réel : implémentation locale et Firestore
-  data/       opérations métier sur la table (repo)
+  data/       opérations métier sur la table — `repo`, le seul écrivain
+  hooks/      abonnements et préférences d'appareil
   screens/    écrans joueuse et MJ
-  components/ avatar, compteurs, icônes
+  components/ avatar, compteurs, icônes, lanceur de dés
 firebase/     règles de sécurité Firestore
 scripts/      téléchargement des icônes
 ```
@@ -143,53 +152,26 @@ scripts/      téléchargement des icônes
 navigateur, et c'est là que vivent les décisions délicates (moteur de
 modificateurs, Détachement, Combustion, cycles).
 
-### Le moteur de modificateurs
-
-Aucune valeur affichée n'est stockée. Compétences, Évasion, 6th Sens et coûts de
-sorts sont recalculés à chaque rendu :
-
-```
-valeur affichée = base + Σ(modificateurs explicites) + Σ(modificateurs dérivés)
-```
-
-Les modificateurs *dérivés* — Voie de la Flamme, Overdrive, Conteur, armure
-équipée — ne sont jamais écrits en base : ils se recalculent depuis l'état du
-personnage et ne peuvent donc pas se désynchroniser. Si les brûlures passent de
-3 à 5, le point de 6th Sens supplémentaire apparaît sans qu'aucun écran n'ait eu
-à y penser.
+> **Pour aller plus loin**, tout est dans [`docs/PASSATION.md`](docs/PASSATION.md) :
+> l'architecture détaillée et l'ordre des couches (§2), les abstractions centrales —
+> moteur de modificateurs, horloge de combat, jets de dés (§3), le modèle Firestore
+> et ce qui doit rester secret (§4), les décisions de règles arrêtées avec la MJ (§5),
+> et surtout **les pièges** (§6), qui est la section à lire avant de toucher au code.
+>
+> Ce README s'arrête volontairement à l'installation et à l'exploitation : ce qui
+> était redit aux deux endroits finissait par y diverger.
 
 ---
 
 ## Décisions de règles
 
-Quelques points que les PDF laissaient ouverts, tranchés avec la MJ :
+Les PDF laissaient des points ouverts ; ils ont été tranchés avec la MJ et sont
+consignés une seule fois, dans
+[`docs/PASSATION.md` §5](docs/PASSATION.md) — une cinquantaine d'entrées, des
+Points de Fatigue par classe au Jet d'Arcane, en passant par qui lance les dés.
 
-| Point | Décision |
-|---|---|
-| Points de Fatigue | Dusk Hunter **5**, Soulshifter **4**, Trickster **4** |
-| Arcane, d6 → Points d'Énergie | PE = résultat du dé (1→1 … 6→6) |
-| Cristal épuisé | sur **1 et 2** (le texte fait foi sur la table du PDF) |
-| Pool du Détachement | tous les sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base |
-| Feu de camp | qualifié **repos court** ou **fin de journée** — seul le second rend le 6th Sens et lève Fardeaux, Serments et Marques journalières |
-| Dés | **au choix de la joueuse** : chaque jet se lance d'un doigt dans l'app, ou se saisit après un lancer physique. Un réglage par appareil (« Je lance mes propres dés ») bascule tous les jets à la fois, et chaque jet garde de quoi faire l'inverse une fois. Le Détachement, les risques d'investissement et le tirage des offres restent tirés par l'app seule — ce ne sont pas des dés de joueuse |
-| Où vivent les jets | **là où vit la chose qu'on lance** : sur la ligne d'une compétence, sur le bouton d'un sort, sur l'Actif d'un objet. Aucun écran ne les regroupe |
-| Test de Compétence | 1d20 + maîtrise + modificateurs, ±1d4 si le net n'est pas neutre. Le **seuil est facultatif** : sans lui l'app affiche le total et se garde de juger |
-| Forcer le Destin | un second d20 ajouté au total, **une seule fois**. En dessous du seuil, l'échec devient critique et la Marque est **proposée d'un bouton**, jamais prise d'office |
-| Brûlures sur un jet | « +1 par brûlure utilisée » : un pas dans le panneau de jet, qui passe par `consommerBrulures` — la neuvième déclenche donc la Combustion comme ailleurs |
-| Jet d'Arcane | le dé d'un sort à cristal est **lu** : Points d'Énergie annoncés, cristal épuisé automatiquement sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en correction |
-| Cycles (1d4+2) | **saisis à la main par la MJ** depuis son écran, modifiables à tout moment. Jamais tirés par l'app : la valeur ne doit à aucun moment transiter par l'appareil d'une joueuse |
-| Bestiaire | écrit par la MJ, **hors du catalogue** : celui-ci est lisible par les joueuses, y ranger les Évasions et les seuils aurait tout révélé |
-| Seuil de Fatigue d'un adversaire | 🔒 jamais dans le document que lisent les joueuses ; elles ne voient que les dégâts cumulés |
-| Fin de combat | efface adversaires, initiatives et effets de tour, après confirmation |
-| Résolution du camp | à **l'ouverture**, pas à la fermeture — sans quoi le Serment prononcé à la phase Grimoire serait effacé aussitôt |
-| Session | ouverte explicitement par la MJ ; c'est là que les investissements rendent leurs comptes |
-| Contenu de la boutique | saisi par la MJ dans l'éditeur (Réglages) — le contenu livré en dur n'atteint jamais une base déjà amorcée |
-| Voie de la Flamme | paliers **cumulatifs** : à 7 brûlures on conserve le 6th Sens du seuil 4 et on gagne l'avantage en Physique |
-| Illusions du Trickster | disponibles en permanence, **hors des 3 emplacements** du Grimoire ; toute illusion acquise plus tard l'est aussi |
-
-Les seuils de la Voie de la Flamme sont déclarés dans `PALIERS_FLAMME`
-([`src/domain/modifiers.ts`](src/domain/modifiers.ts)) : en ajouter un revient à
-ajouter une entrée, sans toucher au calcul ni aux écrans.
+Ce README en portait un extrait plus court, qui avait déjà divergé sur deux
+points. Une décision de règle se lit désormais à un seul endroit.
 
 ---
 

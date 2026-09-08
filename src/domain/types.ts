@@ -71,8 +71,9 @@ export type ModifierOp =
  *
  * `fin-de-camp` = au prochain feu de camp, quel qu'il soit.
  * `fin-de-session` = uniquement à un feu de camp **initial**, qui ouvre une session.
- * `fin-tour-suivant` = Actions Alternatives ; `turnId` identifie le tour de combat
- * pendant lequel le modificateur a été posé, pour qu'il survive exactement un tour.
+ * `moment-combat` = les Actions Alternatives ; `momentFin` est un instant de
+ * l'horloge de combat, et non un numéro de tour — l'échéance d'une Esquive et
+ * celle d'une Diversion ne tombent pas au même endroit du tour.
  */
 export type ModifierExpiry =
   | { kind: 'jamais' }
@@ -470,7 +471,7 @@ export type Ressource = 'fatigue' | 'marques' | 'foi' | 'brulures' | 'lumens'
  * Passif réactif : « quand telle ressource bouge, telle autre varie ».
  *
  * S'arme au même régime que les modificateurs — équipement porté, amélioration
- * possédée. La résolution vit dans `domain/declencheurs.ts`.
+ * possédée. La résolution vit dans `domain/reactions.ts`.
  */
 export interface Declencheur {
   quand: Ressource
@@ -810,7 +811,11 @@ export interface Character {
  */
 export interface CharacterSecret {
   characterId: string
-  /** 1d4+2 tiré à la création. La joueuse ne doit jamais le voir. */
+  /**
+   * 1d4+2, **saisi à la main par la MJ** depuis son écran, quand elle le décide.
+   * Jamais tiré par l'application : la valeur ne doit à aucun moment transiter
+   * par l'appareil d'une joueuse. `0` signifie « pas encore renseigné ».
+   */
   cyclesTotal: number
   cyclesConsommes: number
   notesMJ: string
@@ -864,11 +869,20 @@ export interface Adversaire {
  */
 export type SeuilsAdversaires = Record<string, number>
 
+/**
+ * L'ordre du tour : [4-6] à l'initiative jouent avant la MJ, [1-3] après.
+ *
+ * Déclaré ici plutôt que dans `combat.ts`, qui le porte et le ré-exporte : le
+ * type était écrit aux deux endroits, `EtatCombat` ne pouvant pas l'importer
+ * sans fermer un cycle. Deux unions tenues d'accord à la main, pour trois
+ * chaînes — le vocabulaire vit avec le reste du vocabulaire.
+ */
+export type SousGroupe = 'avant-mj' | 'mj' | 'apres-mj'
+
 export interface EtatCombat {
   /** Numéro du tour, incrémenté par la MJ. Sert d'ancre aux Actions Alternatives. */
   tour: number
-  /** Sous-groupe qui agit : [4-6] avant la MJ, [1-3] après. */
-  sousGroupeActif: 'avant-mj' | 'mj' | 'apres-mj'
+  sousGroupeActif: SousGroupe
   /** Initiative saisie par chaque joueuse (résultat du d6). */
   initiatives: Record<string, number>
 }

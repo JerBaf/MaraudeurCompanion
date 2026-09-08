@@ -158,6 +158,9 @@ export function cyclesNonRenseignes(secret: CharacterSecret | null): boolean {
 export function normaliserPersonnage(brut: Character): Character {
   return {
     ...brut,
+    // Reconstruite à l'identique de `creerPersonnage` : une fiche antérieure au
+    // champ retrouve donc la teinte d'avatar qu'elle aurait toujours eue.
+    avatarSeed: brut.avatarSeed ?? `${brut.id}:${brut.nom}`,
     maitrises: convertirAncienProfil({ ...maitrisesVierges(), ...(brut.maitrises ?? {}) }),
     fatigue: brut.fatigue ?? { max: 4, coches: 0 },
     brulures: brut.brulures ?? 0,

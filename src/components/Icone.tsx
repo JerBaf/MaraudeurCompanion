@@ -15,8 +15,6 @@ import { useEffect, useState } from 'react'
 interface Props {
   nom: string
   taille?: number
-  /** Texte alternatif. Vide par défaut : l'icône est presque toujours décorative. */
-  libelle?: string
   /**
    * Couleur imposée — la rareté d'un objet.
    *
@@ -40,7 +38,7 @@ function initialesDe(nom: string): string {
   return `${(mots[0] as string)[0]}${(mots[1] as string)[0]}`.toUpperCase()
 }
 
-export function Icone({ nom, taille = 28, libelle, teinte }: Props) {
+export function Icone({ nom, taille = 28, teinte }: Props) {
   const [introuvable, setIntrouvable] = useState(false)
 
   // Un changement d'icône doit redonner sa chance au fichier.
@@ -54,10 +52,8 @@ export function Icone({ nom, taille = 28, libelle, teinte }: Props) {
       <span
         className="icone icone--repli"
         style={{ ...style, background: teinte ?? `hsl(${h} 42% 62%)` }}
-        title={libelle ?? nom}
-        aria-hidden={libelle ? undefined : true}
-        role={libelle ? 'img' : undefined}
-        aria-label={libelle}
+        title={nom}
+        aria-hidden={true}
       >
         {initialesDe(nom)}
       </span>
@@ -85,10 +81,8 @@ export function Icone({ nom, taille = 28, libelle, teinte }: Props) {
           maskPosition: 'center',
           WebkitMaskPosition: 'center',
         }}
-        title={libelle ?? nom}
-        aria-hidden={libelle ? undefined : true}
-        role={libelle ? 'img' : undefined}
-        aria-label={libelle}
+        title={nom}
+        aria-hidden={true}
       />
     )
   }
@@ -98,7 +92,7 @@ export function Icone({ nom, taille = 28, libelle, teinte }: Props) {
       className="icone"
       style={style}
       src={source}
-      alt={libelle ?? ''}
+      alt=""
       onError={() => setIntrouvable(true)}
     />
   )

@@ -82,9 +82,11 @@ import {
 } from './fatigue.ts'
 import {
   appliquerGainBrulures,
+  appliquerConsommation,
   basculerCaseBrulure,
   bruluresDisponibles,
   classesDuSort,
+  RECIT_COMBUSTION,
   etatCaseBrulure,
   combustionVolontaire,
   consommerBrulures,
@@ -482,6 +484,51 @@ describe('Combustion', () => {
     const char = nouveauPerso('soulshifter', { brulures: 5, bruluresConsommees: 3 })
     expect(bruluresDisponibles(char)).toBe(2)
     expect(() => consommerBrulures(char, 3)).toThrow(/disponibles/)
+  })
+
+  /**
+   * `consommerBrulures` rend un résultat, il ne l'applique pas. Trois écrans le
+   * reportaient sur la fiche à la main, avec le même plafonnement de Fatigue
+   * recopié : la règle vit désormais ici, et eux n'ont plus qu'à enregistrer.
+   */
+  it('reporte une consommation sur la fiche, Combustion comprise', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 9, bruluresConsommees: 8 })
+    const { char: apres, recit } = appliquerConsommation(char, catalog, consommerBrulures(char, 1))
+
+    expect(apres.brulures).toBe(0)
+    expect(apres.bruluresConsommees).toBe(0)
+    expect(apres.fatigue.coches).toBe(char.fatigue.coches + 1)
+    expect(recit).toBe(RECIT_COMBUSTION)
+  })
+
+  it('reporte une consommation ordinaire sans toucher à la Fatigue ni raconter', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 6, bruluresConsommees: 1 })
+    const { char: apres, recit } = appliquerConsommation(char, catalog, consommerBrulures(char, 2))
+
+    expect(apres.brulures).toBe(6)
+    expect(apres.bruluresConsommees).toBe(3)
+    expect(apres.fatigue.coches).toBe(char.fatigue.coches)
+    expect(recit).toBeNull()
+  })
+
+  /** La grille pleine ne déborde pas : le plafond est dérivé, pas lu sur la fiche. */
+  it('ne dépasse pas le plafond de Fatigue en entrant en Combustion', () => {
+    const plein = nouveauPerso('soulshifter', { brulures: 9, bruluresConsommees: 8 })
+    const max = computeFatigueMax(plein, catalog).max
+    const char = { ...plein, fatigue: { ...plein.fatigue, coches: max } }
+
+    const { char: apres } = appliquerConsommation(char, catalog, consommerBrulures(char, 1))
+    expect(apres.fatigue.coches).toBe(max)
+  })
+
+  /** La Combustion volontaire emprunte le même report, sans être une consommation. */
+  it('reporte aussi une Combustion volontaire', () => {
+    const char = nouveauPerso('soulshifter', { brulures: 2, bruluresConsommees: 1 })
+    const { char: apres } = appliquerConsommation(char, catalog, combustionVolontaire())
+
+    expect(apres.brulures).toBe(9)
+    expect(apres.bruluresConsommees).toBe(0)
+    expect(apres.fatigue.coches).toBe(char.fatigue.coches + 1)
   })
 
   /**
@@ -2498,6 +2545,26 @@ describe('normalisation des fiches lues en base', () => {
     expect(normalisee.modifiers).toEqual([])
     expect(normalisee.jetonsCamp.achat).toBeNull()
     expect(() => computeEvasion(normalisee, catalog)).not.toThrow()
+  })
+
+  /**
+   * Le piège n° 2 de la passation, tenu par un test plutôt que par la vigilance :
+   * tout champ de `Character` doit recevoir ici une valeur neutre.
+   *
+   * `avatarSeed` y avait échappé. `Avatar` lit `avatarSeed.length` pour en tirer
+   * une teinte, et l'application n'a pas d'error boundary : une fiche écrite
+   * avant l'existence du champ démontait donc l'écran entier, pas seulement
+   * l'avatar. Ce test échouera au prochain champ ajouté sans repli.
+   */
+  it('ne laisse aucun champ indéfini, quel que soit l’âge de la fiche', () => {
+    const minimale = { id: 'y', nom: 'Test', classeId: 'trickster' } as unknown as Character
+    const normalisee = normaliserPersonnage(minimale)
+
+    for (const champ of Object.keys(nouveauPerso('trickster')) as (keyof Character)[]) {
+      // Les horodatages sont posés par le dépôt à chaque écriture, pas ici.
+      if (champ === 'createdAt' || champ === 'updatedAt') continue
+      expect(normalisee[champ], `champ « ${champ} » non normalisé`).toBeDefined()
+    }
   })
 
   /**

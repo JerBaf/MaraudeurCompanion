@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
 import { Icone } from '../../components/Icone.tsx'
+import { Onglets } from '../../components/Onglets.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
 import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { cibleValeur } from '../../domain/elements.ts'
@@ -138,20 +139,12 @@ export function EcranMJ({
       </header>
 
       <div className="contenu contenu--large pile">
-        <div className="onglets" role="tablist">
-          {onglets.map((cle) => (
-            <button
-              key={cle}
-              type="button"
-              role="tab"
-              aria-selected={ongletActif === cle}
-              className={`onglet ${ongletActif === cle ? 'onglet--actif' : ''}`}
-              onClick={() => setOnglet(cle)}
-            >
-              {LIBELLE_ONGLET[cle]}
-            </button>
-          ))}
-        </div>
+        <Onglets
+          onglets={onglets}
+          actif={ongletActif}
+          libelle={(cle) => LIBELLE_ONGLET[cle]}
+          onChoisir={setOnglet}
+        />
 
         {ongletActif === 'combat' && etat && (
           <PanneauCombat etat={etat} personnages={personnages} adversaires={adversaires} />

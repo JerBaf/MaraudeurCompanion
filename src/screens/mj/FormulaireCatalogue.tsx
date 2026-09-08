@@ -11,6 +11,7 @@ import { COUT_GRATUIT } from '../../domain/couts.ts'
 import { dossiersDe, estRangeable } from '../../domain/filtres.ts'
 import { ELEMENTS_VARIABLES } from '../../domain/elements.ts'
 import { classesDuSort } from '../../domain/magie.ts'
+import { nouvelIdentifiant } from '../../domain/random.ts'
 import {
   RARETES,
   LIBELLE_SLOT,
@@ -78,10 +79,6 @@ export function nettoyer(entree: EntreeCatalogue): EntreeCatalogue {
   return { ...entree, nom: entree.nom.trim() }
 }
 
-function nouvelId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `cat-${Date.now()}`
-}
-
 /**
  * Une entrée vierge du type demandé.
  *
@@ -93,7 +90,7 @@ export function entreeVierge(kind: KindCreable, typesMagiques: TypeMagique[]): E
   // `creeLe` n'est posé qu'ici : les entrées écrites avant son existence n'en
   // ont pas, et se trient comme les plus anciennes. C'est le comportement
   // attendu, et il évite d'inventer une date qu'on ne connaît pas.
-  const base = { id: nouvelId(), nom: '', icone: 'crystal-shine', creeLe: Date.now() }
+  const base = { id: nouvelIdentifiant(), nom: '', icone: 'crystal-shine', creeLe: Date.now() }
   switch (kind) {
     case 'equipement':
       return { ...base, kind: 'equipement', slot: 'arme' } as Equipement
@@ -150,7 +147,7 @@ export function entreeVierge(kind: KindCreable, typesMagiques: TypeMagique[]): E
  */
 export function queteVierge(): Quete {
   return {
-    id: nouvelId(),
+    id: nouvelIdentifiant(),
     nom: '',
     icone: 'scroll-unfurled',
     creeLe: Date.now(),
@@ -385,7 +382,12 @@ export function FormulaireCatalogue({
               onChange={(e) => maj({ passifMoteur: e.target.value || undefined })}
             >
               <option value="">Aucun — tout passe par les passifs et les choix</option>
+              {/* Les trois valeurs qu'admet le type doivent figurer ici : sans
+                  option correspondante, éditer une classe qui en porte une
+                  affiche un sélecteur vide, et y toucher efface le champ. */}
               <option value="soulshifter-vies">Vies passées du Soulshifter</option>
+              <option value="dusk-hexcore">Hexcore du Dusk Hunter</option>
+              <option value="trickster-voie">Voie du Trickster</option>
             </select>
           </label>
         </>

@@ -28,6 +28,10 @@ const SOUS_TEST =
  * Tant que `FIREBASE_CONFIG` vaut `null`, l'app tourne entièrement en local.
  */
 function creer(): { store: Store; auth: Auth } {
+  // `FIREBASE_CONFIG === null` a l'air de répéter `MODE_LOCAL`, qui vaut
+  // exactement cela. C'est pourtant la clause qui restreint le type : TypeScript
+  // ne suit pas un booléen `const` importé d'un autre module, et sans elle
+  // `initFirebase(FIREBASE_CONFIG)` ne compile plus. Ne pas « simplifier ».
   if (SOUS_TEST || MODE_LOCAL || FIREBASE_CONFIG === null) {
     return { store: localStore, auth: createLocalAuth(CODE_TABLE_LOCAL, PIN_MJ_LOCAL) }
   }

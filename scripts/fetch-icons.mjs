@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * Télécharge les icônes référencées par le catalogue depuis game-icons.net.
+ * Télécharge la palette d'icônes de l'application depuis game-icons.net.
+ *
+ * La liste est celle de `PALETTE`, plus bas : c'est le choix éditorial de ce
+ * que les sélecteurs d'icônes proposent, et il est plus large que ce que le
+ * catalogue livré référence — la MJ doit pouvoir choisir autre chose.
  *
  *   npm run icons
  *

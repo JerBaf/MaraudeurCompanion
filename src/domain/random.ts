@@ -2,9 +2,9 @@
  * Tous les tirages de l'app passent par ici.
  *
  * L'aléatoire est injecté plutôt qu'appelé directement : c'est ce qui rend
- * testables le Détachement, les risques d'investissement et le tirage des cycles.
- * En production on utilise `cryptoRng` ; dans les tests, `seededRng` donne une
- * suite reproductible.
+ * testables le Détachement, les risques d'investissement et le tirage des
+ * offres. En production on utilise `cryptoRng` ; dans les tests, `seededRng`
+ * donne une suite reproductible.
  */
 
 export interface Rng {
@@ -58,6 +58,18 @@ function makeRng(next: () => number): Rng {
       return Array.from({ length: count }, () => int(1, faces))
     },
   }
+}
+
+/**
+ * Un identifiant neuf, pour tout ce que l'application crée.
+ *
+ * Vit ici parce que c'est le module qui possède l'accès à `crypto` : six
+ * fichiers en portaient chacun leur copie, et quatre d'entre elles retombaient
+ * sur `` `préfixe-${Date.now()}` `` — deux créations dans la même milliseconde
+ * produisaient alors le même identifiant. Le repli tire aussi au sort.
+ */
+export function nouvelIdentifiant(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
 /** Aléatoire de production, adossé à `crypto` quand il est disponible. */
@@ -167,7 +179,8 @@ const FACE_VIERGE = 4
  * Chaque face marquée d'un point rouge apporte une brûlure.
  *
  * Le gain renvoyé est **brut** : les passifs qui le transforment — Overheat, qui
- * ajoute 1 au total — s'appliquent dans `appliquerGainBrulures` (`magie.ts`).
+ * ajoute 1 au total — s'appliquent dans `appliquerGainBrulures` (`brulures.ts`,
+ * ré-exporté par `magie.ts`).
  */
 export function tirerOsselets(rng: Rng): { des: number[]; brulures: number } {
   const des = rng.roll(4, 4)

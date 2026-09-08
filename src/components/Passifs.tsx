@@ -9,7 +9,8 @@ import {
   rendreInvocationDeVie,
   vieActive,
 } from '../domain/effets.ts'
-import { cryptoRng } from '../domain/random.ts'
+import type { Rng } from '../domain/random.ts'
+import { LanceurDes } from './LanceurDes.tsx'
 import { optionRetenue } from '../domain/passifs.ts'
 import type { ChoixClasse, Character, VieSoulshifter } from '../domain/types.ts'
 
@@ -155,7 +156,7 @@ function Vies({
   const active = vieActive(char, vies)
   const disponible = peutTirerUneVie(char)
 
-  async function tirer() {
+  async function tirer(rng: Rng) {
     // Les gardes de l'écran protègent l'écran, pas la règle : on revérifie.
     if (faces === 0 || !disponible || enCours) return
 
@@ -167,7 +168,7 @@ function Vies({
     // un second appui repartirait d'un `vieTireeA` périmé.
     setEnCours(true)
     try {
-      const face = cryptoRng.int(1, faces)
+      const face = rng.int(1, faces)
       const choisie = connues[face - 1] ?? face
       setDernierTirage(`d${faces} → ${face}`)
       // Vie et jeton dans la même transformation : la personnalité ne peut pas
@@ -189,14 +190,15 @@ function Vies({
         l'heure est celle de la fiction, pas celle de la table.
       </p>
 
-      <button
-        type="button"
-        className="btn btn--principal btn--large"
-        onClick={() => void tirer()}
+      {/* Ce tirage passait par `cryptoRng` sans consulter le réglage, puis
+          affichait « d8 → 5 » comme si la joueuse l'avait lancé : le seul jet de
+          l'application qui contredisait « Je lance mes propres dés ». */}
+      <LanceurDes
+        des={[{ nombre: 1, faces }]}
+        libelle={disponible ? 'Invoquer une vie passée' : 'Invocation déjà utilisée'}
         disabled={faces === 0 || !disponible || enCours}
-      >
-        {disponible ? 'Invoquer une vie passée' : 'Invocation déjà utilisée'}
-      </button>
+        onJet={(rng) => void tirer(rng)}
+      />
 
       {peutAccorder && (
         <button

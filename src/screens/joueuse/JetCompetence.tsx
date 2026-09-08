@@ -8,6 +8,7 @@ import { computeMarquesMax, type ValeurCompetence } from '../../domain/competenc
 import {
   ajouterTerme,
   decrireJet,
+  decrireTermes,
   DES_DESTIN,
   desJetCompetence,
   forcerDestin,
@@ -109,9 +110,7 @@ export function JetCompetence({
           </div>
 
           <p className="jet__termes" style={{ margin: 0 }}>
-            {jet.termes
-              .map((t, i) => (i === 0 ? `${t.libelle} ${t.valeur}` : `${t.libelle} ${t.valeur < 0 ? '−' : '+'}${Math.abs(t.valeur)}`))
-              .join(' · ')}
+            {decrireTermes(jet.termes)}
           </p>
 
           {/* « Ajouter un +1 à n'importe quel jet par brûlure utilisée. » */}

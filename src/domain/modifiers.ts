@@ -10,7 +10,6 @@ import {
 import type {
   Character,
   Competence,
-  Magie,
   Modifier,
   ModifierSourceKind,
   Passif,
@@ -326,18 +325,3 @@ export function modificateurMJ(
   return { id: nouvelId('mj'), source: { kind: 'mj', label }, target, op, expires }
 }
 
-/** Effet d'une personnalité de Soulshifter, posé au lancement de Tribue ou Sens. */
-export function modificateurPersonnalite(
-  label: string,
-  target: Cible,
-  op: Modifier['op'],
-  magie: Magie = 'arcane',
-): Modifier {
-  return {
-    id: nouvelId('personnalite'),
-    source: { kind: 'personnalite', label, ref: magie },
-    target,
-    op,
-    expires: { kind: 'fin-de-combat' },
-  }
-}

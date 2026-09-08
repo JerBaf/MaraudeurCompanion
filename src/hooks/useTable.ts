@@ -10,6 +10,7 @@ import {
 } from '../data/repo.ts'
 import { createCatalog, type Catalog } from '../domain/catalog.ts'
 import type { Notification } from '../domain/notifications.ts'
+import { nouvelIdentifiant } from '../domain/random.ts'
 import type { Adversaire, Character, EtatTable } from '../domain/types.ts'
 import { effacerErreur } from '../store/erreurs.ts'
 import { auth, type Role } from '../store/index.ts'
@@ -103,7 +104,7 @@ export function useDeviceId(): string {
     const cle = 'maraudeur:device'
     let id = localStorage.getItem(cle)
     if (!id) {
-      id = globalThis.crypto?.randomUUID?.() ?? `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      id = nouvelIdentifiant()
       localStorage.setItem(cle, id)
     }
     return id
