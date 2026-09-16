@@ -24,7 +24,7 @@ import {
   tirerOffres,
   type ContexteCamp,
 } from './campfire.ts'
-import { createCatalog } from './catalog.ts'
+import { createCatalog, normaliserCoutSort } from './catalog.ts'
 import {
   appliquerProfil,
   convertirAncienProfil,
@@ -52,6 +52,7 @@ import {
 } from './combat.ts'
 import {
   actionsRapidesMax,
+  actionsRapidesRestantes,
   computeBonusEnergieAttaque,
   computeCompetence,
   computeBruluresMax,
@@ -115,8 +116,24 @@ import {
   modificateurSerment,
   paliersFlammeAtteints,
 } from './modifiers.ts'
-import { resoudrePassifs } from './reactions.ts'
-import { desDuSort, dissiperEffet, estPoseParUnSort, lancerSort } from './lancement.ts'
+import { appliquerEcriture, resoudrePassifs } from './reactions.ts'
+import {
+  desDuSort,
+  dissiperEffet,
+  estPoseParUnSort,
+  lancerSort,
+  reussiteAutomatiqueOfferte,
+} from './lancement.ts'
+import {
+  decrirePassif,
+  jetonDisponible,
+  optionAccessible,
+  optionRetenue,
+  peutChangerOption,
+  rendreJetonChoix,
+  retenirOption,
+  type MomentChoix,
+} from './passifs.ts'
 import {
   ajouterTerme,
   DE_COMPETENCE,
@@ -125,11 +142,18 @@ import {
   forcerDestin,
   issueJet,
   jetCompetence,
+  reussirAutomatiquement,
   termeBrulure,
   totalJet,
   type Jet,
 } from './jets.ts'
-import { normaliserCible, type Cible, type CibleHeritee, type CleElement } from './elements.ts'
+import {
+  decrireCible,
+  normaliserCible,
+  type Cible,
+  type CibleHeritee,
+  type CleElement,
+} from './elements.ts'
 import {
   DOSSIER_TOUS,
   FILTRES_VIERGES,
@@ -208,6 +232,7 @@ import { ACTIONS_DUEL } from './types.ts'
 import type {
   ActionDuel,
   Actif,
+  ChoixClasse,
   Classe,
   Amelioration,
   Character,
@@ -220,9 +245,13 @@ import type {
   MancheJouee,
   ModeleAdversaire,
   Modifier,
+  Operation,
+  OptionChoixClasse,
   Passif,
   Quete,
+  Regle,
   Sort,
+  VerrouChoix,
   VieSoulshifter,
 } from './types.ts'
 import type { Rng } from './random.ts'
@@ -397,6 +426,117 @@ describe('Actions Rapides', () => {
   it('retombe à 1 quand un Serment écrase le Physique', () => {
     const char = nouveauPerso('trickster', { modifiers: [modificateurSerment('social')] })
     expect(actionsRapidesMax(char, catalog)).toBe(1)
+  })
+})
+
+/**
+ * Le 6th Sens et les Actions Rapides se comptent en points **utilisés**, comme
+ * la Fatigue en cases cochées : c'est ce qui permet de les viser d'un seuil ou
+ * d'une réaction sans que la fiche tourne en rond — les points restants
+ * dépendent du maximum, donc des passifs eux-mêmes.
+ */
+describe('6th Sens et Actions Rapides dans les passifs', () => {
+  const amelioration = (id: string, passif: Passif): Amelioration => ({
+    kind: 'amelioration',
+    id,
+    nom: id,
+    icone: 'compass',
+    prix: 10,
+    effetTexte: '',
+    passifs: [passif],
+  })
+
+  const possedant = (id: string, patch: Partial<Character> = {}) =>
+    nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [], ameliorations: [id], quetes: [] },
+      ...patch,
+    })
+
+  const ajuster = (cible: Cible, value: number): Operation => ({
+    kind: 'ajuster',
+    cible,
+    op: { kind: 'add', value },
+  })
+
+  it('laisse un passif hausser le maximum d’Actions Rapides', () => {
+    const vivacite = amelioration('vivacite', {
+      id: 'plus-une',
+      libelle: '',
+      declenchement: { kind: 'permanent' },
+      effet: {
+        texte: '',
+        operations: [ajuster({ element: { kind: 'actions-rapides' }, aspect: 'plafond' }, 1)],
+      },
+    })
+    const cat = createCatalog([...SEED, vivacite])
+
+    // Physique à +3 : deux Actions Rapides de base, une de plus par le passif.
+    expect(actionsRapidesMax(possedant(vivacite.id), cat)).toBe(3)
+    expect(actionsRapidesRestantes(possedant(vivacite.id, { actionsRapidesUtilisees: 1 }), cat)).toBe(2)
+    expect(disponiblePour(possedant(vivacite.id), cat, { kind: 'actions-rapides' })).toBe(3)
+  })
+
+  it('arme une réaction quand un 6th Sens est dépensé, pas quand il revient', () => {
+    const veille = amelioration('veille', {
+      id: 'veille',
+      libelle: 'Veille',
+      declenchement: {
+        kind: 'reaction',
+        quand: { element: { kind: 'sixth-sens' }, sens: 'augmente', chez: 'soi' },
+      },
+      effet: {
+        texte: '',
+        operations: [ajuster({ element: { kind: 'lumens' }, aspect: 'valeur' }, 5)],
+      },
+    })
+    const cat = createCatalog([...SEED, veille])
+    const reposee = possedant(veille.id, { lumens: 0 })
+    const usee = { ...reposee, sixthSensUtilises: 1 }
+
+    expect(resoudrePassifs(reposee, usee, cat).char.lumens).toBe(5)
+    expect(resoudrePassifs(usee, reposee, cat).recits).toEqual([])
+  })
+
+  /** Régression : un seuil posé sur le 6th Sens levait dans `derivedModifiers`. */
+  it('lit un seuil sur le 6th Sens sans faire planter la fiche', () => {
+    const concentre = amelioration('concentre', {
+      id: 'concentre',
+      libelle: 'Concentré',
+      declenchement: {
+        kind: 'permanent',
+        condition: { element: { kind: 'sixth-sens' }, seuil: 1 },
+      },
+      effet: {
+        texte: '',
+        operations: [ajuster({ element: { kind: 'evasion' }, aspect: 'valeur' }, 1)],
+      },
+    })
+    const cat = createCatalog([...SEED, concentre])
+
+    expect(computeEvasion(possedant(concentre.id), cat).total).toBe(EVASION_DE_BASE)
+    expect(computeEvasion(possedant(concentre.id, { sixthSensUtilises: 1 }), cat).total).toBe(
+      EVASION_DE_BASE + 1,
+    )
+  })
+
+  it('borne une écriture de 6th Sens entre zéro et le maximum', () => {
+    const regain = ajuster({ element: { kind: 'sixth-sens' }, aspect: 'valeur' }, -1)
+
+    const reposee = nouveauPerso('trickster', { sixthSensUtilises: 0 })
+    expect(appliquerEcriture(reposee, catalog, regain).applique).toBe(0)
+
+    const r = appliquerEcriture(nouveauPerso('trickster', { sixthSensUtilises: 1 }), catalog, regain)
+    expect(r.char.sixthSensUtilises).toBe(0)
+    expect(r.applique).toBe(-1)
+  })
+
+  it('nomme la jauge par ce qu’elle compte', () => {
+    expect(decrireCible({ element: { kind: 'sixth-sens' }, aspect: 'valeur' })).toBe(
+      '6th Sens utilisés',
+    )
+    expect(decrireCible({ element: { kind: 'actions-rapides' }, aspect: 'plafond' })).toBe(
+      'Actions Rapides maximum',
+    )
   })
 })
 
@@ -615,6 +755,24 @@ describe('Combustion', () => {
     // Quatre 4 : aucune source de brûlure, donc rien à majorer.
     expect(appliquerGainBrulures(dusk, 0).gainEffectif).toBe(0)
   })
+
+  /**
+   * Régression : l'écran écrit la configuration dans `passifs.choix`, mais
+   * Overheat lisait l'ancien champ `passifs.hexcore`. Une Dusk Hunter créée dans
+   * l'app qui choisissait Overheat n'en recevait rien.
+   */
+  it('suit la configuration choisie à l’écran, pas l’ancien champ', () => {
+    const neuve = nouveauPerso('dusk-hunter', { brulures: 0 })
+    const surchauffe = { ...neuve, passifs: { ...neuve.passifs, choix: { hexcore: 'overheat' } } }
+    expect(appliquerGainBrulures(surchauffe, 2).gainEffectif).toBe(3)
+
+    // Une fiche ancienne repassée en Overdrive garde son vieux champ : il ne compte plus.
+    const revenue = nouveauPerso('dusk-hunter', {
+      brulures: 0,
+      passifs: { hexcore: 'overheat', choix: { hexcore: 'overdrive' } },
+    })
+    expect(appliquerGainBrulures(revenue, 2).gainEffectif).toBe(2)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -805,14 +963,73 @@ describe('lancer un sort', () => {
     expect(() => lancerSort(distraite, avecSort, { sortId: benediction.id }, seededRng(1))).toThrow()
   })
 
-  /** Le « X » : la joueuse choisit ce qu'elle dépense, et l'effet en dépend. */
+  /**
+   * Le « X » : la joueuse choisit ce qu'elle paie, et l'effet en dépend.
+   * Sundown fait **prendre** ses Marques — « X est le nombre de Marques
+   * concédées » : la jauge monte.
+   */
   it('prélève le X choisi, borné par la part', () => {
     const sundown = catalog.sort('sundown') as Sort
-    const char = nouveauPerso('dusk-hunter', { grimoire: [sundown.id], marques: 3 })
+    const char = nouveauPerso('dusk-hunter', { grimoire: [sundown.id], marques: 0 })
 
-    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 2 }, seededRng(1)).char.marques).toBe(1)
+    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 2 }, seededRng(1)).char.marques).toBe(2)
     // Le maximum déclaré fait loi, même si la joueuse en demande plus.
-    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 9 }, seededRng(1)).char.marques).toBe(0)
+    expect(lancerSort(char, catalog, { sortId: sundown.id, x: 9 }, seededRng(1)).char.marques).toBe(3)
+  })
+
+  /** « Ajoutez la valeur du d6 à votre Social » : le dé tiré donne sa valeur à l'effet. */
+  it('ajoute la valeur du dé du sort, et rien sans dé', () => {
+    const rouge: Sort = {
+      kind: 'sort',
+      id: 'rouge',
+      nom: 'Rouge',
+      icone: 'palette',
+      magieId: 'arcane',
+      cout: COUT_GRATUIT,
+      de: '1d6',
+      duree: '1 heure',
+      effet: '',
+      actifs: [
+        {
+          id: 'principal',
+          nom: 'Rouge',
+          table: {
+            faces: 1,
+            entrees: [
+              {
+                texte: 'Social + d6',
+                operations: [
+                  {
+                    kind: 'ajuster',
+                    cible: { element: { kind: 'competence', competence: 'social' }, aspect: 'valeur' },
+                    op: { kind: 'add-de' },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const sansDe: Sort = { ...rouge, id: 'rouge-sans-de', de: null }
+    const avecRouge = createCatalog([...SEED, rouge, sansDe])
+
+    const r = lancerSort(
+      nouveauPerso('trickster', { grimoire: [rouge.id] }),
+      avecRouge,
+      { sortId: rouge.id },
+      rngManuel([4]),
+    )
+    expect(computeCompetence(r.char, avecRouge, 'social').bonus).toBe(4)
+    expect(r.char.modifiers.filter(estPoseParUnSort)).toHaveLength(1)
+
+    const muet = lancerSort(
+      nouveauPerso('trickster', { grimoire: [sansDe.id] }),
+      avecRouge,
+      { sortId: sansDe.id },
+      rngManuel([]),
+    )
+    expect(muet.char.modifiers).toEqual([])
   })
 
   it('lance le dé du sort quand il en porte un', () => {
@@ -835,6 +1052,193 @@ describe('lancer un sort', () => {
     const r = lancerSort(alaLimite, catalog, { sortId: heat.id }, seededRng(1))
     expect(r.recits.join(' ')).toContain('Combustion')
     expect(r.char.fatigue.coches).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Les règles spéciales : ce qu'un passif change aux règles elles-mêmes. Le
+ * contenu décide qui en bénéficie ; le moteur sait où chacune agit.
+ */
+describe('règles spéciales', () => {
+  const accordant = (id: string, libelle: string, regle: Regle): Amelioration => ({
+    kind: 'amelioration',
+    id,
+    nom: id,
+    icone: 'compass',
+    prix: 10,
+    effetTexte: '',
+    passifs: [
+      { id, libelle, declenchement: { kind: 'permanent' }, effet: { texte: '', regles: [regle] } },
+    ],
+  })
+
+  const geant = accordant('geant', 'Âme de Géant', { kind: 'ame-de-geant' })
+  const lumiere = accordant('lumiere', 'Lumière', {
+    kind: 'reussite-automatique',
+    cout: coutDe(fixe('marques', 1, { sens: 'prendre' })),
+  })
+  const ombre = accordant('ombre', 'Ombre', { kind: 'sorts-suspendus' })
+
+  /** Un sort d'Arcane à table : une réussite automatique lance encore la table. */
+  const presage: Sort = {
+    kind: 'sort',
+    id: 'presage',
+    nom: 'Présage',
+    icone: 'orbital',
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: 'Instantané',
+    effet: 'Une table.',
+    actifs: [
+      {
+        id: 'table',
+        nom: 'Table',
+        table: { faces: 4, entrees: [1, 2, 3, 4].map((n) => ({ texte: `T${n}` })) },
+      },
+    ],
+  }
+
+  const avecRegles = createCatalog([...SEED, geant, lumiere, ombre, presage])
+  const polymorph = catalog.sort('polymorph') as Sort
+
+  /** Une Trickster Illusionniste qui porte la règle, Polymorph et Présage préparés. */
+  const beneficiaire = (regle: Amelioration, patch: Partial<Character> = {}) =>
+    nouveauPerso('trickster', {
+      possede: {
+        sorts: ['polymorph', 'tame', 'word-baboum', presage.id],
+        equipements: [],
+        ameliorations: [regle.id],
+        quetes: [],
+      },
+      grimoire: ['polymorph', 'tame', presage.id],
+      ...patch,
+    })
+
+  describe('Âme de Géant', () => {
+    it('remplace l’Effet Aléatoire d’un 6 par un sort décuplé', () => {
+      expect(resoudreArcane(6, true)).toMatchObject({
+        pointsEnergie: 6,
+        effetAleatoire: false,
+        ameDeGeant: true,
+      })
+      expect(resoudreArcane(5, true).ameDeGeant).toBe(false)
+      expect(resoudreArcane(6).ameDeGeant).toBe(false)
+    })
+
+    it('s’applique au lancement, pour qui la porte', () => {
+      const r = lancerSort(beneficiaire(geant), avecRegles, { sortId: polymorph.id }, rngManuel([6]))
+      expect(r.arcane).toMatchObject({ ameDeGeant: true, effetAleatoire: false })
+
+      const sansAme = lancerSort(
+        nouveauPerso('trickster'),
+        avecRegles,
+        { sortId: polymorph.id },
+        rngManuel([6]),
+      )
+      expect(sansAme.arcane?.effetAleatoire).toBe(true)
+    })
+
+    it('se nomme dans les effets en cours, faute de chiffre', () => {
+      const passif = geant.passifs?.[0] as Passif
+      expect(decrirePassif(passif)).toBe('Âme de Géant')
+      expect(
+        effetsActifs(beneficiaire(geant), avecRegles).some((e) => e.nom === 'Âme de Géant'),
+      ).toBe(true)
+    })
+  })
+
+  describe('réussite automatique', () => {
+    it('lance le sort sur un 5, sans dé, et fait prendre la Marque', () => {
+      expect(desDuSort(polymorph, { reussiteAutomatique: true })).toEqual([])
+
+      const r = lancerSort(
+        beneficiaire(lumiere, { marques: 0 }),
+        avecRegles,
+        { sortId: polymorph.id, reussiteAutomatique: true },
+        rngManuel([]),
+      )
+      expect(r.reussiteAutomatique).toBe(true)
+      expect(r.de).toBe(5)
+      expect(r.arcane).toMatchObject({ pointsEnergie: 5, cristalEpuise: false, effetAleatoire: false })
+      expect(r.char.marques).toBe(1)
+      expect(r.char.sortsEpuises).toEqual([])
+    })
+
+    it('lance encore les tables du sort, et elles seules', () => {
+      expect(desDuSort(presage, { reussiteAutomatique: true })).toEqual([{ nombre: 1, faces: 4 }])
+
+      const r = lancerSort(
+        beneficiaire(lumiere),
+        avecRegles,
+        { sortId: presage.id, reussiteAutomatique: true },
+        rngManuel([3]),
+      )
+      expect(r.effets).toContain('T3')
+    })
+
+    it('n’est offerte que sur un Jet d’Arcane, à qui porte la règle', () => {
+      expect(reussiteAutomatiqueOfferte(polymorph, beneficiaire(lumiere), avecRegles)?.source).toBe(
+        'Lumière',
+      )
+      expect(reussiteAutomatiqueOfferte(polymorph, nouveauPerso('trickster'), avecRegles)).toBeNull()
+      expect(() =>
+        lancerSort(
+          nouveauPerso('trickster'),
+          avecRegles,
+          { sortId: polymorph.id, reussiteAutomatique: true },
+          rngManuel([]),
+        ),
+      ).toThrow()
+
+      // Un Miracle ne se rate pas : il n'y a rien à réussir d'office.
+      const baboum = catalog.sort('word-baboum') as Sort
+      expect(reussiteAutomatiqueOfferte(baboum, beneficiaire(lumiere), avecRegles)).toBeNull()
+    })
+
+    it('se refuse quand la Marque ne peut plus se prendre', () => {
+      const saturee = beneficiaire(lumiere, { marques: MAX_MARQUES })
+      expect(() =>
+        lancerSort(
+          saturee,
+          avecRegles,
+          { sortId: polymorph.id, reussiteAutomatique: true },
+          rngManuel([]),
+        ),
+      ).toThrow()
+      expect(() => reussirAutomatiquement(saturee, avecRegles, 'physique', 10)).toThrow()
+    })
+
+    it('réussit un Test de Compétence sans dé ni Destin', () => {
+      const r = reussirAutomatiquement(beneficiaire(lumiere, { marques: 0 }), avecRegles, 'social', 25)
+      expect(issueJet(r.jet)).toBe('reussite')
+      expect(r.jet.destin).toBe('impossible')
+      expect(decrireJet(r.jet)).toBe('Social : réussite automatique (Lumière)')
+      expect(r.char.marques).toBe(1)
+
+      expect(() => reussirAutomatiquement(nouveauPerso('trickster'), avecRegles, 'social', 25)).toThrow()
+    })
+  })
+
+  it('ferme le Grimoire, mais pas les sorts qu’une option débloque', () => {
+    const suspendue = beneficiaire(ombre)
+    expect(disponibiliteSort(polymorph, suspendue, avecRegles).raisons).toContain('suspendu')
+    expect(() =>
+      lancerSort(suspendue, avecRegles, { sortId: polymorph.id }, rngManuel([3])),
+    ).toThrow()
+
+    // L'Illusionniste garde ses illusions : elles sont hors emplacement.
+    const illusion = catalog.sort('mage-hand') as Sort
+    expect(disponibiliteSort(illusion, suspendue, avecRegles).disponible).toBe(true)
+  })
+
+  /** La règle « 1 et 2 » vivait dans l'écran ; elle vit désormais au lancement. */
+  it('épuise le cristal au lancement, sur un 1 ou un 2', () => {
+    const r = lancerSort(nouveauPerso('trickster'), catalog, { sortId: polymorph.id }, rngManuel([2]))
+    expect(r.arcane?.cristalEpuise).toBe(true)
+    expect(r.char.sortsEpuises).toEqual([polymorph.id])
   })
 })
 
@@ -960,6 +1364,450 @@ describe('classe composée en données', () => {
     const indecise = arpenteur()
     expect(computeEvasion(indecise, avecClasse).total).toBe(EVASION_DE_BASE)
     expect(computeCompetence(indecise, avecClasse, 'roublardise').net).toBe('neutre')
+  })
+})
+
+/**
+ * Les deux verrous venus avec l'Astromancien et l'Eclipsed — le jeton que la MJ
+ * rend, la bascule qui se fait seule — et l'option qu'une Amélioration débloque.
+ * Une classe de test, pour ne dépendre d'aucun contenu livré.
+ */
+describe('choix de classe : jetons, défauts et bascules', () => {
+  const evasion = (id: string, value: number): Passif => ({
+    id,
+    libelle: '',
+    declenchement: { kind: 'permanent' },
+    effet: {
+      texte: '',
+      operations: [
+        { kind: 'ajuster', cible: { element: { kind: 'evasion' }, aspect: 'valeur' }, op: { kind: 'add', value } },
+      ],
+    },
+  })
+
+  const astre: ChoixClasse = {
+    id: 'astre',
+    libelle: 'Astre',
+    verrou: 'jeton',
+    options: [
+      { id: 'lune', nom: 'Lune', effet: '+1 Évasion', passifs: [evasion('lune', 1)] },
+      { id: 'soleil', nom: 'Soleil', effet: 'Rien de chiffré' },
+      { id: 'comete', nom: 'Comète', effet: 'À débloquer', requiertAmelioration: 'carte-du-ciel' },
+    ],
+  }
+
+  const etat: ChoixClasse = {
+    id: 'etat',
+    libelle: 'État',
+    verrou: 'automatique',
+    defaut: 'clair',
+    options: [
+      {
+        id: 'clair',
+        nom: 'Clair',
+        effet: 'Revient à zéro Marque',
+        bascule: { element: { kind: 'marques' }, comparaison: 'au-plus', seuil: 0 },
+      },
+      {
+        id: 'sombre',
+        nom: 'Sombre',
+        effet: 'Au plafond de Marques',
+        passifs: [evasion('sombre', -1)],
+        bascule: { element: { kind: 'marques' }, comparaison: 'au-moins', seuil: 'plafond' },
+      },
+    ],
+  }
+
+  const veilleuse: Classe = {
+    kind: 'classe',
+    id: 'veilleuse',
+    nom: 'Veilleuse',
+    icone: 'crystal-shine',
+    fatigueMax: 4,
+    sixthSensBase: 1,
+    lore: '',
+    passifTexte: '',
+    sortsIds: [],
+    choix: [astre, etat],
+  }
+
+  const carte: Amelioration = {
+    kind: 'amelioration',
+    id: 'carte-du-ciel',
+    nom: 'Carte du ciel',
+    icone: 'compass',
+    prix: 50,
+    effetTexte: 'Débloque la Comète.',
+  }
+
+  /** Un talisman qui hausse le plafond de Marques tant qu'il est porté. */
+  const talisman: Equipement = {
+    kind: 'equipement',
+    id: 'talisman',
+    nom: 'Talisman',
+    icone: 'crystal-shine',
+    slot: 'bibelot',
+    passifs: [
+      {
+        id: 'talisman',
+        libelle: '',
+        declenchement: { kind: 'permanent' },
+        effet: {
+          texte: '',
+          operations: [
+            { kind: 'ajuster', cible: { element: { kind: 'marques' }, aspect: 'plafond' }, op: { kind: 'add', value: 1 } },
+          ],
+        },
+      },
+    ],
+  }
+
+  /** « Prenez une Marque quand une alliée en prend une. » */
+  const empathie: Amelioration = {
+    kind: 'amelioration',
+    id: 'empathie',
+    nom: 'Empathie',
+    icone: 'compass',
+    prix: 10,
+    effetTexte: '',
+    passifs: [
+      {
+        id: 'empathie',
+        libelle: 'Empathie',
+        declenchement: {
+          kind: 'reaction',
+          quand: { element: { kind: 'marques' }, sens: 'augmente', chez: 'un-allie' },
+        },
+        effet: {
+          texte: '',
+          operations: [
+            { kind: 'ajuster', cible: { element: { kind: 'marques' }, aspect: 'valeur' }, op: { kind: 'add', value: 1 } },
+          ],
+        },
+      },
+    ],
+  }
+
+  const cat = createCatalog([...SEED, veilleuse, carte, talisman, empathie])
+
+  const iris = (patch: Partial<Character> = {}) =>
+    normaliserPersonnage({
+      ...creerPersonnage(
+        { id: 'p-iris', nom: 'Iris', classeId: veilleuse.id, maitrises: maitrisesVierges() },
+        cat,
+        0,
+      ),
+      ...patch,
+    } as Character)
+
+  it('ouvre chaque verrou au bon moment', () => {
+    const verrous: VerrouChoix[] = ['libre', 'feu-de-camp', 'jeton', 'automatique']
+    const ouverts = (moment: MomentChoix) =>
+      verrous.map((verrou) => peutChangerOption(iris(), { ...astre, verrou }, moment))
+
+    expect(ouverts('fiche')).toEqual([true, false, true, false])
+    expect(ouverts('feu-de-camp')).toEqual([true, true, true, false])
+    expect(ouverts('mj')).toEqual([true, true, true, true])
+  })
+
+  it('laisse le premier choix libre, puis consomme le jeton jusqu’à ce que la MJ le rende', () => {
+    const lune = retenirOption(iris(), astre, 'lune', 'fiche', 100)
+    expect(optionRetenue(lune, astre)?.id).toBe('lune')
+    expect(jetonDisponible(lune, astre)).toBe(true)
+    expect(computeEvasion(lune, cat).total).toBe(EVASION_DE_BASE + 1)
+
+    const soleil = retenirOption(lune, astre, 'soleil', 'fiche', 200)
+    expect(optionRetenue(soleil, astre)?.id).toBe('soleil')
+    expect(soleil.passifs.jetonsChoix).toEqual({ astre: 200 })
+
+    // Jeton consommé : la fiche refuse, et ne change pas.
+    expect(peutChangerOption(soleil, astre, 'fiche')).toBe(false)
+    expect(retenirOption(soleil, astre, 'lune', 'fiche', 300)).toBe(soleil)
+    // Revenir sur l'option déjà retenue ne coûte rien non plus.
+    expect(retenirOption(lune, astre, 'lune', 'fiche', 300)).toBe(lune)
+
+    // La MJ passe outre sans consommer, puis rend le jeton.
+    const arbitree = retenirOption(soleil, astre, 'lune', 'mj', 300)
+    expect(optionRetenue(arbitree, astre)?.id).toBe('lune')
+    expect(arbitree.passifs.jetonsChoix).toEqual({ astre: 200 })
+
+    const rendue = rendreJetonChoix(arbitree, astre.id)
+    expect(jetonDisponible(rendue, astre)).toBe(true)
+    expect(peutChangerOption(rendue, astre, 'fiche')).toBe(true)
+  })
+
+  it('verrouille une option tant que l’Amélioration manque, et l’éteint si elle disparaît', () => {
+    const sansCarte = iris()
+    expect(optionAccessible(sansCarte, astre.options[2] as OptionChoixClasse)).toBe(false)
+    expect(retenirOption(sansCarte, astre, 'comete', 'fiche', 1)).toBe(sansCarte)
+
+    const avecCarte = iris({
+      possede: { sorts: [], equipements: [], ameliorations: [carte.id], quetes: [] },
+    })
+    const comete = retenirOption(avecCarte, astre, 'comete', 'fiche', 1)
+    expect(optionRetenue(comete, astre)?.id).toBe('comete')
+
+    const perdue = { ...comete, possede: { ...comete.possede, ameliorations: [] } }
+    expect(optionRetenue(perdue, astre)).toBeUndefined()
+    // Rien n'est effacé : rendre la carte rend l'étoile.
+    expect(perdue.passifs.choix?.astre).toBe('comete')
+  })
+
+  it('lit l’option de départ sans l’écrire', () => {
+    const neuve = iris()
+    expect(neuve.passifs.choix).toEqual({})
+    expect(optionRetenue(neuve, etat)?.id).toBe('clair')
+    // Sans défaut, rien n'est retenu avant le premier choix.
+    expect(optionRetenue(neuve, astre)).toBeUndefined()
+  })
+
+  it('refuse à la joueuse de changer un état automatique, pas à la MJ', () => {
+    const neuve = iris()
+    expect(retenirOption(neuve, etat, 'sombre', 'feu-de-camp', 1)).toBe(neuve)
+    expect(optionRetenue(retenirOption(neuve, etat, 'sombre', 'mj', 1), etat)?.id).toBe('sombre')
+  })
+
+  it('attribue un état automatique à la fiche, pas à un choix de la joueuse', () => {
+    const sombre = iris({ passifs: { choix: { etat: 'sombre' } } })
+    expect(effetsActifs(sombre, cat).find((e) => e.id.endsWith(':sombre'))?.origine).toBe('derive')
+
+    const lune = iris({ passifs: { choix: { astre: 'lune' } } })
+    expect(effetsActifs(lune, cat).find((e) => e.id.endsWith(':lune'))?.origine).toBe('choisi')
+  })
+
+  describe('bascule automatique', () => {
+    const etatDe = (c: Character) => optionRetenue(c, etat)?.id
+
+    it('passe en Sombre au plafond, y reste entre deux, et revient à zéro', () => {
+      const avant = iris({ marques: 2 })
+      const plein = resoudrePassifs(avant, { ...avant, marques: MAX_MARQUES }, cat)
+      expect(etatDe(plein.char)).toBe('sombre')
+      expect(plein.recits.map((r) => r.texte)).toContain('État — Sombre')
+
+      const entame = resoudrePassifs(plein.char, { ...plein.char, marques: 1 }, cat)
+      expect(etatDe(entame.char)).toBe('sombre')
+      expect(entame.recits).toEqual([])
+
+      const vide = resoudrePassifs(entame.char, { ...entame.char, marques: 0 }, cat)
+      expect(etatDe(vide.char)).toBe('clair')
+    })
+
+    it('ne bascule pas avant le plafond', () => {
+      const avant = iris({ marques: 1 })
+      const r = resoudrePassifs(avant, { ...avant, marques: 2 }, cat)
+      expect(r.char.passifs.choix?.etat).toBeUndefined()
+      expect(r.recits).toEqual([])
+    })
+
+    it('suit le plafond quand il baisse, sans que les Marques bougent', () => {
+      const portee = iris({
+        marques: MAX_MARQUES,
+        possede: { sorts: [], equipements: [talisman.id], ameliorations: [], quetes: [] },
+        equipe: { arme: null, armure: null, bibelot: talisman.id },
+      })
+      // Le talisman porte le plafond à 4 : 3 Marques ne suffisent pas.
+      expect(etatDe(resoudrePassifs(portee, { ...portee, lumens: 1 }, cat).char)).toBe('clair')
+
+      const rangee = { ...portee, equipe: { ...portee.equipe, bibelot: null } }
+      expect(etatDe(resoudrePassifs(portee, rangee, cat).char)).toBe('sombre')
+    })
+
+    it('respecte un état forcé par la MJ, jusqu’à l’écriture suivante', () => {
+      const pleine = iris({ marques: MAX_MARQUES, passifs: { choix: { etat: 'sombre' } } })
+      const forcee = { ...pleine, passifs: { ...pleine.passifs, choix: { etat: 'clair' } } }
+      expect(etatDe(resoudrePassifs(pleine, forcee, cat).char)).toBe('clair')
+
+      // Aux extrémités, la règle reprend la main à la première écriture venue.
+      expect(etatDe(resoudrePassifs(forcee, { ...forcee, lumens: 1 }, cat).char)).toBe('sombre')
+    })
+
+    it('bascule aussi chez une alliée qu’une réaction croisée atteint', () => {
+      const actrice = { ...nouveauPerso('trickster', { marques: 0 }), id: 'a-actrice', nom: 'Actrice' }
+      const alliee = {
+        ...iris({
+          marques: MAX_MARQUES - 1,
+          possede: { sorts: [], equipements: [], ameliorations: [empathie.id], quetes: [] },
+        }),
+        id: 'b-alliee',
+        nom: 'Alliée',
+      }
+
+      const r = resoudrePassifs(actrice, { ...actrice, marques: 1 }, cat, [actrice, alliee])
+      expect(r.autres[0]?.marques).toBe(MAX_MARQUES)
+      expect(etatDe(r.autres[0] as Character)).toBe('sombre')
+      expect(r.recits.map((x) => `${x.chez} : ${x.texte}`)).toContain('Alliée : État — Sombre')
+    })
+
+    it('laisse intactes les classes sans choix automatique', () => {
+      const dusk = nouveauPerso('dusk-hunter', { marques: 2 })
+      const apres = { ...dusk, marques: MAX_MARQUES }
+      expect(resoudrePassifs(dusk, apres, catalog).char).toEqual(apres)
+    })
+  })
+})
+
+/**
+ * Les trois classes livrées ensuite, jouées sur le contenu semé. Aucune ligne de
+ * code ne les nomme : tout ce qui suit passe par les mécanismes génériques.
+ */
+describe('Astromancien, Earthborn, Eclipsed', () => {
+  it('fixent leur Fatigue et leur 6th Sens de départ', () => {
+    const ids = ['astromancien', 'earthborn', 'eclipsed']
+    expect(ids.map((id) => nouveauPerso(id).fatigue.max)).toEqual([4, 5, 4])
+    expect(ids.map((id) => nouveauPerso(id).sixthSensBase)).toEqual([1, 1, 1])
+  })
+
+  /** Le contenu semé ne doit référencer que ce qui existe : une faute de frappe ne se verrait qu'à table. */
+  it('ne référencent que du contenu livré', () => {
+    for (const classe of catalog.classes()) {
+      for (const id of classe.sortsIds) expect(catalog.sort(id), `${classe.id} → ${id}`).toBeDefined()
+
+      for (const choix of classe.choix ?? []) {
+        const ids = choix.options.map((o) => o.id)
+        expect(new Set(ids).size, choix.id).toBe(ids.length)
+        if (choix.defaut) expect(ids, choix.id).toContain(choix.defaut)
+        if (choix.verrou === 'automatique') {
+          expect(choix.options.every((o) => o.bascule), choix.id).toBe(true)
+        }
+      }
+    }
+
+    // Tout sort débloqué l'est par une option de l'une de ses classes.
+    for (const sort of catalog.sorts().filter((s) => s.requiertPassif)) {
+      const options = classesDuSort(sort).flatMap((id) =>
+        (catalog.classe(id)?.choix ?? []).flatMap((c) => c.options.map((o) => o.id)),
+      )
+      expect(options, sort.id).toContain(sort.requiertPassif)
+    }
+
+    for (const sort of catalog.sorts()) expect(catalog.typeMagique(sort.magieId), sort.id).toBeDefined()
+  })
+
+  describe('Astromancien', () => {
+    const etoile = catalog.classe('astromancien')?.choix?.[0] as ChoixClasse
+    const sous = (option: string, patch: Partial<Character> = {}) => {
+      const char = nouveauPerso('astromancien', patch)
+      return { ...char, passifs: { ...char.passifs, choix: { etoile: option } } }
+    }
+
+    it('commence sans étoile, et en choisit une première sans consommer de jeton', () => {
+      const neuve = nouveauPerso('astromancien')
+      expect(optionRetenue(neuve, etoile)).toBeUndefined()
+
+      const ito = retenirOption(neuve, etoile, 'ito', 'fiche', 1)
+      expect(jetonDisponible(ito, etoile)).toBe(true)
+      expect(retenirOption(ito, etoile, 'amaterasu', 'fiche', 2).passifs.jetonsChoix).toEqual({
+        etoile: 2,
+      })
+    })
+
+    it('sous Ito, prend la Marque de Vanish et en tire un Point de Foi', () => {
+      const avant = sous('ito', { foi: 2, marques: 0 })
+      const vanish = lancerSort(avant, catalog, { sortId: 'vanish' }, rngManuel([]))
+      expect(vanish.char.marques).toBe(1)
+
+      const r = resoudrePassifs(avant, vanish.char, catalog)
+      expect(r.char.foi).toBe(3)
+      expect(r.recits.map((x) => x.texte)).toContain('Ito — Points de Foi +1')
+    })
+
+    it('sous Amaterasu, change 50 Lumens en un Point de Foi, hors emplacement', () => {
+      const avant = sous('amaterasu', { lumens: 60, foi: 2 })
+      expect(sortsHorsEmplacement(avant, catalog).map((s) => s.id)).toEqual(['amaterasu'])
+
+      const r = lancerSort(avant, catalog, { sortId: 'amaterasu' }, rngManuel([]))
+      expect(r.char.lumens).toBe(10)
+      expect(r.char.foi).toBe(3)
+
+      // Sous une autre étoile, le sort n'existe pas.
+      expect(sortsHorsEmplacement(sous('ito'), catalog)).toEqual([])
+    })
+  })
+
+  it('Earthborn : un 6 en Arcane réveille l’Âme de Géant', () => {
+    const r = lancerSort(nouveauPerso('earthborn'), catalog, { sortId: 'terraformation' }, rngManuel([6]))
+    expect(r.arcane).toMatchObject({ ameDeGeant: true, effetAleatoire: false })
+  })
+
+  describe('Eclipsed', () => {
+    const etat = catalog.classe('eclipsed')?.choix?.[0] as ChoixClasse
+    const etatDe = (c: Character) => optionRetenue(c, etat)?.id
+    const enOmbre = (marques: number) => {
+      const char = nouveauPerso('eclipsed', { marques })
+      return { ...char, passifs: { ...char.passifs, choix: { etat: 'ombre' } } }
+    }
+    const couleur = catalog.sort('couleur-rouge') as Sort
+
+    it('porte quatre Marques, et commence dans la Lumière', () => {
+      const neuve = nouveauPerso('eclipsed')
+      expect(computeMarquesMax(neuve, catalog).max).toBe(4)
+      expect(etatDe(neuve)).toBe('lumiere')
+      expect(reussiteAutomatiqueOfferte(couleur, neuve, catalog)?.source).toBe('Lumière')
+    })
+
+    it('bascule en Ombre à la quatrième Marque : Grimoire fermé, sorts Ombre ouverts', () => {
+      const avant = nouveauPerso('eclipsed', { marques: 3 })
+      const ombre = resoudrePassifs(avant, { ...avant, marques: 4 }, catalog).char
+      expect(etatDe(ombre)).toBe('ombre')
+
+      expect(disponibiliteSort(couleur, ombre, catalog).raisons).toContain('suspendu')
+      expect(sortsHorsEmplacement(ombre, catalog).map((s) => s.id)).toEqual([
+        'raging-claw',
+        'void-call',
+      ])
+      // La réussite automatique appartient à la Lumière.
+      expect(reussiteAutomatiqueOfferte(couleur, ombre, catalog)).toBeNull()
+    })
+
+    it('fait entrer en Ombre par la Marque d’une réussite automatique', () => {
+      const avant = nouveauPerso('eclipsed', { marques: 3 })
+      const r = reussirAutomatiquement(avant, catalog, 'esprit', 15)
+      expect(etatDe(resoudrePassifs(avant, r.char, catalog).char)).toBe('ombre')
+    })
+
+    it('Raging Claw consomme deux Marques, lance son d6 puis sa pièce', () => {
+      const claw = catalog.sort('raging-claw') as Sort
+      expect(desDuSort(claw)).toEqual([
+        { nombre: 1, faces: 6 },
+        { nombre: 1, faces: 2 },
+      ])
+
+      const avant = enOmbre(4)
+      const r = lancerSort(avant, catalog, { sortId: claw.id }, rngManuel([3, 2]))
+      expect(r.char.marques).toBe(2)
+      expect(r.de).toBe(3)
+      expect(r.effets.join(' ')).toContain('Pile')
+      // Deux Marques restent : l'Ombre tient.
+      expect(etatDe(resoudrePassifs(avant, r.char, catalog).char)).toBe('ombre')
+    })
+
+    it('Void Call vide ce qui reste, et ramène à la Lumière', () => {
+      const avant = enOmbre(2)
+      const r = lancerSort(avant, catalog, { sortId: 'void-call' }, rngManuel([1]))
+      expect(r.char.marques).toBe(0)
+      expect(etatDe(resoudrePassifs(avant, r.char, catalog).char)).toBe('lumiere')
+    })
+
+    it('Void Call sur un 4 fait prendre un Point de Fatigue à la lanceuse', () => {
+      const r = lancerSort(enOmbre(4), catalog, { sortId: 'void-call' }, rngManuel([4]))
+      expect(r.char.fatigue.coches).toBe(1)
+      expect(r.effets).toContain('Points de Fatigue +1')
+    })
+
+    it('[Couleur] Rouge ajoute le d6 au Social — ou 5, en réussite automatique', () => {
+      const r = lancerSort(nouveauPerso('eclipsed'), catalog, { sortId: couleur.id }, rngManuel([4]))
+      expect(computeCompetence(r.char, catalog, 'social').bonus).toBe(4)
+      expect(r.effets).toContain('Social +4 — 1 heure')
+
+      const auto = lancerSort(
+        nouveauPerso('eclipsed'),
+        catalog,
+        { sortId: couleur.id, reussiteAutomatique: true },
+        rngManuel([]),
+      )
+      expect(computeCompetence(auto.char, catalog, 'social').bonus).toBe(5)
+      expect(auto.char.marques).toBe(1)
+    })
   })
 })
 
@@ -1274,6 +2122,95 @@ describe('coûts', () => {
     // Demander 5 ne prélève que 3 : le maximum fait loi.
     expect(payerCout(char, catalog, cout, { branche: 0, x: 5 }).char.marques).toBe(0)
     expect(payerCout(char, catalog, cout, { branche: 0, x: 2 }).char.marques).toBe(1)
+  })
+
+  /**
+   * Une part **prise** fait monter la jauge : c'est le « Coût : 1 Marque » de
+   * Vanish. Ce qui reste disponible, c'est la place sous le plafond dérivé.
+   */
+  it('fait prendre une Marque, dans la limite du plafond dérivé', () => {
+    const vanish = coutDe(fixe('marques', 1, { sens: 'prendre' }))
+    expect(decrireCout(vanish)).toBe('+1 Marques')
+
+    const apres = payerCout(nu(), catalog, vanish).char
+    expect(apres.marques).toBe(1)
+    expect(disponiblePour(apres, catalog, { kind: 'marques' }, 'prendre')).toBe(MAX_MARQUES - 1)
+
+    const saturee = nouveauPerso('dusk-hunter', { marques: MAX_MARQUES })
+    expect(peutPayer(saturee, catalog, vanish)).toBe(false)
+
+    // Un passif qui hausse le plafond rouvre de la place.
+    const tolerance: Amelioration = {
+      kind: 'amelioration',
+      id: 'tolerance',
+      nom: 'Tolérance',
+      icone: 'compass',
+      prix: 10,
+      effetTexte: '',
+      passifs: [
+        {
+          id: 'plus-une',
+          libelle: '',
+          declenchement: { kind: 'permanent' },
+          effet: {
+            texte: '',
+            operations: [
+              {
+                kind: 'ajuster',
+                cible: { element: { kind: 'marques' }, aspect: 'plafond' },
+                op: { kind: 'add', value: 1 },
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const avecTolerance = createCatalog([...SEED, tolerance])
+    const toleree = { ...saturee, possede: { ...saturee.possede, ameliorations: [tolerance.id] } }
+    expect(payerCout(toleree, avecTolerance, vanish).char.marques).toBe(MAX_MARQUES + 1)
+  })
+
+  it('fait prendre un X borné, et refuse quand la place manque', () => {
+    const concession = coutDe(variable('marques', { max: 3, sens: 'prendre' }))
+    expect(decrireCout(concession)).toBe('+X Marques (max 3)')
+    expect(payerCout(nu(), catalog, concession, { branche: 0, x: 2 }).char.marques).toBe(2)
+
+    const marquee = nouveauPerso('dusk-hunter', { marques: 2 })
+    expect(peutPayer(marquee, catalog, concession, 1)).toBe(true)
+    expect(peutPayer(marquee, catalog, concession, 2)).toBe(false)
+  })
+
+  /**
+   * « Jusqu'à N » : un sort Ombre reste lançable tant qu'il reste une Marque, et
+   * vide ce qui reste s'il en manque.
+   */
+  it('prélève au plus ce qui reste, et refuse quand il ne reste rien', () => {
+    const griffe = coutDe(fixe('marques', 2, { auPlus: true }))
+    expect(decrireCout(griffe)).toBe('jusqu’à 2 Marques')
+
+    expect(payerCout(nouveauPerso('dusk-hunter', { marques: 3 }), catalog, griffe).char.marques).toBe(1)
+    expect(payerCout(nouveauPerso('dusk-hunter', { marques: 1 }), catalog, griffe).char.marques).toBe(0)
+    expect(peutPayer(nouveauPerso('dusk-hunter', { marques: 0 }), catalog, griffe)).toBe(false)
+  })
+
+  /**
+   * Régression : les parts se vérifiaient une à une. « 1 Foi + X Foi » passait
+   * avec 3 Foi et X = 3, et laissait la joueuse à −1 Foi.
+   */
+  it('additionne les parts d’un même élément avant de les comparer', () => {
+    const baboum = catalog.sort('word-baboum') as Sort
+    const char = nouveauPerso('trickster', { foi: 3 })
+
+    expect(peutPayer(char, catalog, baboum.cout, 3, baboum)).toBe(false)
+    expect(payerCout(char, catalog, baboum.cout, { branche: 0, x: 2 }, baboum).char.foi).toBe(0)
+  })
+
+  /** Sundown dort en base sous l'ancienne forme : relu, il fait prendre ses Marques. */
+  it('relit l’ancien coût en Marques variables comme une prise', () => {
+    const cout = normaliserCoutSort({ kind: 'marques-variable', max: 3 })
+    expect(cout.branches[0]?.parts).toEqual([
+      { kind: 'variable', element: { kind: 'marques' }, min: 1, max: 3, sens: 'prendre' },
+    ])
   })
 
   /**
@@ -1919,6 +2856,52 @@ describe('passifs réactifs', () => {
     expect(effetsActifs(porte, avecSceau).some((e) => e.nom === 'Sceau du Martyr')).toBe(true)
   })
 
+  /** « Un Point de Foi par Marque prise » : le X d'une réaction est l'ampleur du changement. */
+  it('vaut, en « X », l’ampleur du changement qui l’arme', () => {
+    const astre: Equipement = {
+      kind: 'equipement',
+      id: 'astre',
+      nom: 'Astre',
+      icone: 'crystal-shine',
+      slot: 'bibelot',
+      passifs: [
+        {
+          id: 'foi-par-marque',
+          libelle: 'Astre',
+          declenchement: {
+            kind: 'reaction',
+            quand: { element: { kind: 'marques' }, sens: 'augmente', chez: 'soi' },
+          },
+          effet: {
+            texte: '',
+            operations: [
+              {
+                kind: 'ajuster',
+                cible: { element: { kind: 'foi' }, aspect: 'valeur' },
+                op: { kind: 'add-x' },
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const avecAstre = createCatalog([...SEED, astre])
+    const avant = nouveauPerso('trickster', {
+      possede: { sorts: [], equipements: [astre.id], ameliorations: [], quetes: [] },
+      equipe: { arme: null, armure: null, bibelot: astre.id },
+      marques: 0,
+      foi: 2,
+    })
+
+    expect(resoudrePassifs(avant, { ...avant, marques: 2 }, avecAstre).char.foi).toBe(4)
+
+    // Borné par le plafond comme toute réaction, et le récit ne dit que ce qui a bougé.
+    const presquePleine = { ...avant, foi: MAX_FOI - 1 }
+    const r = resoudrePassifs(presquePleine, { ...presquePleine, marques: 2 }, avecAstre)
+    expect(r.char.foi).toBe(MAX_FOI)
+    expect(r.recits[0]?.texte).toBe('Astre — Points de Foi +1')
+  })
+
   it('additionne deux déclencheurs qui visent la même ressource', () => {
     const second: Equipement = { ...sceau, id: 'autre-sceau', nom: 'Autre sceau', slot: 'arme' }
     const catalogue = createCatalog([...SEED, sceau, second])
@@ -2433,6 +3416,18 @@ describe('effets actifs', () => {
     const char = nouveauPerso('trickster', { passifs: { voieTrickster: 'illusionniste' } })
     const effet = effetsActifs(char, catalog).find((e) => e.nom === 'Illusionniste')
     expect(effet?.origine).toBe('feu-de-camp')
+  })
+
+  /** Régression : ces deux cartes lisaient les anciens champs, que l'écran n'écrit plus. */
+  it('suit les choix faits à l’écran pour Overheat et Illusionniste', () => {
+    const dusk = nouveauPerso('dusk-hunter')
+    const overheat = { ...dusk, passifs: { ...dusk.passifs, choix: { hexcore: 'overheat' } } }
+    expect(effetsActifs(overheat, catalog).some((e) => e.nom === 'Overheat')).toBe(true)
+    expect(effetsActifs(dusk, catalog).some((e) => e.nom === 'Overheat')).toBe(false)
+
+    // Un Trickster neuf commence Illusionniste : la carte doit le dire.
+    const trickster = nouveauPerso('trickster')
+    expect(effetsActifs(trickster, catalog).some((e) => e.nom === 'Illusionniste')).toBe(true)
   })
 
   it('attribue la Voie de la Flamme à l’état, pas à un choix', () => {
@@ -3642,6 +4637,27 @@ describe('Notifications — ce qui est payable', () => {
 
     expect(a.payable).toBe(false)
     expect(a.raison).toContain('il vous en manque 4')
+  })
+
+  /** À un prix qu'on prend, c'est la place qui manque, pas la réserve. */
+  it('dit ce qui manque pour prendre une Marque au plafond', () => {
+    const contenu: ContenuNotification = {
+      kind: 'choix',
+      options: [
+        {
+          id: 'a',
+          libelle: 'Toucher l’autel',
+          cout: coutDe(fixe('marques', 1, { sens: 'prendre' })),
+        },
+      ],
+    }
+
+    const saturee = nouveauPerso('trickster', { marques: MAX_MARQUES })
+    const [a] = choixProposes(saturee, catalog, notif(contenu))
+    expect(a?.payable).toBe(false)
+    expect(a?.raison).toBe('+1 Marques — il vous en manque 1')
+
+    expect(choixProposes(nouveauPerso('trickster'), catalog, notif(contenu))[0]?.payable).toBe(true)
   })
 
   it('propose un bouton par branche : « 2 Foi OU 10 Lumens » en donne deux', () => {

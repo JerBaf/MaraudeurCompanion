@@ -1,5 +1,7 @@
 import type { Catalog } from './catalog.ts'
 import { computeCompetence } from './competences.ts'
+import { payerCout } from './couts.ts'
+import { regleActive } from './passifs.ts'
 import type { Des, Rng } from './random.ts'
 import { LIBELLE_COMPETENCE, type Character, type Competence } from './types.ts'
 
@@ -38,6 +40,11 @@ export interface Jet {
    * critiques.
    */
   destin: 'impossible' | 'disponible' | 'force'
+  /**
+   * Réussi d'office, sans dé : le nom de ce qui l'a permis. Aucun terme, aucun
+   * Destin — il n'y a rien à additionner ni à pousser.
+   */
+  automatique?: { source: string }
 }
 
 export type IssueJet = 'reussite' | 'echec' | 'echec-critique' | 'indetermine'
@@ -69,6 +76,8 @@ export function totalJet(jet: Jet): number {
  * n'est appliqué ici : c'est la joueuse qui prend la Marque, d'un geste.
  */
 export function issueJet(jet: Jet): IssueJet {
+  // Avant le seuil : une réussite d'office n'a rien à comparer.
+  if (jet.automatique) return 'reussite'
   if (jet.seuil === null) return 'indetermine'
   if (totalJet(jet) >= jet.seuil) return 'reussite'
   return jet.destin === 'force' ? 'echec-critique' : 'echec'
@@ -94,6 +103,8 @@ export function decrireTermes(termes: readonly Terme[]): string {
 
 /** Le jet en toutes lettres — le même texte à l'écran et au journal. */
 export function decrireJet(jet: Jet): string {
+  if (jet.automatique) return `${jet.libelle} : réussite automatique (${jet.automatique.source})`
+
   const contre =
     jet.seuil === null
       ? ''
@@ -151,6 +162,36 @@ export function jetCompetence(
   if (v.bonus !== 0) termes.push({ libelle: 'modificateurs', valeur: v.bonus })
 
   return { libelle: LIBELLE_COMPETENCE[competence], termes, seuil, destin: 'disponible' }
+}
+
+/**
+ * Réussir un Test de Compétence d'office, au prix que fixe la règle.
+ *
+ * La réussite s'annonce **avant** le jet : aucun dé n'est lancé. Lève si la
+ * règle manque ou si le prix est impayable — l'écran cache le bouton, mais la
+ * règle ne peut pas dépendre d'un écran.
+ */
+export function reussirAutomatiquement(
+  char: Character,
+  catalog: Catalog,
+  competence: Competence,
+  seuil: number | null,
+): { char: Character; jet: Jet; recits: string[] } {
+  const active = regleActive(char, catalog, 'reussite-automatique')
+  if (!active) throw new Error('Aucune réussite automatique n’est en vigueur.')
+
+  const { char: apres, recits } = payerCout(char, catalog, active.regle.cout)
+  return {
+    char: apres,
+    recits,
+    jet: {
+      libelle: LIBELLE_COMPETENCE[competence],
+      termes: [],
+      seuil,
+      destin: 'impossible',
+      automatique: { source: active.source },
+    },
+  }
 }
 
 /**

@@ -130,6 +130,13 @@ export interface Cible {
 export interface DescripteurElement {
   libelle: string
   /**
+   * Ce que la jauge compte, quand ce n'est pas l'évidence. Le 6th Sens et les
+   * Actions Rapides se comptent en points **utilisés**, comme la Fatigue en
+   * cases cochées : une réaction à « 6th Sens » s'arme quand on en dépense un,
+   * et le libellé doit le dire.
+   */
+  libelleValeur?: string
+  /**
    * Les aspects qu'un modificateur peut viser. Vide = l'élément existe dans le
    * vocabulaire mais aucun passif ne sait encore l'ajuster.
    */
@@ -227,13 +234,29 @@ export const ELEMENTS_VARIABLES: Record<CleElement, DescripteurElement> = {
      * de visible.
      */
     aspects: ['plafond'],
+    /*
+     * La jauge compte les points **utilisés**, seule part stockée : les points
+     * restants dépendent du maximum, donc des passifs, et un seuil qui les lirait
+     * tournerait en rond dans `derivedModifiers`.
+     */
+    libelleValeur: '6th Sens utilisés',
+    lire: (c) => c.sixthSensUtilises,
+    ecrire: (c, v) => ({ ...c, sixthSensUtilises: v }),
     plafondBase: (c) => c.sixthSensBase,
     plafondPlancher: 0,
   },
   'actions-rapides': {
     libelle: 'Actions Rapides',
-    // Dérivées du Physique effectif (`actionsRapidesMax`), pas d'un modificateur.
-    aspects: [],
+    /*
+     * Comptées comme le 6th Sens, en actions **utilisées**. La base du plafond
+     * découle du Physique effectif, qui demande le catalogue : elle vit dans
+     * `competences.ts` (`BASES_PLAFOND_DERIVEES`), et un passif peut la hausser.
+     */
+    aspects: ['plafond'],
+    libelleValeur: 'Actions Rapides utilisées',
+    lire: (c) => c.actionsRapidesUtilisees,
+    ecrire: (c, v) => ({ ...c, actionsRapidesUtilisees: v }),
+    plafondPlancher: 0,
   },
   evasion: {
     libelle: 'Évasion',
@@ -404,7 +427,8 @@ export function decrireCible(cible: Cible): string {
   const nom = decrireElement(cible.element)
   // « Points de Foi maximum » plutôt que « plafond de Points de Foi » : c'est
   // la formulation que les écrans employaient déjà.
-  return cible.aspect === 'plafond' ? `${nom} maximum` : nom
+  if (cible.aspect === 'plafond') return `${nom} maximum`
+  return ELEMENTS_VARIABLES[cible.element.kind].libelleValeur ?? nom
 }
 
 // ---------------------------------------------------------------------------

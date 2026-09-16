@@ -11,45 +11,54 @@ import {
 } from '../domain/effets.ts'
 import type { Rng } from '../domain/random.ts'
 import { LanceurDes } from './LanceurDes.tsx'
-import { optionRetenue } from '../domain/passifs.ts'
-import type { ChoixClasse, Character, VieSoulshifter } from '../domain/types.ts'
+import {
+  decrireBascule,
+  jetonDisponible,
+  optionAccessible,
+  optionRetenue,
+  peutChangerOption,
+  rendreJetonChoix,
+  retenirOption,
+  type MomentChoix,
+} from '../domain/passifs.ts'
+import type {
+  ChoixClasse,
+  Character,
+  OptionChoixClasse,
+  VieSoulshifter,
+} from '../domain/types.ts'
 
 /**
  * Contrôles des passifs de classe.
  *
- * Les **choix** de classe — configuration du Hexcore, voie du Trickster — sont
- * désormais des données : cet écran les rend tous de la même façon, et créer
- * une classe qui en offre un ne demande plus d'écrire un composant. Chacun
- * porte son propre verrou (`ChoixClasse.verrou`), parce que la règle diffère :
- * le Hexcore se bascule quand on veut, au prix d'un tour de combat, tandis que
- * la voie du Trickster s'engage au Feu de Camp.
+ * Les **choix** de classe — configuration du Hexcore, voie du Trickster, Bonne
+ * Étoile, état de l'Eclipsed — sont des données : cet écran les rend tous de la
+ * même façon, et créer une classe qui en offre un ne demande pas d'écrire un
+ * composant. Chacun porte son propre verrou (`ChoixClasse.verrou`), parce que
+ * la règle diffère d'une classe à l'autre.
  *
  * Les vies du Soulshifter restent câblées : un dé dont les faces sont les vies
  * connues, un jeton d'invocation, des précisions par sort — rien de cela ne se
  * ramène à un choix parmi des options.
  *
- * ⚠️ Les deux déverrouillages ne se confondent pas. `autoriserToutChanger` dit
- * « on est à un moment où un choix verrouillé peut changer » — vrai aussi pour
- * la joueuse pendant la phase Sorts du camp. `peutAccorder` dit « on est sur
- * l'écran de la MJ » : rendre son invocation à un Soulshifter est un arbitrage,
- * jamais un droit de la joueuse.
+ * ⚠️ `moment` dit où l'on se trouve, et c'est tout ce qui ouvre un verrou. La
+ * phase Sorts du camp ouvre la voie du Trickster, pas l'état d'une Eclipsed ;
+ * seul l'écran de la MJ passe outre tout, et rend jetons et invocations — un
+ * arbitrage, jamais un droit de la joueuse.
  */
 export function Passifs({
   char,
   catalog,
   vies,
   maj,
-  /** La MJ peut passer outre le verrou du feu de camp. */
-  autoriserToutChanger = false,
-  /** Écran MJ : elle seule rend son invocation à un Soulshifter. */
-  peutAccorder = false,
+  moment = 'fiche',
 }: {
   char: Character
   catalog: Catalog
   vies: readonly VieSoulshifter[]
   maj: (t: (c: Character) => Character) => void
-  autoriserToutChanger?: boolean
-  peutAccorder?: boolean
+  /** Où l'on se trouve : la fiche, la phase Sorts du camp, ou l'écran de la MJ. */
+  moment?: MomentChoix
 }) {
   const classe = catalog.classe(char.classeId)
   const choix = classe?.choix ?? []
@@ -66,13 +75,20 @@ export function Passifs({
           key={c.id}
           choix={c}
           char={char}
+          catalog={catalog}
           maj={maj}
-          deverrouille={c.verrou === 'libre' || autoriserToutChanger}
+          moment={moment}
         />
       ))}
 
       {classe.passifMoteur === 'soulshifter-vies' && (
-        <Vies char={char} vies={vies} catalog={catalog} maj={maj} peutAccorder={peutAccorder} />
+        <Vies
+          char={char}
+          vies={vies}
+          catalog={catalog}
+          maj={maj}
+          peutAccorder={moment === 'mj'}
+        />
       )}
     </section>
   )
@@ -84,28 +100,62 @@ const EXPLICATION_VERROU: Record<ChoixClasse['verrou'], string> = {
   libre:
     "Changer prend 5 secondes — l'équivalent d'un tour de combat, pendant lequel vous ne pouvez rien faire d'autre que vous déplacer.",
   'feu-de-camp': 'Ce choix s’engage à la phase Sorts du Feu de Camp et vaut jusqu’au suivant.',
+  jeton:
+    'Le premier choix est libre. Ensuite, changer consomme votre jeton, que la MJ rend quand l’heure de jeu est passée.',
+  automatique: 'Ce choix bascule tout seul, selon votre état.',
 }
 
 function ChoixDeClasse({
   choix,
   char,
+  catalog,
   maj,
-  deverrouille,
+  moment,
 }: {
   choix: ChoixClasse
   char: Character
+  catalog: Catalog
   maj: (t: (c: Character) => Character) => void
-  deverrouille: boolean
+  moment: MomentChoix
 }) {
   const retenue = optionRetenue(char, choix)
+  const modifiable = peutChangerOption(char, choix, moment)
+  const aJeton = choix.verrou === 'jeton'
+  const jetonUtiliseA = char.passifs.jetonsChoix?.[choix.id]
+
+  const bascules = choix.options.flatMap((o) =>
+    o.bascule ? [`${o.nom} : ${decrireBascule(o.bascule)}`] : [],
+  )
+
+  function retenir(option: OptionChoixClasse) {
+    const stockee = char.passifs.choix?.[choix.id]
+    const consomme = aJeton && moment !== 'mj' && stockee !== undefined && stockee !== option.id
+    // Un jeton consommé ne revient que par la MJ : on prévient avant.
+    if (consomme && !confirm(`Passer à ${option.nom} ? Votre jeton sera utilisé jusqu’à ce que la MJ le rende.`)) {
+      return
+    }
+    maj((c) => retenirOption(c, choix, option.id, moment, Date.now()))
+  }
 
   return (
     <>
       <p className="tres-discret" style={{ margin: 0 }}>
+        {choix.libelle && <strong>{choix.libelle} — </strong>}
         {EXPLICATION_VERROU[choix.verrou]}
+        {aJeton && (jetonDisponible(char, choix) ? ' Jeton disponible.' : ' Jeton utilisé.')}
       </p>
+      {bascules.length > 0 && (
+        <p className="tres-discret" style={{ margin: 0 }}>
+          {bascules.join(' · ')}
+        </p>
+      )}
       {choix.options.map((o) => {
         const actif = retenue?.id === o.id
+        const accessible = optionAccessible(char, o)
+        const deverrouille = modifiable && accessible
+        const requise = o.requiertAmelioration
+          ? (catalog.amelioration(o.requiertAmelioration)?.nom ?? o.requiertAmelioration)
+          : null
         return (
           <button
             key={o.id}
@@ -113,21 +163,30 @@ function ChoixDeClasse({
             className={`objet ${actif ? 'objet--actif' : ''} ${deverrouille ? '' : 'objet--indisponible'}`}
             aria-pressed={actif}
             disabled={!deverrouille}
-            onClick={() =>
-              maj((c) => ({
-                ...c,
-                passifs: { ...c.passifs, choix: { ...(c.passifs.choix ?? {}), [choix.id]: o.id } },
-              }))
-            }
+            onClick={() => retenir(o)}
           >
             <span className="objet__corps">
               <span className="objet__nom">{o.nom}</span>
-              <span className="objet__meta">{o.effet}</span>
+              <span className="objet__meta">
+                {accessible ? o.effet : `Débloquée par ${requise}`}
+              </span>
             </span>
             {actif && <span className="puce puce--ambre">Actif</span>}
           </button>
         )
       })}
+      {moment === 'mj' && aJeton && (
+        <button
+          type="button"
+          className="btn"
+          disabled={jetonUtiliseA == null}
+          onClick={() => maj((c) => rendreJetonChoix(c, choix.id))}
+        >
+          {jetonUtiliseA == null
+            ? 'Jeton déjà disponible'
+            : `Rendre le jeton — utilisé à ${heure(jetonUtiliseA)}`}
+        </button>
+      )}
     </>
   )
 }

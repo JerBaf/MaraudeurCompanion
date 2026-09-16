@@ -2,7 +2,7 @@ import type { Catalog } from './catalog.ts'
 import { decrireCout, montantPart, peutPayer } from './couts.ts'
 import { ajusterFatigue } from './fatigue.ts'
 import { MAX_FOI } from './modifiers.ts'
-import { aRetenu } from './passifs.ts'
+import { aRetenu, regleActive } from './passifs.ts'
 import { LIBELLE_MAGIE, type Character, type Magie, type Portee, type Sort } from './types.ts'
 
 /*
@@ -69,14 +69,29 @@ export interface ResultatArcane {
   cristalEpuise: boolean
   /** Sur un 6 : la magie devient incontrôlable, on tire l'Effet Aléatoire (2d4). */
   effetAleatoire: boolean
+  /**
+   * Sur un 6, pour qui porte l'Âme de Géant : pas d'Effet Aléatoire, l'effet du
+   * sort est décuplé — ce que son texte « sur un 6 » précise, ou la MJ.
+   */
+  ameDeGeant: boolean
 }
 
-export function resoudreArcane(de: number): ResultatArcane {
+/**
+ * Le dé d'Arcane d'une réussite automatique.
+ *
+ * Décision de la MJ : pas de jet, le sort part comme sur un 5 — la plus haute
+ * puissance qui n'épuise pas le cristal et ne déborde pas en Effet Aléatoire.
+ */
+export const DE_REUSSITE_AUTOMATIQUE = 5
+
+export function resoudreArcane(de: number, ameDeGeant = false): ResultatArcane {
+  const six = de === 6
   return {
     de,
     pointsEnergie: de,
     cristalEpuise: de <= 2,
-    effetAleatoire: de === 6,
+    effetAleatoire: six && !ameDeGeant,
+    ameDeGeant: six && ameDeGeant,
   }
 }
 
@@ -240,10 +255,9 @@ export type IdGainFoi = keyof typeof GAINS_FOI
 // ---------------------------------------------------------------------------
 
 /**
- * Un sort utilisable sans occuper un des 3 emplacements du Grimoire.
- *
- * Aujourd'hui, seules les illusions du Trickster ayant choisi la voie
- * Illusionniste entrent dans ce cas.
+ * Un sort utilisable sans occuper un des 3 emplacements du Grimoire : tout sort
+ * qu'une option retenue débloque — les illusions de l'Illusionniste, Amaterasu,
+ * les sorts de l'état Ombre.
  */
 export function estHorsEmplacement(sort: Sort, char: Character, catalog: Catalog): boolean {
   return sort.requiertPassif !== undefined && aRetenu(char, catalog, sort.requiertPassif)
@@ -299,11 +313,15 @@ export type RaisonIndisponible =
    * `decrireCoutSort`, qui dit ce qu'il aurait fallu.
    */
   | 'cout-impayable'
+  /** Une règle ferme le Grimoire — l'état Ombre de l'Eclipsed. */
+  | 'suspendu'
 
 /**
  * Un sort est lançable s'il est dans les 3 slots du Grimoire (les illusions
  * d'Illusionniste font exception), si son cristal n'est pas épuisé, et si la
- * joueuse peut en payer au moins une branche du coût.
+ * joueuse peut en payer au moins une branche du coût. Une règle
+ * `sorts-suspendus` ferme le Grimoire : seuls restent alors les sorts qu'une
+ * option débloque.
  *
  * `x` est la valeur envisagée pour un coût variable : à zéro, un sort en « X
  * brûlures » reste disponible dès qu'il en reste une, puisque `min` borne le
@@ -316,9 +334,10 @@ export function disponibiliteSort(
   x = 0,
 ): { disponible: boolean; raisons: RaisonIndisponible[] } {
   const raisons: RaisonIndisponible[] = []
+  const horsEmplacement = estHorsEmplacement(sort, char, catalog)
 
-  if (!estHorsEmplacement(sort, char, catalog) && !char.grimoire.includes(sort.id))
-    raisons.push('hors-grimoire')
+  if (!horsEmplacement && !char.grimoire.includes(sort.id)) raisons.push('hors-grimoire')
+  if (!horsEmplacement && regleActive(char, catalog, 'sorts-suspendus')) raisons.push('suspendu')
   if (char.sortsEpuises.includes(sort.id)) raisons.push('cristal-epuise')
 
   // `peutPayer` interroge le registre des paiements, qui sait déjà que les

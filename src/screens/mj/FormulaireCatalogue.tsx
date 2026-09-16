@@ -366,6 +366,7 @@ export function FormulaireCatalogue({
 
           <EditeurChoixClasse
             valeur={brouillon.choix ?? []}
+            ameliorations={ameliorations}
             onChange={(choix) => maj({ choix })}
           />
 
@@ -638,9 +639,12 @@ export function FormulaireCatalogue({
             onChange={(cout) => maj({ cout })}
           />
 
+          {/* Seul `lancerSort` applique les opérations d'un résultat : c'est donc
+              ici, et pas sur un objet, qu'on les compose. */}
           <EditeurActifs
             valeur={brouillon.actifs ?? []}
             nomPorteur={brouillon.nom}
+            avecOperations
             onChange={(actifs) => maj({ actifs })}
           />
 

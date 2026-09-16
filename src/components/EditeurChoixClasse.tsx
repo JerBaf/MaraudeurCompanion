@@ -1,19 +1,29 @@
 import { EditeurPassifs } from './EditeurPassifs.tsx'
-import type { ChoixClasse, OptionChoixClasse, Passif } from '../domain/types.ts'
+import { aUnPlafond } from '../domain/competences.ts'
+import { elementDepuisCle, ELEMENTS_VARIABLES, type CleElement } from '../domain/elements.ts'
+import type {
+  Amelioration,
+  ChoixClasse,
+  ConditionBascule,
+  OptionChoixClasse,
+  Passif,
+  VerrouChoix,
+} from '../domain/types.ts'
 
 /**
  * Saisie des choix d'une classe.
  *
  * Un choix, ce sont des options **mutuellement exclusives** dont la joueuse
  * retient une : la configuration du Hexcore d'un Dusk Hunter, la voie d'un
- * Trickster. Chaque option porte ses propres passifs, ce qui referme le dernier
- * trou du modèle — une classe entière se compose désormais sans toucher au code.
+ * Trickster, la Bonne Étoile d'un Astromancien — ou l'état d'une Eclipsed, qui
+ * bascule tout seul. Chaque option porte ses propres passifs, ce qui referme le
+ * dernier trou du modèle — une classe entière se compose sans toucher au code.
  *
  * Trois niveaux imbriqués, et c'est irréductible :
  *
  * ```
- * ChoixClasse[]           libellé · verrou
- *   └ OptionChoixClasse[] nom · effet
+ * ChoixClasse[]           libellé · verrou · option de départ
+ *   └ OptionChoixClasse[] nom · effet · Amélioration requise · bascule
  *       └ Passif[]        ← EditeurPassifs, réutilisé tel quel
  * ```
  */
@@ -30,6 +40,8 @@ import type { ChoixClasse, OptionChoixClasse, Passif } from '../domain/types.ts'
 const LIBELLE_VERROU: Record<ChoixClasse['verrou'], string> = {
   libre: 'Librement — au prix d’un tour de combat',
   'feu-de-camp': 'Au Feu de Camp seulement, jusqu’au suivant',
+  jeton: 'Contre un jeton que la MJ rend — le premier choix est libre',
+  automatique: 'Tout seul, selon une jauge — jamais par la joueuse',
 }
 
 function nouvelId(prefixe: string): string {
@@ -51,9 +63,12 @@ function optionVierge(): OptionChoixClasse {
 
 export function EditeurChoixClasse({
   valeur,
+  ameliorations,
   onChange,
 }: {
   valeur: ChoixClasse[]
+  /** Celles qui peuvent débloquer une option — une étoile achetée en boutique. */
+  ameliorations: Amelioration[]
   onChange: (v: ChoixClasse[]) => void
 }) {
   const maj = (index: number, patch: Partial<ChoixClasse>) =>
@@ -106,8 +121,27 @@ export function EditeurChoixClasse({
             </select>
           </label>
 
+          {/* Lue, jamais écrite : une fiche créée avant ce réglage en profite aussi. */}
+          <label className="champ">
+            <span className="tres-discret">Option de départ</span>
+            <select
+              value={choix.defaut ?? ''}
+              aria-label="Option de départ"
+              onChange={(e) => maj(index, { defaut: e.target.value || undefined })}
+            >
+              <option value="">Aucune — rien n’est retenu avant le premier choix</option>
+              {choix.options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nom || 'Option sans nom'}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <EditeurOptions
             valeur={choix.options}
+            verrou={choix.verrou}
+            ameliorations={ameliorations}
             onChange={(options) => maj(index, { options })}
           />
         </div>
@@ -124,9 +158,13 @@ export function EditeurChoixClasse({
 
 function EditeurOptions({
   valeur,
+  verrou,
+  ameliorations,
   onChange,
 }: {
   valeur: OptionChoixClasse[]
+  verrou: VerrouChoix
+  ameliorations: Amelioration[]
   onChange: (v: OptionChoixClasse[]) => void
 }) {
   const maj = (index: number, patch: Partial<OptionChoixClasse>) =>
@@ -168,6 +206,30 @@ function EditeurOptions({
             />
           </label>
 
+          {/* Une option verrouillée se voit, mais n'agit pas tant qu'il manque l'Amélioration. */}
+          <label className="champ">
+            <span className="tres-discret">Débloquée par une Amélioration</span>
+            <select
+              value={option.requiertAmelioration ?? ''}
+              aria-label="Amélioration requise"
+              onChange={(e) => maj(index, { requiertAmelioration: e.target.value || undefined })}
+            >
+              <option value="">Aucune — ouverte d’emblée</option>
+              {ameliorations.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.nom}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {verrou === 'automatique' && (
+            <EditeurBascule
+              valeur={option.bascule}
+              onChange={(bascule) => maj(index, { bascule })}
+            />
+          )}
+
           {/*
             Les passifs de l'option sont facultatifs : une option peut n'être
             que narrative — c'est le cas d'Overheat, qui transforme un gain de
@@ -188,5 +250,95 @@ function EditeurOptions({
         Ajouter une option
       </button>
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/** Une bascule ne lit qu'une jauge : un compteur stocké sur la fiche. */
+const JAUGES = (Object.keys(ELEMENTS_VARIABLES) as CleElement[]).filter(
+  (cle) => ELEMENTS_VARIABLES[cle].lire !== undefined,
+)
+
+/**
+ * Quand une option d'un choix automatique s'impose : « Ombre quand les Marques
+ * atteignent leur maximum », « Lumière quand elles retombent à 0 ».
+ */
+function EditeurBascule({
+  valeur,
+  onChange,
+}: {
+  valeur: ConditionBascule | undefined
+  onChange: (v: ConditionBascule | undefined) => void
+}) {
+  if (!valeur) {
+    return (
+      <button
+        type="button"
+        className="btn btn--fantome"
+        onClick={() =>
+          onChange({ element: { kind: 'marques' }, comparaison: 'au-moins', seuil: 'plafond' })
+        }
+      >
+        Faire basculer sur cette option
+      </button>
+    )
+  }
+
+  return (
+    <div className="rangee">
+      <span className="tres-discret">S’impose quand</span>
+      <select
+        value={valeur.element.kind}
+        aria-label="Jauge de la bascule"
+        onChange={(e) => {
+          const element = elementDepuisCle(e.target.value as CleElement)
+          // Une jauge sans plafond ne peut pas basculer « au maximum ».
+          const seuil = valeur.seuil === 'plafond' && !aUnPlafond(element) ? 0 : valeur.seuil
+          onChange({ ...valeur, element, seuil })
+        }}
+      >
+        {JAUGES.map((cle) => (
+          <option key={cle} value={cle}>
+            {ELEMENTS_VARIABLES[cle].libelleValeur ?? ELEMENTS_VARIABLES[cle].libelle}
+          </option>
+        ))}
+      </select>
+      <select
+        value={valeur.comparaison}
+        aria-label="Sens de la bascule"
+        onChange={(e) =>
+          onChange({ ...valeur, comparaison: e.target.value as ConditionBascule['comparaison'] })
+        }
+      >
+        <option value="au-moins">atteint au moins</option>
+        <option value="au-plus">retombe au plus à</option>
+      </select>
+      <select
+        value={valeur.seuil === 'plafond' ? 'plafond' : 'nombre'}
+        aria-label="Seuil de la bascule"
+        onChange={(e) =>
+          onChange({ ...valeur, seuil: e.target.value === 'plafond' ? 'plafond' : 0 })
+        }
+      >
+        <option value="nombre">une valeur</option>
+        {aUnPlafond(valeur.element) && <option value="plafond">son maximum</option>}
+      </select>
+      {valeur.seuil !== 'plafond' && (
+        <input
+          type="number"
+          min={0}
+          value={valeur.seuil}
+          style={{ width: 80 }}
+          aria-label="Valeur de la bascule"
+          onChange={(e) =>
+            onChange({ ...valeur, seuil: Math.max(0, Number(e.target.value) || 0) })
+          }
+        />
+      )}
+      <button type="button" className="btn btn--fantome" onClick={() => onChange(undefined)}>
+        ×
+      </button>
+    </div>
   )
 }

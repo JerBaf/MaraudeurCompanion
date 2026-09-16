@@ -3,12 +3,16 @@ import { decrireCible, descripteur, lireElement, type Cible } from './elements.t
 import type {
   Character,
   ChoixClasse,
+  ConditionBascule,
   ConditionReaction,
-  Effet,
+  EffetPassif,
+  KindRegle,
   Operation,
   OptionChoixClasse,
   Passif,
   PorteurEffets,
+  Regle,
+  VerrouChoix,
 } from './types.ts'
 
 /**
@@ -65,9 +69,30 @@ export function valeurVisee(operation: Operation, courante: number): number | nu
   const { op } = operation
   if (op.kind === 'add') return courante + op.value
   if (op.kind === 'set') return op.value
-  // `avantage`, `desavantage` et `add-x` n'ont pas de sens sur une jauge :
-  // l'éditeur ne les propose pas, et le compilateur les refuse.
+  // `avantage` et `desavantage` n'ont pas de sens sur une jauge, et une
+  // opération variable (`add-x`, `add-de`) doit avoir été résolue avant.
   return null
+}
+
+/**
+ * Ramène une opération variable à un chiffre.
+ *
+ * `add-x` vaut le X payé au lancement d'un sort — ou, dans une réaction,
+ * l'ampleur du changement qui l'a armée. `add-de` vaut le dé du sort. Sans la
+ * valeur attendue, l'opération reste telle quelle, et rien ne l'applique.
+ */
+export function resoudreOperation(
+  operation: Operation,
+  valeurs: { x?: number; de?: number | null },
+): Operation {
+  const { op } = operation
+  if (op.kind === 'add-x' && valeurs.x !== undefined) {
+    return { ...operation, op: { kind: 'add', value: valeurs.x } }
+  }
+  if (op.kind === 'add-de' && valeurs.de != null) {
+    return { ...operation, op: { kind: 'add', value: valeurs.de } }
+  }
+  return operation
 }
 
 /**
@@ -160,6 +185,8 @@ export interface PassifActif {
   provenance: ProvenancePassif
   /** Identifiant de l'entrée, pour distinguer deux sources homonymes. */
   ref: string
+  /** Passif d'une option de classe : le verrou de son choix, qui dit qui l'a décidé. */
+  verrou?: VerrouChoix
 }
 
 function recolter(
@@ -177,20 +204,122 @@ function recolter(
 // ---------------------------------------------------------------------------
 
 /**
+ * L'option est-elle à la portée de ce personnage ? Une option verrouillée par
+ * une Amélioration reste hors d'atteinte tant que la joueuse ne la possède pas.
+ */
+export function optionAccessible(char: Character, option: OptionChoixClasse): boolean {
+  return (
+    option.requiertAmelioration === undefined ||
+    char.possede.ameliorations.includes(option.requiertAmelioration)
+  )
+}
+
+/**
  * L'option retenue pour un choix de classe, ou `undefined` si rien n'a été choisi.
  *
  * ⚠️ **Pas de repli sur la première option.** Il serait tentant d'en imposer
  * une par défaut, mais l'ordre de la liste est un détail de rédaction : s'y
  * fier accorderait Conteur à tout Trickster dont la voie n'est pas encore
- * décidée. Le défaut se pose une fois, à la création (`passifsInitiaux`), et
- * les fiches antérieures le reçoivent par `normaliserPersonnage`.
+ * décidée. Un défaut n'existe que si la MJ l'a écrit (`ChoixClasse.defaut`),
+ * et il se **lit** sans s'écrire. Les deux défauts d'avant ce champ — Hexcore et
+ * voie du Trickster — se posent encore à la création (`passifsInitiaux`).
+ *
+ * Une option devenue inaccessible — l'Amélioration retirée — n'agit plus.
  */
 export function optionRetenue(
   char: Character,
   choix: ChoixClasse,
 ): OptionChoixClasse | undefined {
-  const id = char.passifs.choix?.[choix.id]
-  return id === undefined ? undefined : choix.options.find((o) => o.id === id)
+  const id = char.passifs.choix?.[choix.id] ?? choix.defaut
+  const option = id === undefined ? undefined : choix.options.find((o) => o.id === id)
+  return option && optionAccessible(char, option) ? option : undefined
+}
+
+/**
+ * Où l'on se trouve quand on veut changer un choix.
+ *
+ * `fiche` : la fiche de la joueuse, en cours de session. `feu-de-camp` : la
+ * phase Sorts du camp. `mj` : l'écran de la MJ, qui arbitre et passe outre
+ * tous les verrous.
+ */
+export type MomentChoix = 'fiche' | 'feu-de-camp' | 'mj'
+
+/** Le jeton de ce choix est-il encore disponible ? */
+export function jetonDisponible(char: Character, choix: ChoixClasse): boolean {
+  return char.passifs.jetonsChoix?.[choix.id] == null
+}
+
+/**
+ * Le choix peut-il changer, ici et maintenant ?
+ *
+ * ⚠️ Un verrou à jeton laisse le **premier** choix libre (décision de la MJ) :
+ * le jeton ne se demande qu'à qui remplace une option déjà stockée.
+ */
+export function peutChangerOption(
+  char: Character,
+  choix: ChoixClasse,
+  moment: MomentChoix,
+): boolean {
+  if (moment === 'mj') return true
+  switch (choix.verrou) {
+    case 'libre':
+      return true
+    case 'feu-de-camp':
+      return moment === 'feu-de-camp'
+    case 'jeton':
+      return char.passifs.choix?.[choix.id] === undefined || jetonDisponible(char, choix)
+    case 'automatique':
+      return false
+  }
+}
+
+/**
+ * Retient une option, et consomme le jeton si le verrou le demande.
+ *
+ * Rend la fiche **inchangée** quand le changement est refusé, plutôt que de
+ * lever : la transformation s'exécute dans un `void modifierPersonnage(…)`, où
+ * une erreur se perdrait sans bruit. La MJ ne consomme jamais le jeton — elle
+ * arbitre, elle ne joue pas l'heure de la joueuse.
+ */
+export function retenirOption(
+  char: Character,
+  choix: ChoixClasse,
+  optionId: string,
+  moment: MomentChoix,
+  maintenant: number,
+): Character {
+  const option = choix.options.find((o) => o.id === optionId)
+  if (!option || !optionAccessible(char, option) || !peutChangerOption(char, choix, moment)) {
+    return char
+  }
+
+  const stockee = char.passifs.choix?.[choix.id]
+  if (stockee === optionId) return char
+
+  const consomme = choix.verrou === 'jeton' && stockee !== undefined && moment !== 'mj'
+  return {
+    ...char,
+    passifs: {
+      ...char.passifs,
+      choix: { ...(char.passifs.choix ?? {}), [choix.id]: optionId },
+      ...(consomme
+        ? { jetonsChoix: { ...(char.passifs.jetonsChoix ?? {}), [choix.id]: maintenant } }
+        : {}),
+    },
+  }
+}
+
+/** Une bascule en toutes lettres : « Marques ≥ maximum », « Marques ≤ 0 ». */
+export function decrireBascule(bascule: ConditionBascule): string {
+  const jauge = decrireCible({ element: bascule.element, aspect: 'valeur' })
+  const seuil = bascule.seuil === 'plafond' ? 'maximum' : bascule.seuil
+  return `${jauge} ${bascule.comparaison === 'au-moins' ? '≥' : '≤'} ${seuil}`
+}
+
+/** Rend le jeton d'un choix. Réservé à la MJ, seule à savoir où en est l'heure de jeu. */
+export function rendreJetonChoix(char: Character, choixId: string): Character {
+  const { [choixId]: _consomme, ...jetonsChoix } = char.passifs.jetonsChoix ?? {}
+  return { ...char, passifs: { ...char.passifs, jetonsChoix } }
 }
 
 /** Toutes les options de classe actuellement retenues. */
@@ -231,13 +360,14 @@ export function passifsActifs(char: Character, catalog: Catalog): PassifActif[] 
 
   // Les options de classe retenues : Overdrive, Conteur… Elles n'étaient
   // jusqu'ici accessibles qu'en codant une branche par classe.
-  for (const { option } of optionsRetenues(char, catalog)) {
+  for (const { choix, option } of optionsRetenues(char, catalog)) {
     option.passifs?.forEach((passif) =>
       out.push({
         passif,
         source: option.nom,
         provenance: 'classe',
         ref: `${classe?.id ?? char.classeId}:${option.id}`,
+        verrou: choix.verrou,
       }),
     )
   }
@@ -251,6 +381,44 @@ export function passifsActifs(char: Character, catalog: Catalog): PassifActif[] 
   }
 
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Règles spéciales
+// ---------------------------------------------------------------------------
+
+/**
+ * Le nom d'une règle, pour la joueuse et pour l'éditeur.
+ *
+ * ⚠️ Le prix d'une réussite automatique ne s'écrit pas ici : le décrire demande
+ * `couts.ts`, qui dépend de ce module par `modifiers.ts`. L'écran qui propose la
+ * réussite l'affiche lui-même.
+ */
+export const LIBELLE_REGLE: Record<KindRegle, string> = {
+  'ame-de-geant': 'Âme de Géant',
+  'reussite-automatique': 'Réussite automatique',
+  'sorts-suspendus': 'Sorts préparés suspendus',
+}
+
+/**
+ * La règle de ce type en vigueur, et le nom de ce qui l'accorde.
+ *
+ * Même régime que les modificateurs : seul un passif **permanent** dont la
+ * condition est remplie accorde une règle.
+ */
+export function regleActive<K extends KindRegle>(
+  char: Character,
+  catalog: Catalog,
+  kind: K,
+): { regle: Extract<Regle, { kind: K }>; source: string } | null {
+  for (const { passif, source } of passifsActifs(char, catalog)) {
+    if (passif.declenchement.kind !== 'permanent' || !conditionRemplie(passif, char)) continue
+    const regle = passif.effet.regles?.find(
+      (r): r is Extract<Regle, { kind: K }> => r.kind === kind,
+    )
+    if (regle) return { regle, source: passif.libelle || source }
+  }
+  return null
 }
 
 /**
@@ -279,6 +447,8 @@ export function decrireOperationConcrete(operation: Operation): string {
       return `${nom} ${op.value > 0 ? '+' : ''}${op.value}`
     case 'add-x':
       return `${nom} + X`
+    case 'add-de':
+      return `${nom} + dé`
     case 'set':
       return `${nom} = ${op.value}`
     case 'avantage':
@@ -288,10 +458,17 @@ export function decrireOperationConcrete(operation: Operation): string {
   }
 }
 
-export function decrireEffet(effet: Effet): string {
-  const operations = effet.operations ?? []
-  if (operations.length === 0) return effet.texte
-  const chiffre = operations.map(decrireOperationConcrete).join(' · ')
+/**
+ * L'effet en une ligne. Les règles s'y nomment à côté des chiffres : un passif
+ * qui n'accorde qu'une règle ne doit pas s'afficher vide.
+ */
+export function decrireEffet(effet: EffetPassif): string {
+  const chiffres = [
+    ...(effet.operations ?? []).map(decrireOperationConcrete),
+    ...(effet.regles ?? []).map((r) => LIBELLE_REGLE[r.kind]),
+  ]
+  if (chiffres.length === 0) return effet.texte
+  const chiffre = chiffres.join(' · ')
   return effet.texte ? `${effet.texte} — ${chiffre}` : chiffre
 }
 
@@ -317,12 +494,14 @@ export function decrirePassif(passif: Passif): string {
   return effet
 }
 
-/** Vrai si le passage de `avant` à `apres` arme cette condition. */
-export function conditionArmee(
-  quand: ConditionReaction,
-  avant: Character,
-  apres: Character,
-): boolean {
+/**
+ * Le changement qui arme cette condition, ou 0 s'il ne l'arme pas.
+ *
+ * Signé comme le changement : une Marque perdue vaut −1. Son ampleur est le
+ * « X » d'une réaction — deux Marques prises d'un coup valent deux Points de Foi.
+ */
+export function deltaArme(quand: ConditionReaction, avant: Character, apres: Character): number {
   const delta = lireElement(apres, quand.element) - lireElement(avant, quand.element)
-  return quand.sens === 'augmente' ? delta > 0 : delta < 0
+  const arme = quand.sens === 'augmente' ? delta > 0 : delta < 0
+  return arme ? delta : 0
 }

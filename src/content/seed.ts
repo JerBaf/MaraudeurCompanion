@@ -105,7 +105,8 @@ const SORTS_DUSK: Sort[] = [
     seed: true,
     classeId: 'dusk-hunter',
     magieId: 'miracle',
-    cout: coutDe(variable('marques', { max: 3 })),
+    // Les Marques sont **concédées** : le sort les fait prendre, il n'en retire pas.
+    cout: coutDe(variable('marques', { min: 1, max: 3, sens: 'prendre' })),
     de: null,
     duree: 'X minutes',
     effet:
@@ -298,6 +299,311 @@ const SORTS_TRICKSTER: Sort[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Astromancien
+// ---------------------------------------------------------------------------
+
+const SORTS_ASTROMANCIEN: Sort[] = [
+  {
+    kind: 'sort',
+    id: 'vanish',
+    nom: 'Vanish',
+    icone: 'invisible',
+    seed: true,
+    classesIds: ['astromancien'],
+    magieId: 'miracle',
+    // Une Marque **prise** : c'est ce qui la fait valoir un Point de Foi sous Ito.
+    cout: coutDe(fixe('marques', 1, { sens: 'prendre' })),
+    de: null,
+    duree: '1 minute',
+    effet:
+      "Prélève toute la Lumière de la cible et la rend invisible aux yeux du monde, comme si son âme avait quitté l'Entre-Monde.",
+  },
+  {
+    kind: 'sort',
+    id: 'lightfall',
+    nom: 'Lightfall',
+    icone: 'sunbeams',
+    seed: true,
+    classesIds: ['astromancien'],
+    magieId: 'miracle',
+    // Le Point de Foi qui déplace la zone se paie à la main, quand la fiction le demande.
+    cout: coutDe(fixe('foi', 2)),
+    de: null,
+    duree: 'Instantanée',
+    effet:
+      "Précipite la Lumière alentour en une pluie continuelle de faisceaux lumineux aussi tranchants que des rasoirs, infligeant 2 Points d'Énergie à quiconque s'y trouve. La zone fait 8 m³ (2 m × 2 m × 2 m) et est fixe. Elle peut être déplacée moyennant 1 Point de Foi supplémentaire.",
+  },
+  {
+    kind: 'sort',
+    id: 'lightweb',
+    nom: 'Lightweb',
+    icone: 'spider-web',
+    seed: true,
+    classesIds: ['astromancien'],
+    magieId: 'miracle',
+    cout: coutDe(fixe('foi', 3)),
+    de: null,
+    duree: 'Instantanée',
+    effet:
+      "Crée une toile de lumière qui permet de résorber les plaies d'une âme blessée. Soigne 1 Point de Fatigue à la cible.",
+  },
+  {
+    kind: 'sort',
+    id: 'amaterasu',
+    nom: 'Amaterasu',
+    icone: 'sunrise',
+    seed: true,
+    classesIds: ['astromancien'],
+    magieId: 'miracle',
+    cout: coutDe(fixe('lumens', 50)),
+    de: null,
+    duree: 'Instantanée',
+    effet: 'Votre Bonne Étoile change la Lumière en Foi : dépensez 50 Lumens pour regagner un Point de Foi.',
+    /*
+     * Le pouvoir de l'étoile Amaterasu. Le PDF tient toute capacité de classe
+     * pour un Sort : débloqué par l'option, il vit hors des emplacements, hors
+     * boutique et hors Détachement, comme les illusions de l'Illusionniste.
+     */
+    requiertPassif: 'amaterasu',
+    actifs: [
+      {
+        id: 'foi',
+        nom: 'Amaterasu',
+        table: {
+          faces: 1,
+          entrees: [
+            {
+              texte: '',
+              operations: [
+                {
+                  kind: 'ajuster',
+                  cible: { element: { kind: 'foi' }, aspect: 'valeur' },
+                  op: { kind: 'add', value: 1 },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Earthborn
+// ---------------------------------------------------------------------------
+
+/*
+ * Le « sur un 6 » de ces sorts n'est pas une table : c'est l'Âme de Géant de la
+ * classe qui le déclenche, et le texte qui en dit l'ampleur.
+ */
+const SORTS_EARTHBORN: Sort[] = [
+  {
+    kind: 'sort',
+    id: 'terraformation',
+    nom: 'Terraformation',
+    icone: 'earth-spit',
+    seed: true,
+    classesIds: ['earthborn'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: 'Instantanée',
+    effet:
+      "Vous pouvez modeler la terre devant vous et lui faire prendre la forme souhaitée. La quantité maximum de terre correspond à une voiture. Cependant, sur un 6, l'Âme de Géant résonne en vous et vous pouvez modeler l'équivalent d'une maison à la place.",
+  },
+  {
+    kind: 'sort',
+    id: 'river-song',
+    nom: 'River Song',
+    icone: 'waterfall',
+    seed: true,
+    classesIds: ['earthborn'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: 'Instantanée',
+    effet:
+      "Fait apparaître une petite source à l'endroit désiré. Sur un 6, l'Âme de Géant résonne en vous et c'est un véritable torrent qui apparaît.",
+  },
+  {
+    kind: 'sort',
+    id: 'burning-soul',
+    nom: 'Burning Soul',
+    icone: 'fire-silhouette',
+    seed: true,
+    classesIds: ['earthborn'],
+    magieId: 'sang',
+    cout: coutDe(fixe('brulures', 3)),
+    de: null,
+    duree: 'Instantanée',
+    effet:
+      "Tout votre corps devient incandescent, rayonnant d'une chaleur qui pourrait faire fondre presque n'importe quel métal, ou embraser n'importe quel végétal.",
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Eclipsed
+// ---------------------------------------------------------------------------
+
+const SORTS_ECLIPSED: Sort[] = [
+  {
+    kind: 'sort',
+    id: 'couleur-rouge',
+    nom: '[Couleur] Rouge',
+    icone: 'palette',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: '1 heure',
+    effet:
+      'Vous vous habillez de la couleur la plus intense qui soit, et cela se voit. Ajoutez la valeur du d6 à votre compétence Social.',
+    actifs: [
+      {
+        id: 'couleur',
+        nom: '[Couleur] Rouge',
+        table: {
+          faces: 1,
+          entrees: [
+            {
+              texte: '',
+              operations: [
+                {
+                  kind: 'ajuster',
+                  cible: {
+                    element: { kind: 'competence', competence: 'social' },
+                    aspect: 'valeur',
+                  },
+                  // Un modificateur que la joueuse dissipe quand l'heure a passé.
+                  op: { kind: 'add-de' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    kind: 'sort',
+    id: 'animate',
+    nom: 'Animate',
+    icone: 'puppet',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: '10 minutes',
+    effet:
+      "Un objet inanimé à distance moyenne prend vie et suit vos ordres. 1-2 : il n'en fait qu'à sa tête. 3-4 : il obéit, mais sa compréhension est limitée. 5 : il obéit au doigt et à l'œil.",
+  },
+  {
+    kind: 'sort',
+    id: 'draw',
+    nom: 'Draw',
+    icone: 'pencil-brush',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: 'Instantanée',
+    effet:
+      "Crée un objet inanimé à une distance courte ou moyenne. La qualité de l'objet varie selon le résultat du jet ; qualité et taille sont proportionnelles à l'objet voulu. 1-2 : qualité mauvaise, petite taille. 3-4 : qualité moyenne, taille moyenne. 5 : qualité excellente, grande taille.",
+  },
+  {
+    kind: 'sort',
+    id: 'vision-artiste',
+    nom: "Vision d'Artiste",
+    icone: 'crystal-ball',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'arcane',
+    cout: COUT_GRATUIT,
+    de: '1d6',
+    duree: 'Instantanée',
+    effet:
+      "Projette son esprit hors de son corps et visualise un lieu jusqu'à un kilomètre de distance. La vision est ensuite couchée sur papier et peut être lue comme un cliché instantané de l'état du lieu en question.",
+  },
+  // Les sorts Ombre : débloqués par l'état, ils ne s'achètent ni ne se perdent.
+  {
+    kind: 'sort',
+    id: 'raging-claw',
+    nom: 'Raging Claw',
+    icone: 'claw-slashes',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'ombre',
+    requiertPassif: 'ombre',
+    // « Jusqu'à » : lancé sur une seule Marque, le sort la vide.
+    cout: coutDe(fixe('marques', 2, { auPlus: true })),
+    de: '1d6',
+    duree: 'Instantanée',
+    effet:
+      "Lancez une pièce. Sur « face », votre cible est l'alliée la plus proche ; sur « pile », l'adversaire la plus proche. Vous infligez 1d6 dégâts à la cible. S'il n'y a pas d'adversaire disponible, vous reportez votre rage sur les objets alentour.",
+    actifs: [
+      {
+        id: 'piece',
+        nom: 'Pile ou face',
+        table: {
+          faces: 2,
+          entrees: [
+            { texte: "Face : votre cible est l'alliée la plus proche." },
+            { texte: "Pile : votre cible est l'adversaire la plus proche." },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    kind: 'sort',
+    id: 'void-call',
+    nom: 'Void Call',
+    icone: 'vortex',
+    seed: true,
+    classesIds: ['eclipsed'],
+    magieId: 'ombre',
+    requiertPassif: 'ombre',
+    cout: coutDe(fixe('marques', 4, { auPlus: true })),
+    de: null,
+    duree: 'Instantanée',
+    effet:
+      "Vous entendez un appel, irrésistible. La puissance déferle en vous et vous transcende, et votre être devient une porte vers l'Oblivion. Qui sait ce qui risque d'en sortir… Lancez 1d4 et exécutez l'effet associé.",
+    actifs: [
+      {
+        id: 'appel',
+        nom: 'Appel du Vide',
+        table: {
+          faces: 4,
+          /*
+           * Seul le 4 s'applique tout seul : les autres touchent des alliées, et
+           * l'app ne sait pas qui est à la table ce soir.
+           */
+          entrees: [
+            { texte: "1 : vous invoquez une créature de l'Oblivion." },
+            { texte: '2 : tous les alliés prennent 2 Marques.' },
+            { texte: '3 : tous les alliés prennent un désavantage en Esprit.' },
+            {
+              texte: "4 : vous résistez finalement à l'appel, mais prenez 1 Point de Fatigue.",
+              operations: [
+                {
+                  kind: 'ajuster',
+                  cible: { element: { kind: 'fatigue' }, aspect: 'valeur' },
+                  op: { kind: 'add', value: 1 },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Classes
 // ---------------------------------------------------------------------------
 
@@ -444,6 +750,177 @@ const CLASSES: Classe[] = [
     // Les illusions ne figurent pas ici : la voie Illusionniste y donne accès
     // en permanence, elles sont dérivées du catalogue et non possédées.
     sortsIds: ['polymorph', 'tame', 'word-baboum', 'word-crackers'],
+  },
+  {
+    kind: 'classe',
+    id: 'astromancien',
+    nom: 'Astromancien',
+    icone: 'night-sky',
+    seed: true,
+    fatigueMax: 4,
+    sixthSensBase: 1,
+    lore:
+      "Qui n'a jamais levé les yeux au ciel, contemplant l'immensité de la Voie Lactée en rêvant de ce qui l'attendait au-delà de ces milliers d'étoiles ? L'Astromancien fait partie de celles et ceux qui s'y sont perdus, qui ont laissé leur tête dans les étoiles et ne cherchent pas particulièrement à la retrouver. Car c'est en se laissant envahir par leur chaleur, leur murmure et leur lumière qu'ils tirent leur pouvoir si secret.",
+    passifTexte:
+      "Bonne Étoile : une fois par heure, l'Astromancien peut choisir quelle est sa Bonne Étoile. Elle veille ainsi sur lui et lui prodigue des avantages uniques. Ito : à chaque fois que vous prenez une Marque, vous gagnez un Point de Foi. Amaterasu : vous pouvez dépenser 50 Lumens pour regagner un Point de Foi. D'autres étoiles peuvent être débloquées plus tard.",
+    choix: [
+      {
+        id: 'etoile',
+        libelle: 'Bonne Étoile',
+        // « Une fois par heure » : l'heure de jeu, que seule la MJ connaît. Pas
+        // d'étoile à la création, et le premier choix est libre.
+        verrou: 'jeton',
+        options: [
+          {
+            id: 'ito',
+            nom: 'Ito',
+            effet: 'Chaque Marque prise vous rend un Point de Foi',
+            passifs: [
+              {
+                id: 'ito',
+                libelle: 'Ito',
+                declenchement: {
+                  kind: 'reaction',
+                  quand: { element: { kind: 'marques' }, sens: 'augmente', chez: 'soi' },
+                },
+                effet: {
+                  texte: 'À chaque fois que vous prenez une Marque, vous gagnez un Point de Foi.',
+                  operations: [
+                    {
+                      kind: 'ajuster',
+                      cible: { element: { kind: 'foi' }, aspect: 'valeur' },
+                      // Le X d'une réaction : un Point de Foi **par** Marque prise.
+                      op: { kind: 'add-x' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: 'amaterasu',
+            nom: 'Amaterasu',
+            // Sans passif : l'étoile débloque le sort du même nom (`requiertPassif`).
+            effet: 'Dépensez 50 Lumens pour regagner un Point de Foi',
+          },
+        ],
+      },
+    ],
+    sortsIds: ['vanish', 'lightfall', 'lightweb'],
+  },
+  {
+    kind: 'classe',
+    id: 'earthborn',
+    nom: 'Earthborn',
+    icone: 'giant',
+    seed: true,
+    fatigueMax: 5,
+    sixthSensBase: 1,
+    lore:
+      "Il y a des personnes dont l'âme porte les traces d'un lointain passé. Une appartenance à un peuple désormais disparu, mais dont l'héritage coule toujours au fond de leurs veines. Ce don les relie non pas par le sang, mais par leur appartenance à l'Entre-Monde, à la terre même qu'ils foulent à chaque instant. Toute l'énergie présente autour d'eux résonne de cet appel ancestral, celui de leurs aïeux, les Géants.",
+    passifTexte:
+      "Âme de Géant : lors d'un jet d'Arcane, si le résultat obtenu est 6, il n'y a pas d'Effet Aléatoire. À la place, cela appelle en vous votre Âme de Géant, et l'effet du sort lancé est ainsi décuplé.",
+    passifs: [
+      {
+        id: 'ame-de-geant',
+        libelle: 'Âme de Géant',
+        declenchement: { kind: 'permanent' },
+        effet: {
+          texte:
+            "Sur un 6 en Arcane, pas d'Effet Aléatoire : votre Âme de Géant résonne, et l'effet du sort est décuplé.",
+          regles: [{ kind: 'ame-de-geant' }],
+        },
+      },
+    ],
+    sortsIds: ['terraformation', 'river-song', 'burning-soul'],
+  },
+  {
+    kind: 'classe',
+    id: 'eclipsed',
+    nom: 'Eclipsed',
+    icone: 'eclipse-flare',
+    seed: true,
+    fatigueMax: 4,
+    sixthSensBase: 1,
+    lore:
+      "Ombre et Lumière. Deux faces d'une même pièce. Deux énergies que tout oppose, et pourtant qui restent intimement liées. Chaque personne porte un peu de cette ambiguïté en soi, mais certains êtres l'expriment de manière plus prononcée. Plus intense. Plus violente. Ces êtres sont la Lumière dans la nuit, l'Ombre qui obscurcit l'espoir. Des éclipses vivantes.",
+    passifTexte:
+      "De par leur nature ambivalente, les Eclipsed ont une plus grande tolérance à l'Oblivion : leur quota de Marques passe de 3 à 4, ce qui les rend plus difficiles à basculer du côté obscur. Mais s'iels atteignent le palier maximal, l'Eclipsed se laisse submerger par sa part d'ombre et révèle la face cachée de son existence. Lumière : l'Eclipsed peut sciemment prendre une Marque pour réussir automatiquement un Jet d'Arcane ou de Compétence. Ombre : vous oubliez tous vos sorts traditionnels (Arcane, Miracle ou Sang), remplacés par vos sorts Ombre ; vous devez choisir un sort Ombre comme action du tour, et chacun consomme une ou plusieurs Marques. L'Eclipsed revient à l'état Lumière lorsque ses Marques retombent à zéro.",
+    passifs: [
+      {
+        id: 'tolerance-oblivion',
+        libelle: "Tolérance à l'Oblivion",
+        declenchement: { kind: 'permanent' },
+        effet: {
+          texte: 'Votre quota de Marques passe de 3 à 4.',
+          operations: [
+            {
+              kind: 'ajuster',
+              cible: { element: { kind: 'marques' }, aspect: 'plafond' },
+              op: { kind: 'add', value: 1 },
+            },
+          ],
+        },
+      },
+    ],
+    choix: [
+      {
+        id: 'etat',
+        libelle: 'État',
+        /*
+         * Un état qui dure : il ne bascule qu'aux extrémités de la jauge, et
+         * jamais par la main de la joueuse. D'où un défaut — une Eclipsed neuve
+         * est dans la Lumière — lu plutôt qu'écrit à la création.
+         */
+        verrou: 'automatique',
+        defaut: 'lumiere',
+        options: [
+          {
+            id: 'lumiere',
+            nom: 'Lumière',
+            effet: "Prenez une Marque pour réussir d'office un Jet d'Arcane ou de Compétence",
+            bascule: { element: { kind: 'marques' }, comparaison: 'au-plus', seuil: 0 },
+            passifs: [
+              {
+                id: 'lumiere',
+                libelle: 'Lumière',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte:
+                    "Vous pouvez sciemment prendre une Marque pour réussir automatiquement un Jet d'Arcane ou de Compétence.",
+                  regles: [
+                    {
+                      kind: 'reussite-automatique',
+                      cout: coutDe(fixe('marques', 1, { sens: 'prendre' })),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: 'ombre',
+            nom: 'Ombre',
+            effet: 'Vos sorts traditionnels sont oubliés : seuls vos sorts Ombre restent lançables',
+            bascule: { element: { kind: 'marques' }, comparaison: 'au-moins', seuil: 'plafond' },
+            passifs: [
+              {
+                id: 'ombre',
+                libelle: 'Ombre',
+                declenchement: { kind: 'permanent' },
+                effet: {
+                  texte:
+                    "Vous oubliez vos sorts traditionnels : seuls vos sorts Ombre restent lançables, et l'un d'eux doit être votre action du tour. Chacun consomme des Marques ; à zéro, vous revenez à la Lumière.",
+                  regles: [{ kind: 'sorts-suspendus' }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    // Les sorts Ombre ne figurent pas ici : l'état y donne accès, ils ne se possèdent pas.
+    sortsIds: ['couleur-rouge', 'animate', 'draw', 'vision-artiste'],
   },
 ]
 
@@ -617,10 +1094,25 @@ const TYPES_MAGIQUES: TypeMagique[] = [
     description: 'La magie de la Lumière, qui se paie en Points de Foi.',
     elementCoutParDefaut: 'foi',
   },
+  {
+    kind: 'type-magique',
+    id: 'ombre',
+    nom: 'Ombre',
+    icone: 'shadow-grasp',
+    seed: true,
+    description:
+      "La part d'ombre des Eclipsed. Ses sorts ne s'ouvrent qu'une fois l'Oblivion atteint, et consomment des Marques.",
+    elementCoutParDefaut: 'marques',
+  },
 ]
 
 // ---------------------------------------------------------------------------
 
+/*
+ * Les sorts des trois classes venues ensuite ferment la liste : l'amorçage
+ * écrit dans l'ordre, et les tests d'app attendent la dernière clé — `void-call`
+ * — pour savoir que tout est en place.
+ */
 export const SEED: EntreeCatalogue[] = [
   ...CLASSES,
   ...TYPES_MAGIQUES,
@@ -629,4 +1121,7 @@ export const SEED: EntreeCatalogue[] = [
   ...SORTS_TRICKSTER,
   ...EQUIPEMENTS,
   ...INVESTISSEMENTS,
+  ...SORTS_ASTROMANCIEN,
+  ...SORTS_EARTHBORN,
+  ...SORTS_ECLIPSED,
 ]

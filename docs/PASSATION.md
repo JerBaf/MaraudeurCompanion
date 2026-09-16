@@ -58,6 +58,12 @@ n'importe quelle entrée — y compris une **Classe entière**, choix et passifs
 compris, ce que rien ne permettait jusqu'ici — et les autres onglets ne servent plus qu'à
 consulter et corriger. Bestiaire et Maintenance y ont chacun le leur.
 
+Trois classes de plus — **Astromancien, Earthborn, Eclipsed** — sont livrées sans qu'une
+ligne de code ne les nomme. Il a fallu cinq mécanismes génériques, tous composables depuis
+Réglages : un coût qui fait **prendre** une Marque, des **règles spéciales** portées par un
+passif, des choix **à jeton** et **automatiques**, des options **débloquées par une
+Amélioration**, et deux opérations variables. Voir § 12.
+
 ### Ce qui reste
 
 - **Le contenu.** Le catalogue ne contient que quelques exemples. La MJ doit saisir ses
@@ -67,10 +73,11 @@ consulter et corriger. Bestiaire et Maintenance y ont chacun le leur.
   bibelots et symboles proposée à la MJ (`PALETTE` dans `scripts/fetch-icons.mjs`). Elle
   veut à terme des dessins style Moebius/Ghibli ; déposer un fichier de même nom dans
   `public/icons/` suffit — le script n'écrase jamais un fichier existant.
-- **Les upgrades annoncées** dans `Guidelines.pdf`, non commencées : nouvelles classes,
-  et les QTE (mini-jeux poussés sur l'écran d'une joueuse). Le champ `EtatTable.overlay`
-  les attend toujours — le combat rapide, lui, ne s'en sert pas, et pour une raison qui
-  vaut sans doute aussi pour les QTE : voir le piège n° 11.
+- **Les upgrades annoncées** dans `Guidelines.pdf` : les nouvelles classes passent
+  désormais par les données (§ 12) ; restent les QTE (mini-jeux poussés sur l'écran d'une
+  joueuse). Le champ `EtatTable.overlay` les attend toujours — le combat rapide, lui, ne
+  s'en sert pas, et pour une raison qui vaut sans doute aussi pour les QTE : voir le piège
+  n° 11.
 
 ---
 
@@ -212,13 +219,18 @@ sans qu'aucun écran n'ait eu à y penser, et rien ne peut se désynchroniser.
 `temporaire` — qui détermine *qui a le droit de le changer*. C'est cette taxonomie qui
 permet à l'écran de n'offrir un contrôle que là où la règle l'autorise.
 
-Deux effets ne passent pas par des modificateurs et c'est voulu :
+Trois familles d'effets ne passent pas par des modificateurs et c'est voulu :
 - **Overheat** (Dusk Hunter) transforme le *gain* de brûlures — c'est un hook,
   `gainBrulureEffectif` dans `brulures.ts`. Ce n'est **pas** une réaction : une réaction
   s'armerait sur tout mouvement du compteur, or la barre de brûlures sert aussi de
-  bloc-notes, et cocher une case pour noter son total en offrirait une gratuite.
+  bloc-notes, et cocher une case pour noter son total en offrirait une gratuite. Il lit
+  `passifs.choix`, que l'écran écrit — il lisait l'ancien champ `hexcore`, et une Dusk
+  Hunter qui choisissait Overheat depuis sa fiche n'en recevait rien.
 - **Les sorts débloqués par une option de classe** — `Sort.requiertPassif` — ne modifient
   aucune valeur, ils donnent accès. Voir `sortsHorsEmplacement`.
+- **Les règles spéciales** (`Regle`, § 12) — Âme de Géant, réussite automatique, sorts
+  suspendus — changent une règle, pas une valeur. Chacune se lit là où elle agit, par
+  `regleActive`.
 
 ### L'horloge de combat — `domain/combat.ts`
 
@@ -389,7 +401,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 
 | Point | Décision | Raison |
 |---|---|---|
-| Points de Fatigue | Dusk Hunter **5**, Soulshifter **4**, Trickster **4** | absent des PDF, choisi par la MJ |
+| Points de Fatigue | Dusk Hunter **5**, Soulshifter **4**, Trickster **4**, Astromancien **4**, Earthborn **5**, Eclipsed **4** | absent des PDF, choisi par la MJ |
 | Arcane, d6 → Points d'Énergie | PE = résultat du dé | lecture la plus directe |
 | Cristal épuisé | sur **1 et 2** | le texte fait foi contre la table du PDF, qui se contredisait |
 | Pool du Détachement | tous sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base | le PDF exclut explicitement les améliorations |
@@ -397,7 +409,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Sorts débloqués par une option de classe | **dérivés du passif**, pas possédés | « donne accès à » ≠ « possède ». `Sort.requiertPassif` nomme l'option ; généralise l'ancien drapeau `illusion`, qui ne décrivait que l'Illusionniste |
 | Invocation du Soulshifter | un **jeton** que le tirage consomme et que la **MJ rend** depuis la fiche | « une fois par heure » parle de l'heure **de fiction**, que l'app ne connaît pas : une halte au camp couvre une nuit en trois minutes de table. Un compte à rebours réel se serait trompé dans les deux sens. `passifs.vieTireeA` porte le jeton (`peutTirerUneVie`, `rendreInvocationDeVie`) |
 | Maîtrises | **+3 / 0 / −3** | remplace le ±2 de la v0. Les fiches restées à l'ancien profil sont converties à la lecture par `convertirAncienProfil` ; une répartition que la MJ a réglée à la main n'est **pas** touchée |
-| Marques | plafond **3**, rien d'automatique | la MJ dépense à la main |
+| Marques | plafond **3** de base, **dérivé** (4 pour l'Eclipsed) ; rien d'automatique, hormis la bascule d'un choix automatique | la MJ dépense à la main. L'état Ombre d'une Eclipsed se lit sur la jauge, il ne la fait pas bouger |
 | Feu de camp | qualifié **initial** ou **repos court** ; la notion de journée de fiction est abandonnée | un camp initial ouvre la session : il rend 1 Point de Fatigue, le 6ᵉ Sens et les Actions Rapides, lève Fardeaux/Serments/Marques et ouvre Banque, Brief et gains de Foi. Un repos court ne rend que les cristaux et n'ouvre que Boutique, Grimoire, Armurerie |
 | Jetons de camp | portés par la **fiche**, et datés (n° de session, id de camp) | voir piège n° 8 |
 | Ouverture de session | **le camp initial l'ouvre**, dans le même geste | deux boutons distincts pouvaient être joués dans le désordre : deux camps initiaux d'affilée laissaient les joueuses bloquées à la Banque |
@@ -439,7 +451,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Marque sur échec critique | **proposée d'un bouton**, jamais prise d'office | « la MJ *tentera* d'ajouter une Marque » ; cohérent avec « les Marques, rien d'automatique » |
 | Forcer le Destin | un second d20, **une seule fois** | `forcerDestin` lève au deuxième appel : l'écran le cache déjà, mais la règle ne peut pas dépendre d'un écran |
 | Brûlures sur un jet | **+1 par brûlure**, sur tout jet qui a un total | la règle existait au PDF et dans un commentaire de `brulures.ts`, sans aucune UI. Passe par `consommerBrulures`, donc la Combustion à la neuvième part toute seule |
-| Jet d'Arcane | `resoudreArcane` **branché** | il était écrit et testé mais appelé par aucun écran. PE annoncés, cristal épuisé automatique sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en **correction** |
+| Jet d'Arcane | `resoudreArcane` **branché**, et lu par `lancerSort` | il était écrit et testé mais appelé par aucun écran. PE annoncés, cristal épuisé automatique sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en **correction**. L'épuisement vit dans `lancerSort` depuis que la réussite automatique doit l'épargner |
 | Osselets saisis à la main | la joueuse annonce **le nombre de points rouges** | elle les a comptés en regardant ses osselets ; lui redemander les quatre faces serait une double saisie pour le même résultat. Seul cas volontairement hors de `LanceurDes` |
 | Remontée des jets | **journal 🔒 seulement** | aucun document nouveau, aucune règle Firestore à toucher. La MJ les relit dans son onglet Journal |
 | Réglage de dés | `localStorage`, **jamais sur la fiche** | ce n'est pas un fait de fiction ; deux joueuses partageant un personnage n'auraient pas à partager leurs dés, et `Character` n'a pas un champ de plus à normaliser |
@@ -453,11 +465,29 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Noms des actions | **français** : Pression · Feinte · Placement · Contre · Garde | cohérent avec le reste de l'app, et lisible en une seconde sur un téléphone |
 | Joueuses non-duellistes | **spectatrices** : le plateau sans aucun bouton | le duel est un moment de table ; le rendu en lecture seule est le même composant |
 | Chrono | il **verrouille la sélection en cours**, l'action par défaut seulement si rien n'est préparé | un choix irréversible ne doit pas tenir à un doigt qui glisse |
+| « Coût : X Marques » | le **sens** est porté par la part : **prendre** (Vanish, Sundown) ou **consommer** (sorts Ombre) | les deux lectures existent dans les classes : Ito récompense la Marque *prise*, l'Ombre *consomme* les siennes. Sundown, « Marques concédées », les retirait à tort |
+| Part « au plus » | payable dès qu'il reste une unité, elle prélève ce qui reste | décision de la MJ : un sort Ombre lancé sur une seule Marque la vide, et l'Eclipsed revient à la Lumière |
+| Parts d'une branche | **additionnées** par élément et par sens avant d'être comparées | vérifiées une à une, « 1 Foi + X Foi » passait avec 3 Foi et X = 3, et laissait la joueuse à −1 |
+| Règles spéciales | `Regle` sur l'effet d'un passif **permanent** : Âme de Géant, réussite automatique, sorts suspendus | ce qu'aucun chiffre ne dit. Le registre est fermé — chaque règle a son point d'application —, qui en bénéficie se compose en données |
+| Réussite automatique | annoncée **avant** le jet, contre son prix (1 Marque prise) ; en Arcane le dé vaut **5**, sans être lancé | décision de la MJ : la plus haute puissance qui n'épuise pas le cristal et ne déborde pas en Effet Aléatoire |
+| Âme de Géant | un 6 en Arcane ne déclenche pas l'Effet Aléatoire ; les PE restent 6, l'app annonce l'effet décuplé | l'ampleur est dite par le texte « sur un 6 » du sort, ou par la MJ |
+| Ombre | **tous** les sorts préparés sont suspendus ; restent ceux qu'une option débloque | décision de la MJ, plutôt qu'un filtre par type magique |
+| Verrou à jeton | le **premier** choix est libre ; chaque changement suivant consomme un jeton que la **MJ rend** | « une fois par heure » parle de l'heure de fiction, comme l'invocation du Soulshifter. La MJ ne consomme jamais le jeton |
+| Choix automatique | l'état se lit à **chaque écriture**, après les réactions ; un forçage de la MJ tient le temps de l'écriture | lire l'état plutôt que le franchissement rattrape un plafond qui baisse ou une écriture passée sans résolution. Aux extrémités, la règle reprend la main |
+| Option de départ | `ChoixClasse.defaut`, **lu, jamais écrit** | une fiche créée avant le réglage en profite aussi (piège n° 1). Les défauts d'Hexcore et de voie, antérieurs, restent posés à la création |
+| Étoiles à débloquer | `OptionChoixClasse.requiertAmelioration` ; une option devenue inaccessible **n'agit plus**, sans être effacée | chaque personnage progresse séparément, et une Amélioration ne se perd pas au Détachement |
+| X d'une réaction | `add-x` vaut l'**ampleur** du changement qui l'arme | Ito : un Point de Foi **par** Marque prise |
+| Dé d'un sort dans un effet | `add-de` | [Couleur] Rouge ajoute le d6 au Social ; en réussite automatique, 5 |
+| 6th Sens et Actions Rapides dans un passif | la jauge compte les points **utilisés** ; le plafond des Actions Rapides se dérive du Physique et se hausse | un seuil sur les points restants tournerait en rond dans `derivedModifiers`. Un seuil ou une réaction sur ces deux éléments faisait planter la fiche |
+| Void Call | résultats en **texte**, sauf le 4 (+1 Fatigue à la lanceuse) | l'app ne sait pas quelles joueuses sont à la table ce soir |
+| Amaterasu | un **sort** débloqué par l'étoile | le PDF tient toute capacité de classe pour un Sort ; aucun mécanisme neuf |
+| Opérations des sorts | saisissables dans l'éditeur d'Actifs, **pour les sorts seulement** | seul `lancerSort` les applique : les offrir sur un objet mentirait |
 
 ### Les passifs réactifs passent par un point unique
 
 `resoudrePassifs` (`domain/reactions.ts`) compare l'état d'avant à celui d'après et applique
-ce qui s'est armé. Elle est appelée depuis **`modifierPersonnage` et nulle part ailleurs** :
+ce qui s'est armé — puis les **bascules** des choix automatiques, lues sur la fiche qui en
+résulte (§ 12). Elle est appelée depuis **`modifierPersonnage` et nulle part ailleurs** :
 c'est le seul endroit qui dispose des deux états. La brancher dans les écrans aurait produit
 des réactions qui partent ou non selon qui a bougé la jauge — c'est pourquoi les **huit**
 sites qui écrivaient encore par `enregistrerPersonnage` y sont passés : gains de Foi au camp,
@@ -791,7 +821,7 @@ Ce sont des interprétations. Si la MJ dit autre chose, elle a raison.
 
 ## 8. Décisions revenues sur elles-mêmes
 
-Huit choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
+Onze choix ont été faits, puis défaits. Les connaître évite de refaire le chemin inverse.
 
 | Sujet | D'abord | Puis | Pourquoi |
 |---|---|---|---|
@@ -803,6 +833,9 @@ Huit choix ont été faits, puis défaits. Les connaître évite de refaire le c
 | **Vocabulaire du contenu** | quatre listes séparées — `Ressource` (réactions), `ModifierTarget` (passifs), `CoutSort`, `CoutUsage` | un seul **Élément Variable**, et une `Cible` = élément + aspect | les quatre décrivaient la même chose sans se connaître. Une réaction ne pouvait pas viser l'Évasion, un coût ne pouvait pas se payer en Marques — non par choix de règle, mais parce que les listes n'avaient jamais été écrites au même endroit |
 | **Passifs** | deux tableaux, `modificateurs` et `declencheurs` | un seul type `Passif`, porteur de son **déclenchement** | ils ne différaient que par ce qui les armait, jamais par leur effet. Les réunir permet à une réaction d'accorder un bonus d'Évasion, et à un permanent de n'agir qu'au-delà d'un seuil — deux choses qu'aucun des deux ne savait faire |
 | **Objet épuisé** | détruit et déséquipé automatiquement | **conservé**, marqué, retiré à la main | décision de la MJ : un flacon vide se garde, se remplit, se revend |
+| **Coût en Marques** | toujours consommé | un **sens** par part : prendre ou consommer | Sundown « concède » ses Marques, Vanish en fait prendre une, les sorts Ombre en consomment : une seule lecture en trahissait deux |
+| **Lecture des choix de classe** | Overheat et les cartes d'effets lisaient `hexcore` / `voieTrickster` | tout se lit dans `passifs.choix` | l'écran n'écrivait plus que `choix` : Overheat ne s'appliquait plus quand on le choisissait |
+| **Cristal épuisé** | posé par l'écran des sorts | posé par `lancerSort` | la réussite automatique doit l'épargner, et la règle ne peut pas dépendre d'un écran |
 
 Le fil commun de ces retours : **préférer le dérivé au stocké**, **ne jamais faire transiter
 par un appareil ce qu'il ne doit pas savoir**, **ranger un état là où celui qui l'écrit a
@@ -985,3 +1018,52 @@ chrono du duel, pour qu'un double appui ne paie pas deux fois.
 
 Une part variable — le « X » — n'a pas de sens ici : la carte ne demande pas de choisir un
 montant, et `payerCout` prélèvera son minimum. N'en mettez pas.
+
+---
+
+## 12. Astromancien, Earthborn, Eclipsed — des classes sans code
+
+Les trois classes sont du **contenu semé** (`content/seed.ts`), et aucune ligne du moteur
+ne les nomme. Ce qu'elles demandaient et que le modèle ne savait pas dire est devenu cinq
+mécanismes génériques, tous composables depuis Réglages.
+
+| Besoin | Mécanisme | Où |
+|---|---|---|
+| Vanish fait **prendre** une Marque, un sort Ombre en **consomme** | `PartCout.sens: 'prendre'`, table `PRISES` à côté de `PAIEMENTS` ; `auPlus` pour « jusqu'à N » | `couts.ts` |
+| Âme de Géant, réussite automatique, Grimoire fermé en Ombre | `Regle`, portée par l'effet d'un passif **permanent** ; `regleActive` | `types.ts`, `passifs.ts`, lue dans `lancement.ts`, `magie.ts`, `jets.ts` |
+| Bonne Étoile « une fois par heure » | `verrou: 'jeton'` ; `EtatPassifs.jetonsChoix`, rendu par la MJ | `passifs.ts` (`peutChangerOption`, `retenirOption`, `rendreJetonChoix`) |
+| Lumière ⇄ Ombre selon les Marques | `verrou: 'automatique'`, `OptionChoixClasse.bascule`, `ChoixClasse.defaut` | `reactions.ts` (`appliquerBascules`) |
+| Étoiles à débloquer plus tard | `OptionChoixClasse.requiertAmelioration` | `passifs.ts` (`optionAccessible`) |
+| Ito : un Point de Foi **par** Marque ; [Couleur] Rouge : + d6 | `add-x` = ampleur du changement dans une réaction ; `add-de` = dé du sort | `passifs.ts` (`resoudreOperation`) |
+
+### Ce qui se lit, et ce qui s'écrit
+
+- **L'état d'une Eclipsed est stocké** dans `passifs.choix.etat` : entre 1 et 3 Marques, seul
+  l'historique dit s'il est Lumière ou Ombre. Il n'est **écrit** que par la bascule — ou par
+  la MJ. Son défaut, la Lumière, est lu sans être écrit.
+- **La bascule se lit sur l'état**, pas sur le franchissement : à chaque écriture, après les
+  réactions, sur la fiche de l'actrice et sur celle de chaque alliée modifiée. Elle rattrape
+  ainsi un plafond qui baisse quand on range un objet. Une écriture qui change elle-même le
+  choix est respectée — c'est le forçage de la MJ.
+- **Le jeton se porte dans sa valeur** (l'instant du changement), comme `vieTireeA` pour le
+  Soulshifter. Sa présence est le jeton consommé ; la MJ le retire.
+
+### Pièges
+
+- ⚠️ **Sundown en base.** Le sort fait désormais *prendre* ses Marques. Une table dont
+  Sundown dort à l'**ancien** format (`marques-variable`) est convertie à la lecture ; une
+  table où il est déjà au **nouveau** format garde « consommer » tant que la MJ ne bascule
+  pas la part sur « Prendre » dans l'éditeur — l'amorçage n'écrase jamais (piège n° 1).
+- ⚠️ **Une règle ne vaut que sur un passif permanent.** L'éditeur ne la propose pas
+  ailleurs, et `regleActive` ignore les réactions. `EffetPassif` le dit au typage : les
+  tables des sorts et des objets ne portent pas de règles.
+- ⚠️ **`passifs.ts` ne peut pas importer `couts.ts`** (`couts → modifiers → passifs`). C'est
+  pourquoi `LIBELLE_REGLE` ne dit pas le prix d'une réussite automatique : l'écran qui la
+  propose l'affiche avec `decrireCout`.
+- ⚠️ **Le 6th Sens et les Actions Rapides se comptent en points utilisés** dans les passifs.
+  Un seuil sur les points *restants* lirait un maximum qui dépend des passifs eux-mêmes, et
+  `derivedModifiers` tournerait en rond. Le plafond des Actions Rapides se dérive du
+  Physique dans `competences.ts` (`BASES_PLAFOND_DERIVEES`), faute de catalogue dans
+  `elements.ts`.
+- **Void Call** n'applique tout seul que son résultat 4 : les autres touchent « tous les
+  alliés », et l'app ne sait pas qui est à la table ce soir.

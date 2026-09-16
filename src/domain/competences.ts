@@ -3,6 +3,7 @@ import {
   cibleCompetence,
   cibleElement,
   descripteur,
+  type CleElement,
   type ElementVariable,
 } from './elements.ts'
 import { agreger, allModifiers, netAvantage, type Agregat } from './modifiers.ts'
@@ -54,10 +55,11 @@ export function computeToutesCompetences(
  * On applique le seuil sur la valeur **effective** (maîtrise + modificateurs)
  * plutôt que sur la maîtrise brute, pour rester cohérent avec l'exigence de
  * modificateurs dynamiques : un Serment qui écrase le Physique retire aussi
- * l'Action Rapide supplémentaire.
+ * l'Action Rapide supplémentaire. C'est la base du plafond : un passif peut
+ * encore la hausser.
  */
 export function actionsRapidesMax(char: Character, catalog: Catalog): number {
-  return computeCompetence(char, catalog, 'physique').total >= 3 ? 2 : 1
+  return plafondElement(char, catalog, { kind: 'actions-rapides' }).max
 }
 
 export function actionsRapidesRestantes(char: Character, catalog: Catalog): number {
@@ -125,20 +127,48 @@ export function tailleInvestissements(char: Character, catalog: Catalog): number
 // ---------------------------------------------------------------------------
 
 /**
+ * Les bases de plafond qui ne se lisent pas sur la fiche seule.
+ *
+ * Le maximum d'Actions Rapides découle du Physique **effectif**, donc du
+ * catalogue : `elements.ts`, qui ne dépend de rien, ne peut pas le calculer. Il
+ * vit ici, comme la table des paiements vit dans `couts.ts`.
+ *
+ * ⚠️ Aucune boucle : le Physique passe par `derivedModifiers`, dont les seuils ne
+ * lisent que des compteurs stockés, jamais un plafond.
+ */
+const BASES_PLAFOND_DERIVEES: Partial<
+  Record<CleElement, (char: Character, catalog: Catalog) => number>
+> = {
+  'actions-rapides': (char, catalog) =>
+    computeCompetence(char, catalog, 'physique').total >= 3 ? 2 : 1,
+}
+
+/** Vrai si l'élément a un plafond, qu'il se lise sur la fiche ou qu'il se dérive. */
+export function aUnPlafond(element: ElementVariable): boolean {
+  return (
+    descripteur(element).plafondBase !== undefined ||
+    BASES_PLAFOND_DERIVEES[element.kind] !== undefined
+  )
+}
+
+/**
  * Le plafond d'un Élément Variable : sa base, plus ce que les objets et passifs
  * en font. Rien n'est stocké — une dague qui coûte un Point de Fatigue rend la
  * case dès qu'on la range.
  *
- * La base et le plancher sont lus dans `ELEMENTS_VARIABLES` : ajouter un
- * élément plafonnable ne demande plus d'écrire une fonction de plus ici.
+ * La base et le plancher sont lus dans `ELEMENTS_VARIABLES` — ou, quand la base
+ * demande le catalogue, dans `BASES_PLAFOND_DERIVEES` : ajouter un élément
+ * plafonnable ne demande plus d'écrire une fonction de plus ici.
  * `char.fatigue.max` n'est donc pas la vérité mais la **base**, celle que la
  * classe a fixée à la création.
  */
 export function plafondElement(char: Character, catalog: Catalog, element: ElementVariable) {
   const d = descripteur(element)
-  if (!d.plafondBase) throw new Error(`« ${d.libelle} » n'a pas de plafond.`)
+  const lireBase: ((c: Character, cat: Catalog) => number) | undefined =
+    d.plafondBase ?? BASES_PLAFOND_DERIVEES[element.kind]
+  if (!lireBase) throw new Error(`« ${d.libelle} » n'a pas de plafond.`)
 
-  const base = d.plafondBase(char)
+  const base = lireBase(char, catalog)
   const agregat = agreger(allModifiers(char, catalog), (m) => cibleElement(m.target, element, 'plafond'))
   return {
     base,

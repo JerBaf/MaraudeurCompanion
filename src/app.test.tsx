@@ -302,12 +302,18 @@ describe('outillage de table', () => {
   })
   afterEach(cleanup)
 
-  /** Amorce la table et y crée un personnage de la classe demandée. */
-  async function tablePreteAvecPersonnage(classe = 'Dusk Hunter') {
+  /**
+   * Amorce la table et y crée un personnage de la classe demandée.
+   *
+   * `derniereCle` : l'entrée semée à attendre. Les classes livrées en dernier
+   * ont besoin de leurs sorts, écrits en fin d'amorçage — `void-call` ferme la
+   * liste.
+   */
+  async function tablePreteAvecPersonnage(classe = 'Dusk Hunter', derniereCle = 'dusk-hunter') {
     sessionStorage.setItem('maraudeur:role', 'mj')
     await monter()
     await waitFor(() =>
-      expect(clesStockage().some((k) => k.includes('catalog/dusk-hunter'))).toBe(true),
+      expect(clesStockage().some((k) => k.includes(`catalog/${derniereCle}`))).toBe(true),
     )
     cleanup()
 
@@ -544,6 +550,128 @@ describe('outillage de table', () => {
     await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
     // Accordé hors boutique, il rejoint le répertoire sans être préparé.
     expect(screen.getByText('Sorts connus')).toBeTruthy()
+  })
+
+  /**
+   * L'état d'une Eclipsed bascule tout seul : à la quatrième Marque, ses sorts
+   * préparés se ferment et ses sorts Ombre s'ouvrent. Void Call, qui vide ce qui
+   * reste, la ramène dans la Lumière. Le câblage passe par `modifierPersonnage`,
+   * que ni le compteur ni le lancement ne contournent.
+   */
+  it('une Eclipsed passe en Ombre à la quatrième Marque, et Void Call l’en ramène', async () => {
+    mesPropresDes()
+    await tablePreteAvecPersonnage('Eclipsed', 'void-call')
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    // Quatre Marques de plafond : la quatrième pastille existe.
+    fireEvent.click(await screen.findByRole('button', { name: 'Marques : 4' }))
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Sorts' }))
+    await waitFor(() => expect(screen.getByText('Void Call')).toBeTruthy())
+    expect(screen.getByText('Raging Claw')).toBeTruthy()
+    expect(screen.getByText(/vos sorts préparés sont suspendus/)).toBeTruthy()
+
+    // Void Call, dé saisi à la main : un 1, rien qui touche la fiche.
+    fireEvent.click(screen.getByText('Void Call'))
+    fireEvent.change(await screen.findByLabelText('Résultat du d4'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lancer' }))
+
+    // Plus de Marque : retour à la Lumière, les sorts Ombre se referment.
+    await waitFor(() => expect(screen.queryByText('Raging Claw')).toBeNull())
+    expect(screen.queryByText(/vos sorts préparés sont suspendus/)).toBeNull()
+  })
+
+  /**
+   * La Bonne Étoile se choisit librement la première fois ; en changer consomme
+   * le jeton, que seule la MJ rend. Amaterasu apporte son sort, hors emplacement.
+   */
+  it('un Astromancien change d’étoile contre son jeton, que la MJ lui rend', async () => {
+    await tablePreteAvecPersonnage('Astromancien', 'void-call')
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    const carte = async () =>
+      (await screen.findByText('Passif — Astromancien')).closest('section') as HTMLElement
+    const option = async (nom: RegExp) =>
+      within(await carte()).getByRole('button', { name: nom }) as HTMLButtonElement
+
+    // Le premier choix est libre.
+    fireEvent.click(await option(/^Ito/))
+    await waitFor(async () => expect((await option(/^Ito/)).getAttribute('aria-pressed')).toBe('true'))
+    expect(within(await carte()).getByText(/Jeton disponible/)).toBeTruthy()
+
+    // Le changement suivant consomme le jeton, après confirmation.
+    const confirmer = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(await option(/^Amaterasu/))
+    await waitFor(async () => expect(within(await carte()).getByText(/Jeton utilisé/)).toBeTruthy())
+    expect(confirmer).toHaveBeenCalledOnce()
+    confirmer.mockRestore()
+    expect((await option(/^Ito/)).disabled).toBe(true)
+
+    // L'étoile apporte son sort, hors emplacement.
+    fireEvent.click(screen.getByRole('tab', { name: 'Sorts' }))
+    await waitFor(() => expect(screen.getByText('Amaterasu')).toBeTruthy())
+    expect(screen.getByText('Hors emplacement')).toBeTruthy()
+    cleanup()
+
+    // La MJ rend le jeton depuis la fiche.
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+    fireEvent.click(await screen.findByRole('button', { name: /Rendre le jeton/ }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Jeton déjà disponible' })).toBeTruthy(),
+    )
+    cleanup()
+
+    // La joueuse peut de nouveau changer d'étoile.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(async () => expect((await option(/^Ito/)).disabled).toBe(false))
+  })
+
+  /**
+   * Régression : éditer le texte d'un résultat effaçait ses opérations. La MJ
+   * compose ici un « [Couleur] Bleu » de bout en bout, sans toucher au code.
+   */
+  it('la MJ compose un sort à effet chiffré, que l’édition du texte n’efface pas', async () => {
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Réglages' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sort' }))
+    fireEvent.change(await screen.findByLabelText('Nom'), { target: { value: '[Couleur] Bleu' } })
+
+    fireEvent.click(screen.getByText('Ajouter un effet actif'))
+    fireEvent.click(await screen.findByText('Ajouter un ajustement'))
+    fireEvent.change(await screen.findByLabelText('Cible de l’effet'), {
+      target: { value: 'competence|valeur' },
+    })
+    fireEvent.change(screen.getByLabelText('Compétence visée par l’effet'), {
+      target: { value: 'esprit' },
+    })
+    fireEvent.change(screen.getByLabelText('Opération de l’effet'), { target: { value: 'add-de' } })
+
+    // Le texte s'écrit après l'opération : il ne doit rien effacer.
+    const texte = screen
+      .getAllByLabelText('Effet')
+      .find((el) => el.tagName === 'INPUT') as HTMLInputElement
+    fireEvent.change(texte, { target: { value: 'Esprit + d6' } })
+    expect((screen.getByLabelText('Opération de l’effet') as HTMLSelectElement).value).toBe('add-de')
+
+    fireEvent.click(screen.getByText('Enregistrer'))
+    await waitFor(() => expect(screen.getByText(/« \[Couleur\] Bleu » créé/)).toBeTruthy())
+
+    const ecrit = clesStockage()
+      .filter((k) => k.includes('/catalog/'))
+      .map((k) => JSON.parse(localStorage.getItem(k) as string))
+      .find((e) => e.nom === '[Couleur] Bleu')
+    expect(ecrit.actifs[0].table.entrees[0]).toMatchObject({
+      texte: 'Esprit + d6',
+      operations: [{ op: { kind: 'add-de' } }],
+    })
   })
 
   /**

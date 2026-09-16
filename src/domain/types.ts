@@ -161,8 +161,14 @@ export type CoutSort =
  */
 export type OperationValeur =
   | { kind: 'add'; value: number }
-  /** Le X payé au lancement. Réservé aux effets déclenchés. */
+  /**
+   * Le X payé au lancement — ou, dans une réaction, l'ampleur du changement qui
+   * l'a armée : « un Point de Foi par Marque prise ». Réservé aux effets
+   * déclenchés.
+   */
   | { kind: 'add-x' }
+  /** La valeur du dé du sort : « ajoutez le d6 à votre Social ». Lancement seulement. */
+  | { kind: 'add-de' }
   | { kind: 'set'; value: number }
   | { kind: 'avantage' }
   | { kind: 'desavantage' }
@@ -220,6 +226,39 @@ export interface ConditionReaction {
   chez: 'soi' | 'un-allie' | 'quiconque'
 }
 
+/**
+ * Une règle spéciale : ce qu'un passif change aux règles elles-mêmes, et
+ * qu'aucun chiffre ne dit.
+ *
+ * L'Âme de Géant change ce qu'un 6 veut dire, la réussite automatique remplace
+ * un jet, l'état Ombre ferme le Grimoire. Chaque règle a son point
+ * d'application dans le moteur ; le contenu décide qui en bénéficie. Ajouter une
+ * règle, c'est ajouter une variante ici et la lire là où elle agit.
+ */
+export type Regle =
+  /** Arcane : un 6 ne déclenche pas d'Effet Aléatoire, il décuple le sort. */
+  | { kind: 'ame-de-geant' }
+  /**
+   * Un Test de Compétence ou un Jet d'Arcane réussi d'office, contre ce prix —
+   * annoncé avant le jet. En Arcane, le dé vaut alors 5.
+   */
+  | { kind: 'reussite-automatique'; cout: Cout }
+  /** Les sorts préparés sont inutilisables ; seuls restent ceux qu'une option débloque. */
+  | { kind: 'sorts-suspendus' }
+
+export type KindRegle = Regle['kind']
+
+/**
+ * L'effet d'un passif : celui de tout effet, plus des règles.
+ *
+ * Une règle ne vaut que sur un passif **permanent** en vigueur : accordée par
+ * une réaction ou par la table d'un sort, elle n'aurait aucun moment où
+ * s'appliquer. D'où un type propre, qui empêche de l'écrire ailleurs.
+ */
+export interface EffetPassif extends Effet {
+  regles?: Regle[]
+}
+
 export type Declenchement =
   /**
    * En vigueur tant que la source l'est — objet porté, amélioration possédée.
@@ -244,7 +283,7 @@ export interface Passif {
   /** Ce que la joueuse lit dans ses effets en cours. */
   libelle: string
   declenchement: Declenchement
-  effet: Effet
+  effet: EffetPassif
 }
 
 /** Une table d'effets. Une seule face rend l'effet déterministe. */
@@ -344,6 +383,35 @@ export interface EntreeCatalogueBase {
  * Trickster, jusqu'ici deux champs codés en dur avec chacun sa liste. Créer une
  * classe complète depuis l'écran MJ demandait de pouvoir les écrire en données.
  */
+/**
+ * Quand un choix de classe peut changer.
+ *
+ * - `libre` : quand on veut — l'Hexcore du Dusk Hunter, au prix d'un tour.
+ * - `feu-de-camp` : à la phase Sorts du camp, jusqu'au suivant — la voie du
+ *   Trickster.
+ * - `jeton` : le premier choix est libre ; ensuite, chaque changement consomme
+ *   un jeton que la MJ rend quand l'heure de jeu a passé — la Bonne Étoile de
+ *   l'Astromancien.
+ * - `automatique` : jamais par la joueuse. L'option s'impose d'elle-même selon
+ *   une jauge (`OptionChoixClasse.bascule`) — l'état Lumière/Ombre de l'Eclipsed.
+ */
+export type VerrouChoix = 'libre' | 'feu-de-camp' | 'jeton' | 'automatique'
+
+/**
+ * Quand une option d'un choix automatique s'impose.
+ *
+ * « Au moins le plafond » : les Marques ont atteint leur maximum. « Au plus 0 » :
+ * elles sont retombées à zéro. Entre les deux, rien ne bascule — c'est ce qui
+ * donne à l'Eclipsed un état qui dure.
+ */
+export interface ConditionBascule {
+  /** Une jauge : un compteur stocké sur la fiche. */
+  element: ElementVariable
+  comparaison: 'au-moins' | 'au-plus'
+  /** `'plafond'` : le maximum dérivé de la jauge, passifs compris. */
+  seuil: number | 'plafond'
+}
+
 export interface ChoixClasse {
   id: string
   libelle: string
@@ -355,7 +423,13 @@ export interface ChoixClasse {
    * Dusk Hunter se bascule quand on veut, au prix d'un tour. Les datifier sans
    * ce champ déverrouillerait silencieusement la voie du Trickster.
    */
-  verrou: 'libre' | 'feu-de-camp'
+  verrou: VerrouChoix
+  /**
+   * L'option retenue tant que rien n'est stocké — la Lumière d'une Eclipsed
+   * neuve. **Lue, jamais écrite** : une fiche créée avant que la MJ ne pose le
+   * défaut en profite aussi. Absent : rien n'est retenu avant le premier choix.
+   */
+  defaut?: string
   options: OptionChoixClasse[]
 }
 
@@ -366,13 +440,24 @@ export interface OptionChoixClasse {
   effet: string
   /** Ce qu'elle accorde mécaniquement. Vide pour une option purement narrative. */
   passifs?: Passif[]
+  /**
+   * L'Amélioration qu'il faut posséder pour retenir l'option — une étoile que
+   * l'Astromancien débloque en boutique. Tant qu'elle manque, l'option se voit,
+   * verrouillée, et n'agit pas.
+   */
+  requiertAmelioration?: string
+  /** Choix automatique : quand cette option s'impose. */
+  bascule?: ConditionBascule
 }
 
 export interface Classe extends EntreeCatalogueBase, PorteurEffets {
   kind: 'classe'
   /** Choix offerts par la classe, résolus dans `Character.passifs.choix`. */
   choix?: ChoixClasse[]
-  /** Points de Fatigue de départ. Dusk Hunter 5, Soulshifter 4, Trickster 4. */
+  /**
+   * Points de Fatigue de départ. Dusk Hunter 5, Soulshifter 4, Trickster 4,
+   * Astromancien 4, Earthborn 5, Eclipsed 4.
+   */
   fatigueMax: number
   /** Points de 6th Sens de base. Défaut 1 (Rules_For_Agents.pdf). */
   sixthSensBase: number
@@ -500,8 +585,11 @@ export interface EffetsActifs {
   cout: CoutUsage
 }
 
-/** Les tailles de table proposées par le PDF. */
-export const FACES_TABLE = [1, 4, 6, 8] as const
+/**
+ * Les tailles de table proposées par le PDF, plus la pièce — le pile ou face
+ * de Raging Claw. Le sélecteur de dé d'attaque, lui, n'offre pas la pièce.
+ */
+export const FACES_TABLE = [1, 2, 4, 6, 8] as const
 
 export interface Investissement extends EntreeCatalogueBase {
   kind: 'investissement'
@@ -682,6 +770,13 @@ export interface EtatPassifs {
    * lecture, comme `classeId` s'est replié dans `classesIds`.
    */
   choix?: Record<string, string>
+  /**
+   * Jetons de choix consommés, par identifiant de choix, avec l'instant du
+   * changement. **Sa présence est le jeton consommé** : absent, le choix peut
+   * changer. Seule la MJ le rend, comme l'invocation du Soulshifter — l'heure de
+   * jeu n'est connue que d'elle.
+   */
+  jetonsChoix?: Record<string, number>
   /** ⚠️ **Ancien champ** — Dusk Hunter, configuration Hexcore active. */
   hexcore?: 'overheat' | 'overdrive'
   /** ⚠️ **Ancien champ** — Trickster, voie choisie à la phase Grimoire. */

@@ -260,7 +260,8 @@ function Attaque({
               aria-label="Dé à lancer"
               onChange={(e) => setFaces(Number(e.target.value))}
             >
-              {FACES_TABLE.filter((f) => f > 1).map((f) => (
+              {/* La pièce (d2) ne sert qu'aux tables d'effets, pas à l'attaque. */}
+              {FACES_TABLE.filter((f) => f > 2).map((f) => (
                 <option key={f} value={f}>
                   1d{f}
                 </option>

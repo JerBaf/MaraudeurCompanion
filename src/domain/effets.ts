@@ -8,7 +8,7 @@ import {
   passifsActifs,
   type ProvenancePassif,
 } from './passifs.ts'
-import type { Character, Modifier, VieSoulshifter } from './types.ts'
+import type { Character, Modifier, VerrouChoix, VieSoulshifter } from './types.ts'
 
 /**
  * Vue unifiée de tout ce qui agit sur un personnage à un instant donné.
@@ -113,6 +113,23 @@ const EXPLICATION_PAR_PROVENANCE: Record<ProvenancePassif, string> = {
 }
 
 /**
+ * Qui a décidé d'une option de classe : la joueuse, sauf quand son choix
+ * s'engage au camp, ou bascule tout seul — l'état Ombre d'une Eclipsed n'est
+ * pas « votre choix ».
+ */
+const ORIGINE_PAR_VERROU: Record<VerrouChoix, OrigineEffet> = {
+  libre: 'choisi',
+  jeton: 'choisi',
+  'feu-de-camp': 'feu-de-camp',
+  automatique: 'derive',
+}
+
+const EXPLICATION_PAR_VERROU: Partial<Record<VerrouChoix, string>> = {
+  'feu-de-camp': 'Engagé à la phase Sorts du Feu de Camp, jusqu’au suivant.',
+  automatique: 'Découle de votre état : ce choix bascule tout seul.',
+}
+
+/**
  * Effets en cours, prêts à être affichés et expliqués.
  *
  * ⚠️ **Ce point était un piège durable du projet** : la liste partait des
@@ -144,19 +161,21 @@ export function effetsActifs(
     else modsParPassif.set(cle, [m])
   }
 
-  for (const { passif, source, provenance, ref } of passifsActifs(char, catalog)) {
+  for (const { passif, source, provenance, ref, verrou } of passifsActifs(char, catalog)) {
     if (!conditionRemplie(passif, char)) continue
 
     const nom = passif.libelle || source
     const modificateurs = modsParPassif.get(`derive:passif:${ref}:${passif.id}`) ?? []
     const resume = decrirePassif(passif)
+    const explication =
+      (verrou && EXPLICATION_PAR_VERROU[verrou]) ?? EXPLICATION_PAR_PROVENANCE[provenance]
 
     effets.push({
       id: `passif:${ref}:${passif.id}`,
       nom,
-      origine: ORIGINE_PAR_PROVENANCE[provenance],
+      origine: verrou ? ORIGINE_PAR_VERROU[verrou] : ORIGINE_PAR_PROVENANCE[provenance],
       resume,
-      detail: `${passif.effet.texte || resume}\n\n${EXPLICATION_PAR_PROVENANCE[provenance]}`,
+      detail: `${passif.effet.texte || resume}\n\n${explication}`,
       modificateurs,
     })
   }
@@ -187,8 +206,9 @@ export function effetsActifs(
   }
 
   // Dusk Hunter : Overheat agit sur le *gain* de brûlures, pas sur une
-  // statistique — il n'existe donc aucun modificateur à afficher.
-  if (char.passifs.hexcore === 'overheat') {
+  // statistique — il n'existe donc aucun modificateur à afficher. Lu dans
+  // `choix`, que l'écran écrit, comme `gainBrulureEffectif`.
+  if (char.passifs.choix?.hexcore === 'overheat') {
     effets.push({
       id: 'passif:overheat',
       nom: 'Overheat',
@@ -201,7 +221,7 @@ export function effetsActifs(
   }
 
   // Trickster : Illusionniste ne modifie aucune valeur, il débloque des sorts.
-  if (char.passifs.voieTrickster === 'illusionniste') {
+  if (char.passifs.choix?.voie === 'illusionniste') {
     effets.push({
       id: 'passif:illusionniste',
       nom: 'Illusionniste',

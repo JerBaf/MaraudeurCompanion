@@ -1,8 +1,15 @@
 import type { Catalog } from './catalog.ts'
-import { payerCout, type ChoixPaiement } from './couts.ts'
+import { payerCout, type ChoixPaiement, type Cout } from './couts.ts'
 import { decrireCible } from './elements.ts'
-import { disponibiliteSort, type RaisonIndisponible } from './magie.ts'
-import { estEcritureDirecte } from './passifs.ts'
+import {
+  DE_REUSSITE_AUTOMATIQUE,
+  disponibiliteSort,
+  resoudreArcane,
+  sortAUnCristal,
+  type RaisonIndisponible,
+  type ResultatArcane,
+} from './magie.ts'
+import { estEcritureDirecte, regleActive, resoudreOperation } from './passifs.ts'
 import { appliquerEcriture } from './reactions.ts'
 import type { Des, Rng } from './random.ts'
 import type { Character, Modifier, ModifierExpiry, Operation, Sort } from './types.ts'
@@ -28,6 +35,11 @@ export interface DemandeLancement {
   brancheCout?: number
   /** La valeur choisie pour le « X » d'un coût variable. */
   x?: number
+  /**
+   * Réussir le Jet d'Arcane d'office, au prix que fixe la règle : le dé vaut
+   * alors 5, sans être lancé.
+   */
+  reussiteAutomatique?: boolean
 }
 
 export interface ResultatLancement {
@@ -39,6 +51,25 @@ export interface ResultatLancement {
   de: number | null
   /** Les effets appliqués, en toutes lettres. */
   effets: string[]
+  /** La lecture du dé d'un sort à cristal — le Jet d'Arcane —, sinon `null`. */
+  arcane: ResultatArcane | null
+  reussiteAutomatique: boolean
+}
+
+/**
+ * La réussite automatique que ce sort offre à cette joueuse, et son prix.
+ *
+ * Il faut la règle, et un Jet d'Arcane à réussir : un sort à cristal qui porte
+ * un dé. Un Miracle ne se rate pas, il n'y a rien à réussir d'office.
+ */
+export function reussiteAutomatiqueOfferte(
+  sort: Sort,
+  char: Character,
+  catalog: Catalog,
+): { cout: Cout; source: string } | null {
+  if (!sort.de || !sortAUnCristal(sort, catalog)) return null
+  const active = regleActive(char, catalog, 'reussite-automatique')
+  return active ? { cout: active.regle.cout, source: active.source } : null
 }
 
 /**
@@ -69,11 +100,14 @@ function nouvelId(sortId: string): string {
  * Un dé à une seule face n'est jamais demandé : son résultat ne peut être que 1,
  * et `rngManuel` le rend sans rien consommer. C'est le cas d'une table
  * déterministe comme d'un `Sort.de` illisible, que `facesDuDe` ramène à 1.
+ *
+ * Une réussite automatique ne lance pas le dé du sort — il vaut 5 d'office —,
+ * mais ses tables, si.
  */
-export function desDuSort(sort: Sort): Des[] {
+export function desDuSort(sort: Sort, options: { reussiteAutomatique?: boolean } = {}): Des[] {
   const des: Des[] = []
 
-  if (sort.de) {
+  if (sort.de && !options.reussiteAutomatique) {
     const faces = facesDuDe(sort.de)
     if (faces > 1) des.push({ nombre: 1, faces })
   }
@@ -106,16 +140,36 @@ export function lancerSort(
     throw new Error(`« ${sort.nom} » n'est pas lançable : ${dispo.raisons.join(', ')}`)
   }
 
+  const offre = demande.reussiteAutomatique ? reussiteAutomatiqueOfferte(sort, char, catalog) : null
+  if (demande.reussiteAutomatique && !offre) {
+    throw new Error(`« ${sort.nom} » ne peut pas réussir d'office.`)
+  }
+
   // --- Payer ---
   const choix: ChoixPaiement = { branche: demande.brancheCout ?? 0, x }
   const paiement = payerCout(char, catalog, sort.cout, choix, sort)
   let courant = paiement.char
   const recits = [...paiement.recits]
 
+  // Le prix de la réussite se paie après le coût du sort : les deux peuvent
+  // tirer sur la même jauge, et `payerCout` lève s'il ne reste plus de quoi.
+  if (offre) {
+    const prix = payerCout(courant, catalog, offre.cout)
+    courant = prix.char
+    recits.push(...prix.recits)
+  }
+
   // --- Tirer ---
   // Le dé du sort est lancé par l'application : c'est un aléa dont l'effet
   // dépend, et non un jet de compétence — ceux-là restent physiques, à table.
-  const de = sort.de ? rng.int(1, facesDuDe(sort.de)) : null
+  const de = offre ? DE_REUSSITE_AUTOMATIQUE : sort.de ? rng.int(1, facesDuDe(sort.de)) : null
+
+  // Le dé d'un sort à cristal se lit : c'est le Jet d'Arcane. Un type magique
+  // créé par la MJ hérite de la mécanique dès qu'il porte `cristal`.
+  const arcane =
+    de !== null && sortAUnCristal(sort, catalog)
+      ? resoudreArcane(de, regleActive(char, catalog, 'ame-de-geant') !== null)
+      : null
 
   // --- Appliquer ---
   const effets: string[] = []
@@ -128,10 +182,13 @@ export function lancerSort(
 
     if (effet.texte) effets.push(effet.texte)
 
-    for (const operation of effet.operations ?? []) {
+    for (const brute of effet.operations ?? []) {
+      // Le X payé et le dé tiré donnent leur valeur aux opérations variables.
+      const operation = resoudreOperation(brute, { x, de })
+
       if (estEcritureDirecte(operation.cible)) {
         // Une jauge se met à jour d'un cran, tout de suite.
-        const r = appliquerEcriture(courant, catalog, avecX(operation, x))
+        const r = appliquerEcriture(courant, catalog, operation)
         courant = r.char
         if (r.applique !== 0) {
           effets.push(
@@ -140,9 +197,11 @@ export function lancerSort(
         }
       } else {
         // Une statistique dérivée ne se stocke jamais : elle reçoit un
-        // modificateur, porteur de son échéance.
-        const op = operationChiffree(operation, x)
-        if (!op) continue
+        // modificateur, porteur de son échéance. `set` n'en fait pas partie —
+        // `agreger` somme les `add`, et une valeur imposée y dépendrait de
+        // l'ordre — ni une opération variable restée sans valeur.
+        const { op } = operation
+        if (op.kind !== 'add' && op.kind !== 'avantage' && op.kind !== 'desavantage') continue
         modifiers.push({
           id: nouvelId(sort.id),
           source: { kind: 'personnalite', label: sort.nom, ref: sort.id },
@@ -150,37 +209,31 @@ export function lancerSort(
           op,
           expires: echeanceDe(operation),
         })
-        effets.push(`${decrireCible(operation.cible)} — ${sort.duree}`)
+        // Le chiffre se dit : un « + d6 » n'a de sens qu'une fois le dé tombé.
+        const chiffre = op.kind === 'add' ? ` ${op.value > 0 ? '+' : ''}${op.value}` : ''
+        effets.push(`${decrireCible(operation.cible)}${chiffre} — ${sort.duree}`)
       }
     }
   }
 
+  if (modifiers.length) courant = { ...courant, modifiers: [...courant.modifiers, ...modifiers] }
+
+  // Sur 1 et 2, l'Hexite ne répond plus jusqu'à l'avoir réétudié au camp. La
+  // règle vivait dans l'écran ; la réussite automatique, qui l'épargne, a
+  // besoin qu'elle vive ici.
+  if (arcane?.cristalEpuise && !courant.sortsEpuises.includes(sort.id)) {
+    courant = { ...courant, sortsEpuises: [...courant.sortsEpuises, sort.id] }
+  }
+
   return {
-    char: modifiers.length ? { ...courant, modifiers: [...courant.modifiers, ...modifiers] } : courant,
+    char: courant,
     sort,
     recits,
     de,
     effets,
+    arcane,
+    reussiteAutomatique: offre !== null,
   }
-}
-
-/** Résout le « X » d'une opération variable. */
-function avecX(operation: Operation, x: number): Operation {
-  return operation.op.kind === 'add-x'
-    ? { ...operation, op: { kind: 'add', value: x } }
-    : operation
-}
-
-/**
- * L'opération telle qu'un `Modifier` peut la porter.
- *
- * `set` n'en fait pas partie : `agreger` somme les `add` en un scalaire, et une
- * valeur imposée y dépendrait de l'ordre d'agrégation.
- */
-function operationChiffree(operation: Operation, x: number): Modifier['op'] | null {
-  const op = avecX(operation, x).op
-  if (op.kind === 'add' || op.kind === 'avantage' || op.kind === 'desavantage') return op
-  return null
 }
 
 /** « 1d6 » → 6. Sans face lisible, on s'en tient à 1 : l'effet est déterministe. */

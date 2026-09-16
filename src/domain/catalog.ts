@@ -200,7 +200,18 @@ export function normaliserCoutSort(brut: Cout | CoutSort): Cout {
     case 'brulures-variable':
       return une({ kind: 'variable', element: { kind: 'brulures' }, min: 1 })
     case 'marques-variable':
-      return une({ kind: 'variable', element: { kind: 'marques' }, max: brut.max })
+      /*
+       * Cette forme n'a jamais décrit que Sundown, qui fait **prendre** ses
+       * Marques — « X est le nombre de Marques concédées ». Sans le sens, le
+       * sort les retirait. Et un X à zéro ne concéderait rien.
+       */
+      return une({
+        kind: 'variable',
+        element: { kind: 'marques' },
+        min: 1,
+        max: brut.max,
+        sens: 'prendre',
+      })
   }
 }
 

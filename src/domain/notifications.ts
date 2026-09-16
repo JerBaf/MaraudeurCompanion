@@ -4,8 +4,8 @@ import {
   coutDe,
   decrireBranche,
   decrirePart,
-  disponiblePour,
   estGratuit,
+  exigencesBranche,
   fixe,
   montantPart,
   payerCout,
@@ -253,17 +253,17 @@ export interface ChoixPropose {
  * ⚠️ Une part variable — le « X » — est comptée à son minimum : une
  * notification ne demande pas de choisir un montant, et la MJ n'a aucune raison
  * d'en mettre une. C'est exactement ce que `payerCout` prélèvera.
+ *
+ * Le calcul est celui de `peutPayerBranche`, par élément et par sens : le
+ * refaire ici aurait laissé l'écran dire « rien ne manque » d'un coût refusé.
  */
 function manque(char: Character, catalog: Catalog, branche: BrancheCout): string {
-  const manquants = branche.parts
-    .map((part) => {
-      if (part.kind === 'narratif') return null
-      const montant = montantPart(part, 0)
-      const dispo = disponiblePour(char, catalog, part.element)
-      if (dispo >= montant) return null
-      return `${decrirePart(part, montant)} — il vous en manque ${montant - dispo}`
+  const manquants = exigencesBranche(char, catalog, branche)
+    .filter((e) => e.disponible < e.requis)
+    .map((e) => {
+      const parts = e.parts.map((part) => decrirePart(part, montantPart(part, 0))).join(' + ')
+      return `${parts} — il vous en manque ${e.requis - e.disponible}`
     })
-    .filter((m): m is string => m !== null)
 
   return manquants.length > 0 ? manquants.join(' · ') : 'Coût impayable.'
 }

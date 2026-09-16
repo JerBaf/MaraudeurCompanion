@@ -2,6 +2,7 @@ import {
   COUT_GRATUIT,
   decrireCout,
   ELEMENTS_PAYABLES,
+  ELEMENTS_PRENABLES,
   fixe,
   type BrancheCout,
   type ClePayable,
@@ -106,18 +107,40 @@ export function EditeurCout({
                   value={part.element.kind}
                   style={{ flex: 1 }}
                   aria-label="Élément payé"
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const cle = e.target.value as ClePayable
                     majPart(iBranche, iPart, {
                       ...part,
-                      element: { kind: e.target.value as ClePayable },
+                      element: { kind: cle },
+                      // Un élément qui ne se prend pas ne garde pas ce sens.
+                      ...(ELEMENTS_PRENABLES.includes(cle) ? {} : { sens: undefined }),
                     })
-                  }
+                  }}
                 >
                   {ELEMENTS_PAYABLES.map((cle) => (
                     <option key={cle} value={cle}>
                       {ELEMENTS_VARIABLES[cle].libelle}
                     </option>
                   ))}
+                </select>
+              )}
+
+              {/* « Coût : 1 Marque » se lit dans les deux sens : Vanish la fait
+                  prendre, un sort Ombre la consomme. */}
+              {part.kind !== 'narratif' && ELEMENTS_PRENABLES.includes(part.element.kind) && (
+                <select
+                  value={part.sens ?? 'consommer'}
+                  style={{ flex: 1 }}
+                  aria-label="Sens de la part"
+                  onChange={(e) =>
+                    majPart(iBranche, iPart, {
+                      ...part,
+                      sens: e.target.value === 'prendre' ? 'prendre' : undefined,
+                    })
+                  }
+                >
+                  <option value="consommer">Consommer</option>
+                  <option value="prendre">Prendre</option>
                 </select>
               )}
 
@@ -132,6 +155,24 @@ export function EditeurCout({
                     majPart(iBranche, iPart, { ...part, valeur: Math.max(0, Number(e.target.value) || 0) })
                   }
                 />
+              )}
+
+              {/* « Jusqu'à N » : un sort Ombre reste lançable sur la dernière Marque. */}
+              {part.kind === 'fixe' && (
+                <label className="rangee" style={{ gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={part.auPlus === true}
+                    style={{ minHeight: 0, width: 'auto' }}
+                    onChange={(e) =>
+                      majPart(iBranche, iPart, {
+                        ...part,
+                        auPlus: e.target.checked ? true : undefined,
+                      })
+                    }
+                  />
+                  <span className="tres-discret">au plus</span>
+                </label>
               )}
 
               {part.kind === 'variable' && (

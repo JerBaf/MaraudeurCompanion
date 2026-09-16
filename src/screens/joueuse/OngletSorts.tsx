@@ -7,22 +7,33 @@ import { VIES_SOULSHIFTER } from '../../content/seed.ts'
 import { journaliser } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { tailleGrimoire } from '../../domain/competences.ts'
-import { branchesPayables, coutAUnX, decrireBranche } from '../../domain/couts.ts'
+import {
+  branchesPayables,
+  coutAUnX,
+  decrireBranche,
+  decrireCout,
+  peutPayer,
+} from '../../domain/couts.ts'
 import { precisionPersonnalite, vieActive } from '../../domain/effets.ts'
 import {
   FILTRES_VIERGES,
   filtrerEntrees,
   type FiltresCatalogue as Filtres,
 } from '../../domain/filtres.ts'
-import { desDuSort, lancerSort, type DemandeLancement } from '../../domain/lancement.ts'
+import {
+  desDuSort,
+  lancerSort,
+  reussiteAutomatiqueOfferte,
+  type DemandeLancement,
+} from '../../domain/lancement.ts'
 import {
   disponibiliteSort,
   grimoireEffectif,
   libelleMagie,
-  resoudreArcane,
   resumeSort,
   sortAUnCristal,
 } from '../../domain/magie.ts'
+import { regleActive } from '../../domain/passifs.ts'
 import type { Rng } from '../../domain/random.ts'
 import type { Character, Sort } from '../../domain/types.ts'
 import { EffetAleatoire } from './EffetAleatoire.tsx'
@@ -46,11 +57,18 @@ function LigneSort({
   // l'effet en dépend. Zéro tant qu'elle n'a rien saisi.
   const [x, setX] = useState(0)
   const [branche, setBranche] = useState(0)
+  // La réussite automatique se décide avant le jet : c'est une case, pas un second bouton.
+  const [auto, setAuto] = useState(false)
 
   const dispo = disponibiliteSort(sort, char, catalog, x)
   const epuise = char.sortsEpuises.includes(sort.id)
   const payables = branchesPayables(char, catalog, sort.cout, x, sort)
   const aUnX = coutAUnX(sort.cout)
+
+  const offre = onLance ? reussiteAutomatiqueOfferte(sort, char, catalog) : null
+  const prixPayable = offre !== null && peutPayer(char, catalog, offre.cout)
+  // L'offre peut disparaître en cours de route — l'Eclipsed passée en Ombre.
+  const enAuto = auto && offre !== null
 
   // La personnalité incarnée par un Soulshifter ne remplace pas l'effet du
   // sort : elle le précise. Les deux s'affichent donc l'un sous l'autre.
@@ -126,14 +144,42 @@ function LigneSort({
                   />
                 )}
 
+                {offre && (
+                  <label className="rangee" style={{ gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={enAuto}
+                      disabled={!enAuto && !prixPayable}
+                      style={{ minHeight: 0, width: 'auto' }}
+                      onChange={(e) => setAuto(e.target.checked)}
+                    />
+                    <span className="tres-discret">
+                      Réussite automatique — {decrireCout(offre.cout)}
+                    </span>
+                  </label>
+                )}
+
                 {/* Les dés demandés viennent de `desDuSort`, qui vit collé à
                     `lancerSort` : la joueuse qui saisit ses propres dés en
-                    saisit toujours exactement le compte. */}
+                    saisit toujours exactement le compte. La clé remonte le
+                    lanceur quand la case change, ses saisies avec lui. */}
                 <LanceurDes
-                  des={desDuSort(sort)}
-                  libelle={dispo.disponible ? 'Lancer' : 'Indisponible'}
-                  disabled={!dispo.disponible}
-                  onJet={(rng) => onLance({ sortId: sort.id, brancheCout: branche, x }, rng)}
+                  key={enAuto ? 'auto' : 'jet'}
+                  des={desDuSort(sort, { reussiteAutomatique: enAuto })}
+                  libelle={
+                    dispo.raisons.includes('suspendu')
+                      ? 'Suspendu'
+                      : dispo.disponible
+                        ? 'Lancer'
+                        : 'Indisponible'
+                  }
+                  disabled={!dispo.disponible || (enAuto && !prixPayable)}
+                  onJet={(rng) =>
+                    onLance(
+                      { sortId: sort.id, brancheCout: branche, x, reussiteAutomatique: enAuto },
+                      rng,
+                    )
+                  }
                 />
               </div>
             ),
@@ -174,6 +220,8 @@ export function OngletSorts({
   const visibles = filtrerEntrees(connus, filtres) as Sort[]
   // Dérivé, pas constant : un passif peut accorder un emplacement de plus.
   const slotsGrimoire = tailleGrimoire(char, catalog)
+  // L'état Ombre d'une Eclipsed, ou toute règle qui ferme le Grimoire.
+  const suspension = regleActive(char, catalog, 'sorts-suspendus')
 
   // Le récit du lancement vit hors de la ligne du sort : un effet tiré doit
   // rester lisible même quand le sort redevient indisponible dans la foulée.
@@ -186,41 +234,35 @@ export function OngletSorts({
     const r = lancerSort(char, catalog, demande, rng)
 
     /*
-     * Le dé d'un sort à cristal se lit : c'est le Jet d'Arcane. `resoudreArcane`
-     * existait et était testé, mais aucun écran ne l'appelait — la joueuse
-     * déclarait son Hexite épuisé à la main, ce qui laissait la règle « 1 et 2 »
-     * à sa mémoire. Un type magique créé par la MJ hérite de la mécanique dès
-     * qu'il porte `cristal`.
+     * Le Jet d'Arcane est lu par `lancerSort` — Âme de Géant, réussite
+     * automatique et cristal épuisé compris : l'écran ne fait que le raconter.
+     * La case « Hexite épuisé » de la ligne reste, en correction.
      */
-    const arcane = r.de !== null && sortAUnCristal(r.sort, catalog) ? resoudreArcane(r.de) : null
+    const { arcane } = r
+    const tirage = r.reussiteAutomatique
+      ? 'réussite automatique'
+      : r.de !== null
+        ? `${r.sort.de} → ${r.de}`
+        : null
 
     setDernierLancement(
-      `${r.sort.nom}` +
-        (r.de !== null ? ` — ${r.sort.de} → ${r.de}` : '') +
+      `${r.sort.nom}${tirage ? ` — ${tirage}` : ''}` +
         (arcane ? ` · ${arcane.pointsEnergie} Point(s) d'Énergie` : '') +
         (arcane?.cristalEpuise ? ' · le cristal s’épuise' : '') +
         (arcane?.effetAleatoire ? ' · la magie vous échappe' : '') +
+        (arcane?.ameDeGeant ? ' · l’Âme de Géant résonne : l’effet du sort est décuplé' : '') +
         (r.effets.length ? ` · ${r.effets.join(' · ')}` : '') +
         (r.recits.length ? ` — ${r.recits.join(' · ')}` : ''),
     )
     void journaliser(
       char.nom,
       'sort',
-      `${char.nom} lance ${r.sort.nom}${r.de !== null ? ` (${r.sort.de} → ${r.de})` : ''}.`,
+      `${char.nom} lance ${r.sort.nom}${tirage ? ` (${tirage})` : ''}.`,
     )
 
     if (arcane?.effetAleatoire) setEffetAleatoire(r.sort.nom)
 
-    maj((c) => ({
-      ...r.char,
-      id: c.id,
-      // Sur 1 et 2 l'Hexite ne répond plus jusqu'à l'avoir réétudié au camp.
-      // La case à cocher de la ligne reste, en correction.
-      sortsEpuises:
-        arcane?.cristalEpuise && !r.char.sortsEpuises.includes(r.sort.id)
-          ? [...r.char.sortsEpuises, r.sort.id]
-          : r.char.sortsEpuises,
-    }))
+    maj((c) => ({ ...r.char, id: c.id }))
   }
 
   return (
@@ -240,6 +282,12 @@ export function OngletSorts({
             {prepares.length}/{slotsGrimoire}
           </span>
         </div>
+        {suspension && (
+          <p className="alerte alerte--info" style={{ margin: 0 }}>
+            {suspension.source} : vos sorts préparés sont suspendus. Seuls les sorts hors
+            emplacement restent lançables.
+          </p>
+        )}
         {prepares.length === 0 && <p className="vide">Aucun sort préparé.</p>}
         {prepares.map((sort) => (
           <LigneSort

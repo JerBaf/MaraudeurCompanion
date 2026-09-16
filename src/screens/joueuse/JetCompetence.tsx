@@ -5,6 +5,7 @@ import { PasBrulure } from '../../components/PasBrulure.tsx'
 import { journaliser, modifierPersonnage } from '../../data/repo.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { computeMarquesMax, type ValeurCompetence } from '../../domain/competences.ts'
+import { decrireCout, peutPayer } from '../../domain/couts.ts'
 import {
   ajouterTerme,
   decrireJet,
@@ -15,11 +16,13 @@ import {
   issueJet,
   jetCompetence,
   LIBELLE_ISSUE,
+  reussirAutomatiquement,
   termeBrulure,
   totalJet,
   type IssueJet,
   type Jet,
 } from '../../domain/jets.ts'
+import { regleActive } from '../../domain/passifs.ts'
 import type { Rng } from '../../domain/random.ts'
 import type { Character, Competence } from '../../domain/types.ts'
 
@@ -63,6 +66,8 @@ export function JetCompetence({
 
   const seuilNombre = seuil === '' ? null : Number(seuil)
   const marquesMax = computeMarquesMax(char, catalog).max
+  // La Lumière d'une Eclipsed : réussir d'office, contre un prix, avant tout jet.
+  const offre = regleActive(char, catalog, 'reussite-automatique')
 
   function poser(nouveau: Jet) {
     setJet(nouveau)
@@ -72,6 +77,14 @@ export function JetCompetence({
   function lancer(rng: Rng) {
     setRecit(null)
     poser(jetCompetence(char, catalog, competence, seuilNombre, rng))
+  }
+
+  function reussirDOffice() {
+    const r = reussirAutomatiquement(char, catalog, competence, seuilNombre)
+    // Par `modifierPersonnage` : la Marque prise peut basculer une Eclipsed en Ombre.
+    void modifierPersonnage(char, () => r.char)
+    setRecit(r.recits.length > 0 ? r.recits.join(' · ') : null)
+    poser(r.jet)
   }
 
   function prendreUneMarque() {
@@ -102,26 +115,42 @@ export function JetCompetence({
         onJet={lancer}
       />
 
+      {offre && !jet && (
+        <button
+          type="button"
+          className="btn"
+          disabled={!peutPayer(char, catalog, offre.regle.cout)}
+          onClick={reussirDOffice}
+        >
+          Réussite automatique — {decrireCout(offre.regle.cout)}
+        </button>
+      )}
+
       {jet && issue && (
         <>
           <div className="rangee rangee--entre">
-            <span className="jet__total">{totalJet(jet)}</span>
+            {/* Une réussite d'office n'a pas de total : rien n'a été lancé. */}
+            <span className="jet__total">{jet.automatique ? '—' : totalJet(jet)}</span>
             <span className={`puce ${CLASSE_ISSUE[issue]}`}>{LIBELLE_ISSUE[issue]}</span>
           </div>
 
           <p className="jet__termes" style={{ margin: 0 }}>
-            {decrireTermes(jet.termes)}
+            {jet.automatique
+              ? `Réussite automatique (${jet.automatique.source})`
+              : decrireTermes(jet.termes)}
           </p>
 
           {/* « Ajouter un +1 à n'importe quel jet par brûlure utilisée. » */}
-          <PasBrulure
-            char={char}
-            catalog={catalog}
-            onDepense={(r) => {
-              setRecit(r)
-              poser(ajouterTerme(jet, termeBrulure()))
-            }}
-          />
+          {!jet.automatique && (
+            <PasBrulure
+              char={char}
+              catalog={catalog}
+              onDepense={(r) => {
+                setRecit(r)
+                poser(ajouterTerme(jet, termeBrulure()))
+              }}
+            />
+          )}
 
           {jet.destin === 'disponible' && (
             <>

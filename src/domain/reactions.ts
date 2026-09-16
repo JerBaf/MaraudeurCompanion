@@ -1,13 +1,22 @@
 import type { Catalog } from './catalog.ts'
-import { plafondElement } from './competences.ts'
-import { decrireCible, descripteur, ecrireElement, lireElement, type ElementVariable } from './elements.ts'
+import { aUnPlafond, plafondElement } from './competences.ts'
 import {
-  conditionArmee,
+  decrireCible,
+  descripteur,
+  ecrireElement,
+  lireElement,
+  type ElementVariable,
+} from './elements.ts'
+import {
+  deltaArme,
   estEcritureDirecte,
+  optionAccessible,
+  optionRetenue,
   passifsActifs,
+  resoudreOperation,
   valeurVisee,
 } from './passifs.ts'
-import type { Character, Operation } from './types.ts'
+import type { Character, ConditionBascule, Operation } from './types.ts'
 
 /**
  * Résolution des passifs réactifs.
@@ -29,7 +38,7 @@ export function ecrireBorne(
   element: ElementVariable,
   valeur: number,
 ): Character {
-  const plafond = descripteur(element).plafondBase
+  const plafond = aUnPlafond(element)
     ? plafondElement(char, catalog, element).max
     : // Les Lumens n'ont pas de plafond : c'est une bourse, pas une jauge.
       Number.POSITIVE_INFINITY
@@ -97,14 +106,20 @@ function reactionsPour(
     if (portee === 'soi' && !surSoi) continue
     if (portee === 'un-allie' && surSoi) continue
 
-    if (!conditionArmee(d.quand, acteurAvant, acteurApres)) continue
+    const delta = deltaArme(d.quand, acteurAvant, acteurApres)
+    if (delta === 0) continue
 
     for (const operation of passif.effet.operations ?? []) {
       if (!estEcritureDirecte(operation.cible)) continue
 
       // Appliqué sur `char` et non sur `cible` : deux réactions visant la même
-      // jauge s'additionnent au lieu de s'écraser.
-      const r = appliquerEcriture(char, catalog, operation)
+      // jauge s'additionnent au lieu de s'écraser. Le « X » d'une réaction est
+      // l'ampleur du changement : deux Marques d'un coup, deux Points de Foi.
+      const r = appliquerEcriture(
+        char,
+        catalog,
+        resoudreOperation(operation, { x: Math.abs(delta) }),
+      )
       char = r.char
       if (r.applique === 0) continue
 
@@ -118,8 +133,76 @@ function reactionsPour(
   return { char, recits }
 }
 
+// ---------------------------------------------------------------------------
+// Bascules des choix automatiques
+// ---------------------------------------------------------------------------
+
+/** La condition tient-elle sur cette fiche ? Faux sur tout ce qui n'est pas une jauge. */
+function basculeTenue(char: Character, catalog: Catalog, condition: ConditionBascule): boolean {
+  if (!descripteur(condition.element).lire) return false
+
+  let seuil = condition.seuil
+  if (seuil === 'plafond') {
+    if (!aUnPlafond(condition.element)) return false
+    seuil = plafondElement(char, catalog, condition.element).max
+  }
+
+  const valeur = lireElement(char, condition.element)
+  return condition.comparaison === 'au-moins' ? valeur >= seuil : valeur <= seuil
+}
+
 /**
- * Applique les réactions armées par le passage de `avant` à `apres`.
+ * Fait basculer les choix automatiques que la fiche finale impose.
+ *
+ * L'état se lit à **chaque** écriture, et non au seul franchissement : une
+ * Eclipsed passe en Ombre dès que ses Marques sont au plafond, et revient en
+ * Lumière dès qu'elles sont à zéro ; entre les deux, rien ne bouge. Lire l'état
+ * rattrape aussi ce qu'aucun geste n'a provoqué — un plafond qui baisse quand on
+ * range un objet, une écriture passée sans résolution.
+ *
+ * Trois bornes :
+ *  - un choix que l'écriture a elle-même changé est respecté : c'est la MJ qui
+ *    force un état, et la règle ne reprend la main qu'à l'écriture suivante ;
+ *  - l'option courante garde la main tant que sa propre condition tient ;
+ *  - une bascule n'arme aucune réaction — une seule passe.
+ */
+export function appliquerBascules(
+  avant: Character,
+  apres: Character,
+  catalog: Catalog,
+): { char: Character; recits: RecitPassif[] } {
+  const recits: RecitPassif[] = []
+  let char = apres
+
+  for (const choix of catalog.classe(apres.classeId)?.choix ?? []) {
+    if (choix.verrou !== 'automatique') continue
+    if (avant.passifs.choix?.[choix.id] !== apres.passifs.choix?.[choix.id]) continue
+
+    const courante = optionRetenue(char, choix)
+    if (courante?.bascule && basculeTenue(char, catalog, courante.bascule)) continue
+
+    const suivante = choix.options.find(
+      (o) =>
+        o.id !== courante?.id &&
+        o.bascule !== undefined &&
+        optionAccessible(char, o) &&
+        basculeTenue(char, catalog, o.bascule),
+    )
+    if (!suivante) continue
+
+    char = {
+      ...char,
+      passifs: { ...char.passifs, choix: { ...(char.passifs.choix ?? {}), [choix.id]: suivante.id } },
+    }
+    recits.push({ chez: char.nom, texte: `${choix.libelle} — ${suivante.nom}` })
+  }
+
+  return { char, recits }
+}
+
+/**
+ * Applique les réactions armées par le passage de `avant` à `apres`, puis les
+ * bascules des choix automatiques, lues sur la fiche qui en résulte.
  *
  * Les passifs sont lus sur l'état **d'après** : équiper un talisman et prendre
  * une Marque dans le même geste doit armer le talisman.
@@ -140,8 +223,10 @@ export function resoudrePassifs(
   catalog: Catalog,
   roster: readonly Character[] = [],
 ): ResultatPassifs {
-  const propre = reactionsPour(apres, avant, apres, catalog)
-  const recits = [...propre.recits]
+  const reactions = reactionsPour(apres, avant, apres, catalog)
+  // Les bascules se lisent sur la fiche finale, réactions comprises.
+  const propre = appliquerBascules(avant, reactions.char, catalog)
+  const recits = [...reactions.recits, ...propre.recits]
   const autres: Character[] = []
 
   const allies = roster
@@ -154,8 +239,9 @@ export function resoudrePassifs(
     // N'écrire que ce qui a bougé : une fiche réécrite à l'identique coûterait
     // un aller-retour réseau et un rendu à toute la table pour rien.
     if (r.recits.length === 0) continue
-    autres.push(r.char)
-    recits.push(...r.recits)
+    const bascules = appliquerBascules(allie, r.char, catalog)
+    autres.push(bascules.char)
+    recits.push(...r.recits, ...bascules.recits)
   }
 
   return { char: propre.char, autres, recits }

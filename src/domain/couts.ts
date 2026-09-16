@@ -1,6 +1,6 @@
 import { bruluresDisponibles, consommerBrulures } from './brulures.ts'
 import type { Catalog } from './catalog.ts'
-import { actionsRapidesRestantes, computeSixthSens } from './competences.ts'
+import { actionsRapidesRestantes, computeMarquesMax, computeSixthSens } from './competences.ts'
 import { descripteur, type CleElement, type ElementVariable } from './elements.ts'
 import { ajusterFatigue, fatigueRestante } from './fatigue.ts'
 import { agreger, allModifiers, cibleCoutSort } from './modifiers.ts'
@@ -9,8 +9,9 @@ import type { Character, Sort } from './types.ts'
 /**
  * Les Coûts.
  *
- * Un coût, c'est la réduction d'un ou plusieurs Éléments Variables. Le modèle
- * tient en trois niveaux, et chacun porte une règle :
+ * Un coût, c'est ce qu'on prélève sur un ou plusieurs Éléments Variables : une
+ * réserve qu'on consomme, ou une contrepartie qu'on prend (voir `SensCout`). Le
+ * modèle tient en trois niveaux, et chacun porte une règle :
  *
  *  - une **part** est ce qu'on prélève sur un élément. Fixe, ou variable — le
  *    fameux « X » que la joueuse choisit au lancement et dont dépend l'effet ;
@@ -27,12 +28,41 @@ import type { Character, Sort } from './types.ts'
  * l'objet enveloppe à chaque niveau.
  */
 
+/**
+ * Dans quel sens une part se paie.
+ *
+ * `consommer` vide une réserve : Foi, Lumens, brûlures. `prendre` encaisse une
+ * contrepartie : la jauge **monte**, jusqu'à son plafond. Le « Coût : 1 Marque »
+ * de Vanish fait prendre une Marque, là où les sorts Ombre de l'Eclipsed en
+ * consomment. Le même élément se paie ainsi dans les deux sens selon le sort,
+ * d'où un sens porté par la part plutôt que par l'élément.
+ */
+export type SensCout = 'consommer' | 'prendre'
+
 export type PartCout =
-  | { kind: 'fixe'; element: ElementVariable; valeur: number }
+  | {
+      kind: 'fixe'
+      element: ElementVariable
+      valeur: number
+      /** Absent : la part se consomme. */
+      sens?: 'prendre'
+      /**
+       * « Jusqu'à N » : payable dès qu'il en reste une unité, et prélève ce qui
+       * reste s'il en manque. Un sort Ombre lancé sur une seule Marque la vide.
+       */
+      auPlus?: true
+    }
   /** Le « X ». `max` borne ce que la joueuse peut choisir de dépenser. */
-  | { kind: 'variable'; element: ElementVariable; min?: number; max?: number }
+  | { kind: 'variable'; element: ElementVariable; min?: number; max?: number; sens?: 'prendre' }
   /** Une contrepartie que l'application ne sait pas prélever : la MJ arbitre. */
   | { kind: 'narratif'; description: string }
+
+/** Une part que le moteur sait prélever. */
+export type PartPrelevable = Exclude<PartCout, { kind: 'narratif' }>
+
+export function sensDe(part: PartPrelevable): SensCout {
+  return part.sens ?? 'consommer'
+}
 
 export interface BrancheCout {
   parts: PartCout[]
@@ -59,11 +89,18 @@ export type ClePayable =
   | 'sixth-sens'
   | 'actions-rapides'
 
-export function fixe(element: ClePayable, valeur: number): PartCout {
-  return { kind: 'fixe', element: { kind: element }, valeur }
+export function fixe(
+  element: ClePayable,
+  valeur: number,
+  options: { sens?: 'prendre'; auPlus?: true } = {},
+): PartCout {
+  return { kind: 'fixe', element: { kind: element }, valeur, ...options }
 }
 
-export function variable(element: ClePayable, bornes: { min?: number; max?: number } = {}): PartCout {
+export function variable(
+  element: ClePayable,
+  bornes: { min?: number; max?: number; sens?: 'prendre' } = {},
+): PartCout {
   return { kind: 'variable', element: { kind: element }, ...bornes }
 }
 
@@ -175,21 +212,48 @@ const PAIEMENTS: Partial<Record<CleElement, Paiement>> = {
   },
 }
 
-/** Vrai si un coût peut se libeller dans cet élément. */
-export function estPayable(element: ElementVariable): boolean {
-  return PAIEMENTS[element.kind] !== undefined
+/**
+ * Les Éléments Variables qu'un coût sait faire **prendre** : la jauge monte,
+ * bornée par son plafond dérivé, et ce qui reste disponible est la place libre
+ * sous ce plafond.
+ *
+ * Même règle que `PAIEMENTS` : la présence d'une entrée fait la règle. La
+ * Fatigue n'y figure pas — se payer en Fatigue, c'est déjà cocher une case, et
+ * `PAIEMENTS` le dit.
+ */
+const PRISES: Partial<Record<CleElement, Paiement>> = {
+  marques: {
+    disponible: (c, cat) => Math.max(0, computeMarquesMax(c, cat).max - c.marques),
+    depenser: (c, _cat, n) => ({ char: { ...c, marques: c.marques + n }, recits: [] }),
+  },
+}
+
+function tableDe(sens: SensCout): Partial<Record<CleElement, Paiement>> {
+  return sens === 'prendre' ? PRISES : PAIEMENTS
+}
+
+/** Vrai si un coût peut se libeller dans cet élément, dans ce sens. */
+export function estPayable(element: ElementVariable, sens: SensCout = 'consommer'): boolean {
+  return tableDe(sens)[element.kind] !== undefined
 }
 
 /** Les éléments qu'un coût sait prélever, pour les formulaires de la MJ. */
 export const ELEMENTS_PAYABLES = Object.keys(PAIEMENTS) as CleElement[]
 
-/** Ce dont la joueuse dispose pour payer dans cet élément. */
+/** Les éléments qu'un coût sait faire prendre. */
+export const ELEMENTS_PRENABLES = Object.keys(PRISES) as CleElement[]
+
+/**
+ * Ce dont la joueuse dispose pour payer dans cet élément : la réserve qu'elle
+ * peut consommer, ou la place qu'il lui reste pour prendre.
+ */
 export function disponiblePour(
   char: Character,
   catalog: Catalog,
   element: ElementVariable,
+  sens: SensCout = 'consommer',
 ): number {
-  return PAIEMENTS[element.kind]?.disponible(char, catalog) ?? 0
+  return tableDe(sens)[element.kind]?.disponible(char, catalog) ?? 0
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +304,59 @@ export interface ChoixPaiement {
   x?: number
 }
 
+/** Ce qu'une branche exige d'un élément, dans un sens, et ce que la joueuse en a. */
+export interface Exigence {
+  element: ElementVariable
+  sens: SensCout
+  /** La somme des parts. Une part « au plus » n'y exige qu'une unité. */
+  requis: number
+  disponible: number
+  /** Les parts regroupées, pour dire ce qui manque. */
+  parts: PartPrelevable[]
+}
+
+/**
+ * Ce qu'une branche exige, élément par élément.
+ *
+ * ⚠️ Les parts s'additionnent **par élément et par sens** avant d'être
+ * comparées à ce qui est disponible. Vérifiées une à une, « 1 Foi + X Foi »
+ * passait avec 3 Foi et X = 3, et laissait la joueuse à −1 Foi.
+ */
+export function exigencesBranche(
+  char: Character,
+  catalog: Catalog,
+  branche: BrancheCout,
+  x = 0,
+  sort?: Sort,
+): Exigence[] {
+  const groupes = new Map<string, Exigence>()
+
+  for (const part of branche.parts) {
+    if (part.kind === 'narratif') continue
+    const sens = sensDe(part)
+    // Un X à zéro ne paie rien : la branche reste ouverte, la joueuse choisira.
+    const montant = montantPart(part, x, char, catalog, sort)
+    const requis = part.kind === 'fixe' && part.auPlus ? Math.min(1, montant) : montant
+
+    const cle = `${part.element.kind}|${sens}`
+    const groupe = groupes.get(cle)
+    if (groupe) {
+      groupe.requis += requis
+      groupe.parts.push(part)
+    } else {
+      groupes.set(cle, {
+        element: part.element,
+        sens,
+        requis,
+        disponible: disponiblePour(char, catalog, part.element, sens),
+        parts: [part],
+      })
+    }
+  }
+
+  return [...groupes.values()]
+}
+
 /** Vrai si cette branche est payable en l'état. */
 export function peutPayerBranche(
   char: Character,
@@ -248,13 +365,9 @@ export function peutPayerBranche(
   x = 0,
   sort?: Sort,
 ): boolean {
-  return branche.parts.every((part) => {
-    if (part.kind === 'narratif') return true
-    if (!estPayable(part.element)) return false
-    // Un X à zéro ne paie rien : la branche reste ouverte, la joueuse choisira.
-    const montant = montantPart(part, x, char, catalog, sort)
-    return disponiblePour(char, catalog, part.element) >= montant
-  })
+  const prelevables = branche.parts.filter((p): p is PartPrelevable => p.kind !== 'narratif')
+  if (!prelevables.every((p) => estPayable(p.element, sensDe(p)))) return false
+  return exigencesBranche(char, catalog, branche, x, sort).every((e) => e.disponible >= e.requis)
 }
 
 /** Les index des branches que la joueuse peut payer. Un coût gratuit n'en a aucune. */
@@ -314,8 +427,17 @@ export function payerCout(
     const montant = montantPart(part, x, char, catalog, sort)
     if (montant <= 0) continue
 
-    const r = PAIEMENTS[part.element.kind]?.depenser(courant, catalog, montant)
-    if (!r) throw new Error(`« ${descripteur(part.element).libelle} » ne se dépense pas.`)
+    const paiement = tableDe(sensDe(part))[part.element.kind]
+    if (!paiement) throw new Error(`« ${descripteur(part.element).libelle} » ne se dépense pas.`)
+
+    // « Au plus » : ce qui reste, lu après les parts déjà réglées, s'il en manque.
+    const preleve =
+      part.kind === 'fixe' && part.auPlus
+        ? Math.min(montant, paiement.disponible(courant, catalog))
+        : montant
+    if (preleve <= 0) continue
+
+    const r = paiement.depenser(courant, catalog, preleve)
     courant = r.char
     recits.push(...r.recits)
   }
@@ -345,12 +467,21 @@ function libelleCourt(element: ElementVariable): string {
   return LIBELLE_COURT[element.kind] ?? descripteur(element).libelle
 }
 
+/**
+ * Une part en toutes lettres. Une part prise se lit « +1 Marques » : la jauge
+ * monte, et la ligne du sort doit le dire d'un coup d'œil.
+ */
 export function decrirePart(part: PartCout, montant?: number): string {
   if (part.kind === 'narratif') return part.description
-  if (part.kind === 'fixe') return `${montant ?? part.valeur} ${libelleCourt(part.element)}`
+
+  const signe = part.sens === 'prendre' ? '+' : ''
+  if (part.kind === 'fixe') {
+    const texte = `${signe}${montant ?? part.valeur} ${libelleCourt(part.element)}`
+    return part.auPlus ? `jusqu’à ${texte}` : texte
+  }
 
   const borne = part.max !== undefined ? ` (max ${part.max})` : ''
-  return `X ${libelleCourt(part.element)}${borne}`
+  return `${signe}X ${libelleCourt(part.element)}${borne}`
 }
 
 export function decrireBranche(branche: BrancheCout): string {

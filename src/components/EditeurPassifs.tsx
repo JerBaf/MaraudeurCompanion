@@ -1,21 +1,24 @@
-import { ELEMENTS_PAYABLES } from '../domain/couts.ts'
+import { coutDe, ELEMENTS_PAYABLES, fixe } from '../domain/couts.ts'
 import {
   elementDepuisCle,
   ELEMENTS_VARIABLES,
   type Aspect,
   type CleElement,
 } from '../domain/elements.ts'
-import { decrirePassif } from '../domain/passifs.ts'
+import { decrirePassif, LIBELLE_REGLE } from '../domain/passifs.ts'
 import { nouvelIdentifiant } from '../domain/random.ts'
 import {
   COMPETENCES,
   LIBELLE_COMPETENCE,
   type Competence,
   type Declenchement,
+  type KindRegle,
   type Operation,
   type OperationValeur,
   type Passif,
+  type Regle,
 } from '../domain/types.ts'
+import { EditeurCout } from './EditeurCout.tsx'
 
 /**
  * Saisie des Passifs d'une entrée de catalogue.
@@ -37,6 +40,7 @@ const CIBLES: { cle: CleElement; aspect: Aspect; libelle: string }[] = [
   { cle: 'energie-attaque', aspect: 'valeur', libelle: "Points d'Énergie d'attaque" },
   // Les plafonds : la règle veut qu'un objet hausse le maximum, pas la jauge.
   { cle: 'sixth-sens', aspect: 'plafond', libelle: '6th Sens (maximum)' },
+  { cle: 'actions-rapides', aspect: 'plafond', libelle: 'Actions Rapides (maximum)' },
   { cle: 'fatigue', aspect: 'plafond', libelle: 'Points de Fatigue (maximum)' },
   { cle: 'foi', aspect: 'plafond', libelle: 'Points de Foi (maximum)' },
   { cle: 'marques', aspect: 'plafond', libelle: 'Marques (maximum)' },
@@ -47,9 +51,16 @@ const CIBLES: { cle: CleElement; aspect: Aspect; libelle: string }[] = [
   { cle: 'marques', aspect: 'valeur', libelle: 'Marques (gagnées)' },
   { cle: 'brulures', aspect: 'valeur', libelle: 'Brûlures (gagnées)' },
   { cle: 'fatigue', aspect: 'valeur', libelle: 'Points de Fatigue (cochés)' },
+  // Comptés en points utilisés : −1, c'est un point rendu.
+  { cle: 'sixth-sens', aspect: 'valeur', libelle: '6th Sens (utilisés)' },
+  { cle: 'actions-rapides', aspect: 'valeur', libelle: 'Actions Rapides (utilisées)' },
 ]
 
 const cleCible = (cle: CleElement, aspect: Aspect) => `${cle}|${aspect}`
+
+/** Le nom d'une jauge dans les listes de seuil et de réaction : ce qu'elle compte. */
+const nomJauge = (cle: CleElement) =>
+  ELEMENTS_VARIABLES[cle].libelleValeur ?? ELEMENTS_VARIABLES[cle].libelle
 
 /** Un d4 ne s'ajoute qu'à un jet de compétence : ailleurs, seul un chiffre a du sens. */
 const ACCEPTE_UN_DE = ['competence', 'competence-toutes']
@@ -59,9 +70,66 @@ type ModeOp = OperationValeur['kind']
 const LIBELLE_OP: Record<ModeOp, string> = {
   add: 'Bonus ou malus chiffré',
   'add-x': 'Le X payé',
+  'add-de': 'La valeur du dé du sort',
   set: 'Fixe la valeur',
   avantage: 'Avantage (+d4)',
   desavantage: 'Désavantage (−d4)',
+}
+
+/**
+ * Où s'écrivent les opérations : dans un passif permanent, dans une réaction,
+ * ou dans le résultat d'un Actif. Les opérations variables n'ont de valeur qu'au
+ * moment d'un déclenchement — le X payé ou le dé d'un sort, l'ampleur du
+ * changement d'une réaction.
+ */
+export type ContexteOperations = 'permanent' | 'reaction' | 'actif'
+
+const OPS_PAR_CONTEXTE: Record<ContexteOperations, ModeOp[]> = {
+  permanent: ['add', 'set', 'avantage', 'desavantage'],
+  reaction: ['add', 'add-x', 'set', 'avantage', 'desavantage'],
+  actif: ['add', 'add-x', 'add-de', 'set', 'avantage', 'desavantage'],
+}
+
+function libelleOp(mode: ModeOp, contexte: ContexteOperations): string {
+  // Dans une réaction, le « X » est l'ampleur du changement qui l'arme.
+  return mode === 'add-x' && contexte === 'reaction' ? 'Autant que le changement' : LIBELLE_OP[mode]
+}
+
+/*
+ * Les libellés d'accessibilité changent avec le contexte : l'éditeur d'un sort
+ * et celui d'un passif peuvent cohabiter, et chacun doit rester désignable.
+ */
+const ETIQUETTES: Record<'passif' | 'effet', { cible: string; competence: string; op: string; valeur: string }> = {
+  passif: {
+    cible: 'Cible du passif',
+    competence: 'Compétence visée',
+    op: 'Effet du passif',
+    valeur: 'Valeur du passif',
+  },
+  effet: {
+    cible: 'Cible de l’effet',
+    competence: 'Compétence visée par l’effet',
+    op: 'Opération de l’effet',
+    valeur: 'Valeur de l’effet',
+  },
+}
+
+/** Ce que chaque règle change, pour la MJ qui compose. */
+const EXPLICATION_REGLE: Record<KindRegle, string> = {
+  'ame-de-geant': 'un 6 en Arcane décuple le sort au lieu de l’Effet Aléatoire',
+  'reussite-automatique':
+    'réussir d’office un Test de Compétence ou un Jet d’Arcane (le dé vaut 5), contre un prix',
+  'sorts-suspendus': 'seuls les sorts qu’une option débloque restent lançables',
+}
+
+function regleVierge(kind: KindRegle): Regle {
+  switch (kind) {
+    case 'reussite-automatique':
+      // Le prix de la Lumière d'une Eclipsed : c'est le cas qui a fait naître la règle.
+      return { kind, cout: coutDe(fixe('marques', 1, { sens: 'prendre' })) }
+    default:
+      return { kind }
+  }
 }
 
 function operationVierge(): Operation {
@@ -132,8 +200,18 @@ export function EditeurPassifs({
 
           <EditeurOperations
             valeur={passif.effet.operations ?? []}
+            contexte={passif.declenchement.kind === 'reaction' ? 'reaction' : 'permanent'}
             onChange={(operations) => maj(index, { effet: { ...passif.effet, operations } })}
           />
+
+          {/* Une règle ne vaut que sur un passif permanent : ailleurs, elle
+              n'aurait aucun moment où s'appliquer. */}
+          {passif.declenchement.kind === 'permanent' && (
+            <EditeurRegles
+              valeur={passif.effet.regles ?? []}
+              onChange={(regles) => maj(index, { effet: { ...passif.effet, regles } })}
+            />
+          )}
 
           <label className="champ">
             <span className="tres-discret">
@@ -230,7 +308,7 @@ function EditeurDeclenchement({
           >
             {ELEMENTS_PAYABLES.map((cle) => (
               <option key={cle} value={cle}>
-                {ELEMENTS_VARIABLES[cle].libelle}
+                {nomJauge(cle)}
               </option>
             ))}
           </select>
@@ -268,7 +346,7 @@ function EditeurDeclenchement({
           >
             {ELEMENTS_PAYABLES.map((cle) => (
               <option key={cle} value={cle}>
-                {ELEMENTS_VARIABLES[cle].libelle}
+                {nomJauge(cle)}
               </option>
             ))}
           </select>
@@ -309,30 +387,50 @@ function EditeurDeclenchement({
 
 // ---------------------------------------------------------------------------
 
-function EditeurOperations({
+/**
+ * Saisie des opérations d'un effet.
+ *
+ * Partagée par les passifs et par les résultats des Actifs d'un sort : les deux
+ * écrivent la même chose — une cible, une opération —, seul le moment où elle
+ * s'applique change, et avec lui les opérations qui ont un sens.
+ */
+export function EditeurOperations({
   valeur,
+  contexte,
   onChange,
 }: {
   valeur: Operation[]
+  contexte: ContexteOperations
   onChange: (v: Operation[]) => void
 }) {
   const maj = (index: number, operation: Operation) =>
     onChange(valeur.map((o, i) => (i === index ? operation : o)))
+  const etiquettes = ETIQUETTES[contexte === 'actif' ? 'effet' : 'passif']
 
   return (
     <>
       {valeur.map((operation, index) => {
         const { cible, op } = operation
         const accepteDe = ACCEPTE_UN_DE.includes(cible.element.kind)
+        // L'opération en place reste proposée, même hors de son contexte :
+        // sans elle, le sélecteur s'afficherait vide.
+        const offertes = (Object.keys(LIBELLE_OP) as ModeOp[]).filter(
+          (m) =>
+            m === op.kind ||
+            (OPS_PAR_CONTEXTE[contexte].includes(m) &&
+              (accepteDe || (m !== 'avantage' && m !== 'desavantage'))),
+        )
 
         return (
           <div key={index} className="rangee">
             <select
               value={cleCible(cible.element.kind, cible.aspect)}
               style={{ flex: 1 }}
-              aria-label="Cible du passif"
+              aria-label={etiquettes.cible}
               onChange={(e) => {
                 const [cle, aspect] = e.target.value.split('|') as [CleElement, Aspect]
+                const deRefuse =
+                  (op.kind === 'avantage' || op.kind === 'desavantage') && !ACCEPTE_UN_DE.includes(cle)
                 maj(index, {
                   kind: 'ajuster',
                   cible: {
@@ -340,7 +438,7 @@ function EditeurOperations({
                     aspect,
                   },
                   // Un d4 sur l'Évasion n'a pas de sens : on retombe sur un chiffre.
-                  op: ACCEPTE_UN_DE.includes(cle) ? op : { kind: 'add', value: 1 },
+                  op: deRefuse ? { kind: 'add', value: 1 } : op,
                 })
               }}
             >
@@ -355,7 +453,7 @@ function EditeurOperations({
               <select
                 value={cible.element.competence}
                 style={{ flex: 1 }}
-                aria-label="Compétence visée"
+                aria-label={etiquettes.competence}
                 onChange={(e) =>
                   maj(index, {
                     kind: 'ajuster',
@@ -378,7 +476,7 @@ function EditeurOperations({
             <select
               value={op.kind}
               style={{ flex: 1 }}
-              aria-label="Effet du passif"
+              aria-label={etiquettes.op}
               onChange={(e) => {
                 const mode = e.target.value as ModeOp
                 maj(index, {
@@ -393,13 +491,11 @@ function EditeurOperations({
                 })
               }}
             >
-              {(Object.keys(LIBELLE_OP) as ModeOp[])
-                .filter((m) => m === 'add' || m === 'set' || accepteDe)
-                .map((m) => (
-                  <option key={m} value={m}>
-                    {LIBELLE_OP[m]}
-                  </option>
-                ))}
+              {offertes.map((m) => (
+                <option key={m} value={m}>
+                  {libelleOp(m, contexte)}
+                </option>
+              ))}
             </select>
 
             {(op.kind === 'add' || op.kind === 'set') && (
@@ -407,7 +503,7 @@ function EditeurOperations({
                 type="number"
                 value={op.value}
                 style={{ width: 90 }}
-                aria-label="Valeur du passif"
+                aria-label={etiquettes.valeur}
                 onChange={(e) =>
                   maj(index, {
                     kind: 'ajuster',
@@ -437,5 +533,61 @@ function EditeurOperations({
         Ajouter un ajustement
       </button>
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Les règles spéciales d'un passif : ce qu'aucun chiffre ne dit. Le registre
+ * est fermé — chaque règle a son point d'application dans le moteur —, mais qui
+ * en bénéficie se compose ici, sur n'importe quelle entrée.
+ */
+function EditeurRegles({
+  valeur,
+  onChange,
+}: {
+  valeur: Regle[]
+  onChange: (v: Regle[]) => void
+}) {
+  return (
+    <div className="champ">
+      <span className="tres-discret">Règles spéciales — ce qu’aucun chiffre ne dit</span>
+
+      {(Object.keys(LIBELLE_REGLE) as KindRegle[]).map((kind) => {
+        const regle = valeur.find((r) => r.kind === kind)
+        return (
+          <div key={kind} className="pile pile--serree">
+            <label className="rangee" style={{ gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={regle !== undefined}
+                style={{ minHeight: 0, width: 'auto' }}
+                onChange={(e) =>
+                  onChange(
+                    e.target.checked
+                      ? [...valeur, regleVierge(kind)]
+                      : valeur.filter((r) => r.kind !== kind),
+                  )
+                }
+              />
+              <span className="tres-discret">
+                <strong>{LIBELLE_REGLE[kind]}</strong> — {EXPLICATION_REGLE[kind]}
+              </span>
+            </label>
+
+            {regle?.kind === 'reussite-automatique' && (
+              <EditeurCout
+                valeur={regle.cout}
+                label="Prix de la réussite automatique"
+                onChange={(cout) =>
+                  onChange(valeur.map((r) => (r.kind === kind ? { ...regle, cout } : r)))
+                }
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }

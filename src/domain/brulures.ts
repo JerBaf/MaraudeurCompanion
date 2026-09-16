@@ -24,10 +24,15 @@ import type { Character } from './types.ts'
  * ce n'est **pas** un passif réactif : une réaction s'armerait sur tout
  * mouvement du compteur, or la barre de brûlures sert aussi de bloc-notes —
  * cocher une case pour noter son total ne doit rien produire.
+ *
+ * ⚠️ Se lit dans `passifs.choix`, que l'écran écrit, et non dans l'ancien champ
+ * `passifs.hexcore` : une Dusk Hunter qui choisissait Overheat depuis sa fiche
+ * n'en recevait rien. `normaliserPersonnage` recopie l'ancien champ dans
+ * `choix`, si bien que les fiches d'avant restent couvertes.
  */
 export function gainBrulureEffectif(char: Character, gainBrut: number): number {
   if (gainBrut <= 0) return gainBrut
-  return char.passifs.hexcore === 'overheat' ? gainBrut + 1 : gainBrut
+  return char.passifs.choix?.hexcore === 'overheat' ? gainBrut + 1 : gainBrut
 }
 
 /** Ce qui reste dépensable. */

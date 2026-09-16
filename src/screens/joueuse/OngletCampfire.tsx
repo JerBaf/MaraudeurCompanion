@@ -488,7 +488,7 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
         catalog={catalog}
         vies={VIES_SOULSHIFTER}
         maj={(t) => void modifierPersonnage(char, t)}
-        autoriserToutChanger={!edition}
+        moment={edition ? 'fiche' : 'feu-de-camp'}
       />
 
       {/* Les gains de Foi n'ont lieu qu'au camp initial ; en miroir, la MJ en lit

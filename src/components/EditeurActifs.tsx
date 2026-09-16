@@ -1,7 +1,14 @@
 import { COUT_GRATUIT } from '../domain/couts.ts'
 import { nouvelIdentifiant } from '../domain/random.ts'
-import { FACES_TABLE, type Actif, type Recharge, type Usages } from '../domain/types.ts'
+import {
+  FACES_TABLE,
+  type Actif,
+  type Effet,
+  type Recharge,
+  type Usages,
+} from '../domain/types.ts'
 import { EditeurCout } from './EditeurCout.tsx'
+import { EditeurOperations } from './EditeurPassifs.tsx'
 
 /**
  * Saisie des Actifs d'une entrée de catalogue.
@@ -51,15 +58,33 @@ function rechargeVierge(mode: ModeRecharge): Recharge {
 export function EditeurActifs({
   valeur,
   nomPorteur,
+  avecOperations = false,
   onChange,
 }: {
   valeur: Actif[]
   /** Nom de l'entrée : sert de nom par défaut au premier Actif. */
   nomPorteur: string
+  /**
+   * Proposer les opérations chiffrées de chaque résultat. Réservé aux sorts :
+   * seul `lancerSort` les applique, et les offrir sur un objet mentirait.
+   */
+  avecOperations?: boolean
   onChange: (v: Actif[]) => void
 }) {
   const maj = (index: number, patch: Partial<Actif>) =>
     onChange(valeur.map((a, i) => (i === index ? { ...a, ...patch } : a)))
+
+  /**
+   * Retouche un résultat de la table **sans perdre le reste** : éditer le texte
+   * d'une entrée effaçait ses opérations, silencieusement.
+   */
+  const majEntree = (index: number, actif: Actif, iEffet: number, patch: Partial<Effet>) =>
+    maj(index, {
+      table: {
+        ...actif.table,
+        entrees: actif.table.entrees.map((v, i) => (i === iEffet ? { ...v, ...patch } : v)),
+      },
+    })
 
   return (
     <div className="champ">
@@ -114,32 +139,33 @@ export function EditeurActifs({
             >
               {FACES_TABLE.map((f) => (
                 <option key={f} value={f}>
-                  {f === 1 ? 'Effet unique' : `1d${f}`}
+                  {f === 1 ? 'Effet unique' : f === 2 ? 'Pile ou face (1d2)' : `1d${f}`}
                 </option>
               ))}
             </select>
           </label>
 
           {actif.table.entrees.map((entree, iEffet) => (
-            <label key={iEffet} className="champ">
-              <span className="tres-discret">
-                {actif.table.faces === 1 ? 'Effet' : `Résultat ${iEffet + 1}`}
-              </span>
-              <input
-                type="text"
-                value={entree.texte}
-                onChange={(e) =>
-                  maj(index, {
-                    table: {
-                      ...actif.table,
-                      entrees: actif.table.entrees.map((v, i) =>
-                        i === iEffet ? { texte: e.target.value } : v,
-                      ),
-                    },
-                  })
-                }
-              />
-            </label>
+            <div key={iEffet} className="pile pile--serree">
+              <label className="champ">
+                <span className="tres-discret">
+                  {actif.table.faces === 1 ? 'Effet' : `Résultat ${iEffet + 1}`}
+                </span>
+                <input
+                  type="text"
+                  value={entree.texte}
+                  onChange={(e) => majEntree(index, actif, iEffet, { texte: e.target.value })}
+                />
+              </label>
+
+              {avecOperations && (
+                <EditeurOperations
+                  valeur={entree.operations ?? []}
+                  contexte="actif"
+                  onChange={(operations) => majEntree(index, actif, iEffet, { operations })}
+                />
+              )}
+            </div>
           ))}
 
           <EditeurCout
