@@ -1,4 +1,5 @@
 import { COUT_GRATUIT, coutDe, fixe, variable } from '../domain/couts.ts'
+import { JET_ARCANE } from '../domain/types.ts'
 import type {
   Classe,
   EntreeCatalogue,
@@ -128,10 +129,12 @@ const SORTS_SOULSHIFTER: Sort[] = [
     classeId: 'soulshifter',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '10 minutes',
     effet:
       "Crée un familier qui accompagne le Soulshifter. Il peut faire des attaques à hauteur de 1d4 et possède 3 points de vie, sans évasion.",
+    effetB:
+      "Le familier se manifeste dans toute sa puissance : ses attaques montent à 1d8 et il possède 6 points de vie.",
   },
   {
     kind: 'sort',
@@ -142,10 +145,12 @@ const SORTS_SOULSHIFTER: Sort[] = [
     classeId: 'soulshifter',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: 'Instantané',
     effet:
-      "Manifeste l'élément de la personnalité en cours. Effectue X dégâts, où X est le nombre obtenu sur le d6. Le sort ne peut cibler qu'une seule cible à la fois.",
+      "Manifeste l'élément de la personnalité en cours. Effectue autant de dégâts que de Points d'Énergie obtenus. Le sort ne peut cibler qu'une seule cible à la fois.",
+    effetB:
+      "L'élément déborde : les dégâts frappent une petite zone au lieu d'une cible unique.",
   },
   {
     kind: 'sort',
@@ -156,9 +161,11 @@ const SORTS_SOULSHIFTER: Sort[] = [
     classeId: 'soulshifter',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '10 minutes',
     effet: "S'imprègne de l'essence de la personnalité en cours.",
+    effetB:
+      "L'essence prend toute la place : l'imprégnation dure une heure, et sa marque est visible de tous.",
   },
   {
     kind: 'sort',
@@ -169,9 +176,11 @@ const SORTS_SOULSHIFTER: Sort[] = [
     classeId: 'soulshifter',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '10 minutes',
     effet: 'Utilise la personnalité en cours pour augmenter ses sens.',
+    effetB:
+      "Les sens de la personnalité s'ouvrent en grand : ils percent la pénombre, les cloisons et les mensonges.",
   },
 ]
 
@@ -223,6 +232,8 @@ const SORTS_TRICKSTER: Sort[] = [
     de: null,
     duree: '1 minute',
     effet: 'Crée une illusion sensorielle mineure.',
+    effetB:
+      "L'illusion gagne en consistance : elle trompe aussi le toucher, et tient sans votre attention.",
     requiertPassif: 'illusionniste',
   },
   {
@@ -238,6 +249,8 @@ const SORTS_TRICKSTER: Sort[] = [
     duree: '10 minutes',
     effet:
       "Crée une main magique capable de se déplacer à une portée Moyenne. Elle peut soulever jusqu'à dix kilogrammes et répond aux commandes de son invocateur.",
+    effetB:
+      "La main est colossale : elle porte jusqu'à cent kilogrammes et peut agripper une créature.",
     requiertPassif: 'illusionniste',
   },
   {
@@ -249,10 +262,12 @@ const SORTS_TRICKSTER: Sort[] = [
     classeId: 'trickster',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '1 heure',
     effet:
       "La créature ciblée change de forme et adopte celle d'une autre créature choisie. La cible obtient les caractéristiques et l'intelligence de la forme voulue. Si la créature reçoit des dégâts, le sort se brise. Les boss ont des résistances légendaires à Polymorph.",
+    effetB:
+      "La forme tient bon : le premier dégât ne brise plus le sort, qui court jusqu'au bout de son heure.",
   },
   {
     kind: 'sort',
@@ -263,10 +278,12 @@ const SORTS_TRICKSTER: Sort[] = [
     classeId: 'trickster',
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '1 heure',
     effet:
-      "Établit un contact avec une créature en vue. 1 : la créature est hostile envers vous. 2-3 : elle a une attitude positive mais ne se mettra pas en danger. 4-5 : elle vous obéit quoi que vous lui demandiez.",
+      "Établit un contact avec une créature en vue. Elle prend une attitude positive à votre égard, mais ne se mettra pas en danger pour vous.",
+    effetB:
+      "La créature vous est acquise : elle vous obéit quoi que vous lui demandiez, au péril de sa vie.",
   },
   {
     kind: 'sort',
@@ -394,8 +411,9 @@ const SORTS_ASTROMANCIEN: Sort[] = [
 // ---------------------------------------------------------------------------
 
 /*
- * Le « sur un 6 » de ces sorts n'est pas une table : c'est l'Âme de Géant de la
- * classe qui le déclenche, et le texte qui en dit l'ampleur.
+ * Le « sur un 6 » que portaient ces textes est devenu leur Effet B : la règle
+ * des 2d6 le déclenche pour tout le monde. L'Âme de Géant de la classe s'y
+ * ajoute, et c'est la MJ qui dit jusqu'où l'effet est décuplé.
  */
 const SORTS_EARTHBORN: Sort[] = [
   {
@@ -407,10 +425,11 @@ const SORTS_EARTHBORN: Sort[] = [
     classesIds: ['earthborn'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: 'Instantanée',
     effet:
-      "Vous pouvez modeler la terre devant vous et lui faire prendre la forme souhaitée. La quantité maximum de terre correspond à une voiture. Cependant, sur un 6, l'Âme de Géant résonne en vous et vous pouvez modeler l'équivalent d'une maison à la place.",
+      "Vous pouvez modeler la terre devant vous et lui faire prendre la forme souhaitée. La quantité maximum de terre correspond à une voiture.",
+    effetB: "Vous modelez l'équivalent d'une maison à la place.",
   },
   {
     kind: 'sort',
@@ -421,10 +440,10 @@ const SORTS_EARTHBORN: Sort[] = [
     classesIds: ['earthborn'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: 'Instantanée',
-    effet:
-      "Fait apparaître une petite source à l'endroit désiré. Sur un 6, l'Âme de Géant résonne en vous et c'est un véritable torrent qui apparaît.",
+    effet: "Fait apparaître une petite source à l'endroit désiré.",
+    effetB: "C'est un véritable torrent qui apparaît.",
   },
   {
     kind: 'sort',
@@ -456,10 +475,12 @@ const SORTS_ECLIPSED: Sort[] = [
     classesIds: ['eclipsed'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '1 heure',
     effet:
-      'Vous vous habillez de la couleur la plus intense qui soit, et cela se voit. Ajoutez la valeur du d6 à votre compétence Social.',
+      'Vous vous habillez de la couleur la plus intense qui soit, et cela se voit. Ajoutez vos Points d’Énergie à votre compétence Social.',
+    effetB:
+      'La couleur ne se laisse pas ignorer : nul ne vous refuse une première audience tant qu’elle dure.',
     actifs: [
       {
         id: 'couleur',
@@ -495,10 +516,11 @@ const SORTS_ECLIPSED: Sort[] = [
     classesIds: ['eclipsed'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: '10 minutes',
     effet:
-      "Un objet inanimé à distance moyenne prend vie et suit vos ordres. 1-2 : il n'en fait qu'à sa tête. 3-4 : il obéit, mais sa compréhension est limitée. 5 : il obéit au doigt et à l'œil.",
+      "Un objet inanimé à distance moyenne prend vie et suit vos ordres, mais sa compréhension reste limitée.",
+    effetB: "L'objet obéit au doigt et à l'œil, et devance même ce que vous ne dites pas.",
   },
   {
     kind: 'sort',
@@ -509,10 +531,11 @@ const SORTS_ECLIPSED: Sort[] = [
     classesIds: ['eclipsed'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: 'Instantanée',
     effet:
-      "Crée un objet inanimé à une distance courte ou moyenne. La qualité de l'objet varie selon le résultat du jet ; qualité et taille sont proportionnelles à l'objet voulu. 1-2 : qualité mauvaise, petite taille. 3-4 : qualité moyenne, taille moyenne. 5 : qualité excellente, grande taille.",
+      "Crée un objet inanimé à une distance courte ou moyenne, de qualité et de taille moyennes.",
+    effetB: "L'objet est d'une qualité excellente, et peut atteindre une grande taille.",
   },
   {
     kind: 'sort',
@@ -523,10 +546,12 @@ const SORTS_ECLIPSED: Sort[] = [
     classesIds: ['eclipsed'],
     magieId: 'arcane',
     cout: COUT_GRATUIT,
-    de: '1d6',
+    de: null,
     duree: 'Instantanée',
     effet:
       "Projette son esprit hors de son corps et visualise un lieu jusqu'à un kilomètre de distance. La vision est ensuite couchée sur papier et peut être lue comme un cliché instantané de l'état du lieu en question.",
+    effetB:
+      "La projection s'étend : plusieurs lieux se laissent visiter d'affilée, et la vision porte aussi sur un passé proche.",
   },
   // Les sorts Ombre : débloqués par l'état, ils ne s'achètent ni ne se perdent.
   {
@@ -819,7 +844,7 @@ const CLASSES: Classe[] = [
     lore:
       "Il y a des personnes dont l'âme porte les traces d'un lointain passé. Une appartenance à un peuple désormais disparu, mais dont l'héritage coule toujours au fond de leurs veines. Ce don les relie non pas par le sang, mais par leur appartenance à l'Entre-Monde, à la terre même qu'ils foulent à chaque instant. Toute l'énergie présente autour d'eux résonne de cet appel ancestral, celui de leurs aïeux, les Géants.",
     passifTexte:
-      "Âme de Géant : lors d'un jet d'Arcane, si le résultat obtenu est 6, il n'y a pas d'Effet Aléatoire. À la place, cela appelle en vous votre Âme de Géant, et l'effet du sort lancé est ainsi décuplé.",
+      "Âme de Géant : lors d'un jet d'Arcane, si l'Effet B se déclenche, cela appelle en vous votre Âme de Géant, et l'effet du sort lancé est ainsi décuplé.",
     passifs: [
       {
         id: 'ame-de-geant',
@@ -827,7 +852,7 @@ const CLASSES: Classe[] = [
         declenchement: { kind: 'permanent' },
         effet: {
           texte:
-            "Sur un 6 en Arcane, pas d'Effet Aléatoire : votre Âme de Géant résonne, et l'effet du sort est décuplé.",
+            "Sur un Effet B en Arcane, votre Âme de Géant résonne : l'effet du sort est en outre décuplé.",
           regles: [{ kind: 'ame-de-geant' }],
         },
       },
@@ -1059,9 +1084,10 @@ const INVESTISSEMENTS: Investissement[] = [
  * `sang`, `miracle` — pour que les sorts déjà en base s'y rattachent sans
  * conversion. Les renommer délierait tout le contenu existant.
  *
- * La MJ peut en créer d'autres depuis son écran : c'est ce que le champ
- * `cristal` rend possible sans toucher au code, là où la mécanique de l'Hexite
- * était câblée sur le seul Arcane.
+ * La MJ peut en créer d'autres depuis son écran, avec leur propre jet et leur
+ * propre mécanique : c'est ce que les champs `jet` et `cristal` rendent
+ * possible sans toucher au code, là où le d6 et l'Hexite étaient câblés sur le
+ * seul Arcane.
  */
 const TYPES_MAGIQUES: TypeMagique[] = [
   {
@@ -1071,9 +1097,8 @@ const TYPES_MAGIQUES: TypeMagique[] = [
     icone: 'crystal-shine',
     seed: true,
     description:
-      "La magie des cristaux d'Hexite. Un jet de d6 en décide la puissance, et le cristal s'épuise sur un 1 ou un 2.",
-    deParDefaut: '1d6',
-    cristal: true,
+      "La magie brute de l'Entre-Monde. On lance 2d6 : le plus haut donne les Points d'Énergie, et un 6 au moins fait survenir l'Effet B du sort à la place de son Effet A.",
+    jet: JET_ARCANE,
   },
   {
     kind: 'type-magique',

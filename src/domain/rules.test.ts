@@ -24,7 +24,7 @@ import {
   tirerOffres,
   type ContexteCamp,
 } from './campfire.ts'
-import { createCatalog, normaliserCoutSort } from './catalog.ts'
+import { createCatalog, normaliserCoutSort, normaliserEntree } from './catalog.ts'
 import {
   appliquerProfil,
   convertirAncienProfil,
@@ -98,7 +98,11 @@ import {
   disponibiliteSort,
   estHorsEmplacement,
   grimoireEffectif,
-  resoudreArcane,
+  EFFET_B_ABSENT,
+  detailSort,
+  jetMagiqueDuSort,
+  resoudreJetMagique,
+  sortAUnCristal,
   sortsHorsEmplacement,
 } from './magie.ts'
 import {
@@ -228,7 +232,7 @@ import {
   recompenseVide,
 } from './quetes.ts'
 import { nombreDeDes, rngManuel, seededRng, tirerEffetAleatoire, tirerOsselets } from './random.ts'
-import { ACTIONS_DUEL } from './types.ts'
+import { ACTIONS_DUEL, JET_ARCANE } from './types.ts'
 import type {
   ActionDuel,
   Actif,
@@ -251,6 +255,7 @@ import type {
   Quete,
   Regle,
   Sort,
+  TypeMagique,
   VerrouChoix,
   VieSoulshifter,
 } from './types.ts'
@@ -778,19 +783,31 @@ describe('Combustion', () => {
 // ---------------------------------------------------------------------------
 
 describe('Arcane', () => {
-  it('donne des Points d’Énergie égaux au résultat du d6', () => {
-    for (let d = 1; d <= 6; d += 1) expect(resoudreArcane(d).pointsEnergie).toBe(d)
+  it('donne des Points d’Énergie égaux au plus haut des deux dés', () => {
+    expect(resoudreJetMagique([4, 2], JET_ARCANE).pointsEnergie).toBe(4)
+    expect(resoudreJetMagique([2, 4], JET_ARCANE).pointsEnergie).toBe(4)
+    expect(resoudreJetMagique([3, 3], JET_ARCANE).pointsEnergie).toBe(3)
+    expect(resoudreJetMagique([1, 6], JET_ARCANE).pointsEnergie).toBe(6)
   })
 
-  it('épuise le cristal sur 1 et sur 2', () => {
-    expect(resoudreArcane(1).cristalEpuise).toBe(true)
-    expect(resoudreArcane(2).cristalEpuise).toBe(true)
-    expect(resoudreArcane(3).cristalEpuise).toBe(false)
+  it('déclenche l’Effet B dès qu’un dé au moins montre un 6', () => {
+    expect(resoudreJetMagique([6, 2], JET_ARCANE).effetB).toBe(true)
+    expect(resoudreJetMagique([2, 6], JET_ARCANE).effetB).toBe(true)
+    expect(resoudreJetMagique([6, 6], JET_ARCANE).effetB).toBe(true)
+    expect(resoudreJetMagique([5, 5], JET_ARCANE).effetB).toBe(false)
   })
 
-  it('déclenche l’Effet Aléatoire uniquement sur un 6', () => {
-    expect(resoudreArcane(5).effetAleatoire).toBe(false)
-    expect(resoudreArcane(6).effetAleatoire).toBe(true)
+  it('s’en tient à l’Effet A quand le jet ne porte aucun seuil', () => {
+    // Le dé propre d'un sort — le Raging Claw de l'Ombre — ne fait que chiffrer.
+    expect(resoudreJetMagique([6], { de: '1d6' }).effetB).toBe(false)
+    expect(resoudreJetMagique([6], { de: '1d6' }).pointsEnergie).toBe(6)
+  })
+
+  it('n’épuise plus rien : le 1-2 du cristal était la règle d’avant', () => {
+    const r = resoudreJetMagique([1, 2], JET_ARCANE)
+    expect(r.effetB).toBe(false)
+    expect(r.pointsEnergie).toBe(2)
+    expect(Object.keys(r)).not.toContain('cristalEpuise')
   })
 
   it('cumule les coûts additionnels', () => {
@@ -804,6 +821,80 @@ describe('Arcane', () => {
     const r = tirerEffetAleatoire(seededRng(3))
     expect(r.cicatrice).toBe(r.blanc === r.noir)
     expect(r.puissance).toBe(Math.max(r.blanc, r.noir))
+  })
+
+  describe('les deux effets d’un sort', () => {
+    const terraformation = catalog.sort('terraformation') as Sort
+
+    it('se lisent tous les deux, avant même de lancer', () => {
+      const detail = detailSort(terraformation, catalog)
+      expect(detail).toContain(terraformation.effet)
+      expect(detail).toContain('Effet B — ')
+      expect(detail).toContain(terraformation.effetB as string)
+    })
+
+    it('appliquent l’Effet B, et lui seul, quand un 6 sort', () => {
+      const char = nouveauPerso('earthborn', { grimoire: [terraformation.id] })
+
+      const b = lancerSort(char, catalog, { sortId: terraformation.id }, rngManuel([6, 1]))
+      expect(b.effets).toContain(`Effet B — ${terraformation.effetB}`)
+
+      // Sans 6, rien n'est annoncé : l'Effet A est déjà sous les yeux.
+      const a = lancerSort(char, catalog, { sortId: terraformation.id }, rngManuel([5, 1]))
+      expect(a.effets.join(' ')).not.toContain('Effet B')
+    })
+
+    it('signalent à la table un Effet B qui reste à écrire', () => {
+      const muet: Sort = { ...terraformation, id: 'sans-effet-b', effetB: undefined }
+      const catalogue = createCatalog([...catalog.toutes(), muet])
+      const char = nouveauPerso('earthborn', { grimoire: [muet.id] })
+
+      expect(detailSort(muet, catalogue)).toContain(EFFET_B_ABSENT)
+      const r = lancerSort(char, catalogue, { sortId: muet.id }, rngManuel([6, 1]))
+      expect(r.effets).toContain(`Effet B — ${EFFET_B_ABSENT}`)
+    })
+
+    it('ne s’annoncent pas sur un type magique sans seuil', () => {
+      const crackers = catalog.sort('word-crackers') as Sort
+      expect(detailSort(crackers, catalog)).toBe(crackers.effet)
+    })
+  })
+
+  /**
+   * L'amorçage ne réécrit jamais une entrée déjà en base : la table en service
+   * porte encore l'Arcane d'avant les 2d6. Sans cette conversion, la règle
+   * n'arriverait tout simplement pas à la table.
+   */
+  describe('l’Arcane déjà en base', () => {
+    const ancien = {
+      kind: 'type-magique',
+      id: 'arcane',
+      nom: 'Arcane',
+      icone: 'crystal-shine',
+      deParDefaut: '1d6',
+      cristal: true,
+    } as const
+
+    it('se relit en 2d6 à Effet B, et sans cristal', () => {
+      const converti = normaliserEntree({ ...ancien }) as TypeMagique
+      expect(converti.jet).toEqual(JET_ARCANE)
+      expect(converti.cristal).toBeUndefined()
+      expect(converti.deParDefaut).toBeUndefined()
+    })
+
+    it('laisse son cristal à un type que la MJ a créé', () => {
+      const sien = normaliserEntree({ ...ancien, id: 'hexite', nom: 'Hexite' }) as TypeMagique
+      expect(sien.cristal).toBe(true)
+      // Son dé devient son jet, sans seuil : il ne chiffre que la puissance.
+      expect(sien.jet).toEqual({ de: '1d6' })
+    })
+
+    it('respecte une saisie faite depuis l’écran MJ', () => {
+      const saisi = { ...ancien, jet: { de: '3d6', seuilEffetB: 5 }, cristal: true }
+      const relu = normaliserEntree(saisi) as TypeMagique
+      expect(relu.jet).toEqual({ de: '3d6', seuilEffetB: 5 })
+      expect(relu.cristal).toBe(true)
+    })
   })
 })
 
@@ -977,8 +1068,12 @@ describe('lancer un sort', () => {
     expect(lancerSort(char, catalog, { sortId: sundown.id, x: 9 }, seededRng(1)).char.marques).toBe(3)
   })
 
-  /** « Ajoutez la valeur du d6 à votre Social » : le dé tiré donne sa valeur à l'effet. */
-  it('ajoute la valeur du dé du sort, et rien sans dé', () => {
+  /**
+   * « Ajoutez vos Points d'Énergie à votre Social » : le jet donne sa valeur à
+   * l'effet. Sans jet du tout — un type magique qui n'en porte pas et un sort
+   * sans dé propre —, `add-de` reste sans valeur et rien ne s'applique.
+   */
+  it('ajoute les Points d’Énergie du sort, et rien sans jet', () => {
     const rouge: Sort = {
       kind: 'sort',
       id: 'rouge',
@@ -1011,15 +1106,17 @@ describe('lancer un sort', () => {
         },
       ],
     }
-    const sansDe: Sort = { ...rouge, id: 'rouge-sans-de', de: null }
+    // Le Miracle ne porte pas de jet : un sort sans dé propre n'en a donc aucun.
+    const sansDe: Sort = { ...rouge, id: 'rouge-sans-de', magieId: 'miracle', de: null }
     const avecRouge = createCatalog([...SEED, rouge, sansDe])
 
     const r = lancerSort(
       nouveauPerso('trickster', { grimoire: [rouge.id] }),
       avecRouge,
       { sortId: rouge.id },
-      rngManuel([4]),
+      rngManuel([4, 2]),
     )
+    // `add-de` vaut les Points d'Énergie : le plus haut dé, et non leur somme.
     expect(computeCompetence(r.char, avecRouge, 'social').bonus).toBe(4)
     expect(r.char.modifiers.filter(estPoseParUnSort)).toHaveLength(1)
 
@@ -1032,13 +1129,21 @@ describe('lancer un sort', () => {
     expect(muet.char.modifiers).toEqual([])
   })
 
-  it('lance le dé du sort quand il en porte un', () => {
+  it('lance les deux dés que son type magique demande', () => {
     const polymorph = catalog.sort('polymorph') as Sort
     const char = nouveauPerso('trickster', { grimoire: [polymorph.id] })
 
+    // Polymorph n'a plus de `Sort.de` : son jet vient de l'Arcane.
+    expect(polymorph.de).toBeNull()
+    expect(jetMagiqueDuSort(polymorph, catalog)).toEqual(JET_ARCANE)
+
     const r = lancerSort(char, catalog, { sortId: polymorph.id }, seededRng(3))
-    expect(r.de).toBeGreaterThanOrEqual(1)
-    expect(r.de).toBeLessThanOrEqual(6)
+    expect(r.des).toHaveLength(2)
+    for (const de of r.des) {
+      expect(de).toBeGreaterThanOrEqual(1)
+      expect(de).toBeLessThanOrEqual(6)
+    }
+    expect(r.jetMagique?.pointsEnergie).toBe(Math.max(...r.des))
   })
 
   it('raconte la Combustion quand le coût en brûlures la provoque', () => {
@@ -1118,27 +1223,34 @@ describe('règles spéciales', () => {
     })
 
   describe('Âme de Géant', () => {
-    it('remplace l’Effet Aléatoire d’un 6 par un sort décuplé', () => {
-      expect(resoudreArcane(6, true)).toMatchObject({
+    it('s’ajoute à l’Effet B sans le remplacer', () => {
+      expect(resoudreJetMagique([6, 2], JET_ARCANE, true)).toMatchObject({
         pointsEnergie: 6,
-        effetAleatoire: false,
+        effetB: true,
         ameDeGeant: true,
       })
-      expect(resoudreArcane(5, true).ameDeGeant).toBe(false)
-      expect(resoudreArcane(6).ameDeGeant).toBe(false)
+      expect(resoudreJetMagique([5, 5], JET_ARCANE, true).ameDeGeant).toBe(false)
+      expect(resoudreJetMagique([6, 2], JET_ARCANE).ameDeGeant).toBe(false)
     })
 
-    it('s’applique au lancement, pour qui la porte', () => {
-      const r = lancerSort(beneficiaire(geant), avecRegles, { sortId: polymorph.id }, rngManuel([6]))
-      expect(r.arcane).toMatchObject({ ameDeGeant: true, effetAleatoire: false })
+    it('s’applique au lancement, pour qui la porte — et l’Effet B pour tous', () => {
+      const r = lancerSort(
+        beneficiaire(geant),
+        avecRegles,
+        { sortId: polymorph.id },
+        rngManuel([6, 2]),
+      )
+      expect(r.jetMagique).toMatchObject({ ameDeGeant: true, effetB: true })
 
+      // Sans l'Âme de Géant, l'Effet B survient tout de même : c'est la règle
+      // de tous désormais, et le passif n'y ajoute que son ampleur.
       const sansAme = lancerSort(
         nouveauPerso('trickster'),
         avecRegles,
         { sortId: polymorph.id },
-        rngManuel([6]),
+        rngManuel([6, 2]),
       )
-      expect(sansAme.arcane?.effetAleatoire).toBe(true)
+      expect(sansAme.jetMagique).toMatchObject({ effetB: true, ameDeGeant: false })
     })
 
     it('se nomme dans les effets en cours, faute de chiffre', () => {
@@ -1151,8 +1263,8 @@ describe('règles spéciales', () => {
   })
 
   describe('réussite automatique', () => {
-    it('lance le sort sur un 5, sans dé, et fait prendre la Marque', () => {
-      expect(desDuSort(polymorph, { reussiteAutomatique: true })).toEqual([])
+    it('s’assure l’Effet A sur un 5, sans dé, et fait prendre la Marque', () => {
+      expect(desDuSort(polymorph, avecRegles, { reussiteAutomatique: true })).toEqual([])
 
       const r = lancerSort(
         beneficiaire(lumiere, { marques: 0 }),
@@ -1161,14 +1273,15 @@ describe('règles spéciales', () => {
         rngManuel([]),
       )
       expect(r.reussiteAutomatique).toBe(true)
-      expect(r.de).toBe(5)
-      expect(r.arcane).toMatchObject({ pointsEnergie: 5, cristalEpuise: false, effetAleatoire: false })
+      expect(r.des).toEqual([5])
+      expect(r.jetMagique).toMatchObject({ pointsEnergie: 5, effetB: false })
       expect(r.char.marques).toBe(1)
-      expect(r.char.sortsEpuises).toEqual([])
     })
 
     it('lance encore les tables du sort, et elles seules', () => {
-      expect(desDuSort(presage, { reussiteAutomatique: true })).toEqual([{ nombre: 1, faces: 4 }])
+      expect(desDuSort(presage, avecRegles, { reussiteAutomatique: true })).toEqual([
+        { nombre: 1, faces: 4 },
+      ])
 
       const r = lancerSort(
         beneficiaire(lumiere),
@@ -1234,11 +1347,36 @@ describe('règles spéciales', () => {
     expect(disponibiliteSort(illusion, suspendue, avecRegles).disponible).toBe(true)
   })
 
-  /** La règle « 1 et 2 » vivait dans l'écran ; elle vit désormais au lancement. */
-  it('épuise le cristal au lancement, sur un 1 ou un 2', () => {
-    const r = lancerSort(nouveauPerso('trickster'), catalog, { sortId: polymorph.id }, rngManuel([2]))
-    expect(r.arcane?.cristalEpuise).toBe(true)
-    expect(r.char.sortsEpuises).toEqual([polymorph.id])
+  /**
+   * La règle « 1 et 2 » est abrogée : plus aucun jet n'épuise de cristal. Le
+   * drapeau `cristal` d'un type magique n'en reste pas moins vivant — il porte
+   * l'état, la correction à la main et la restitution au camp.
+   */
+  it('n’épuise plus aucun cristal au lancement, même sur un 1', () => {
+    const r = lancerSort(
+      nouveauPerso('trickster'),
+      catalog,
+      { sortId: polymorph.id },
+      rngManuel([1, 2]),
+    )
+    expect(r.char.sortsEpuises).toEqual([])
+    expect(disponibiliteSort(polymorph, r.char, catalog).disponible).toBe(true)
+  })
+
+  it('laisse l’Arcane sans cristal, et le garde pour un type qui en porte un', () => {
+    expect(sortAUnCristal(polymorph, catalog)).toBe(false)
+
+    const aCristal = createCatalog([
+      ...catalog.toutes(),
+      { kind: 'type-magique', id: 'hexite', nom: 'Hexite', icone: 'crystal-shine', cristal: true },
+      { ...polymorph, id: 'sort-hexite', magieId: 'hexite' },
+    ])
+    const sortACristal = aCristal.sort('sort-hexite') as Sort
+    expect(sortAUnCristal(sortACristal, aCristal)).toBe(true)
+
+    // Épuisé à la main, il redevient indisponible — et le camp le rendra.
+    const char = nouveauPerso('trickster', { sortsEpuises: ['sort-hexite'] })
+    expect(disponibiliteSort(sortACristal, char, aCristal).raisons).toContain('cristal-epuise')
   })
 })
 
@@ -1724,9 +1862,16 @@ describe('Astromancien, Earthborn, Eclipsed', () => {
     })
   })
 
-  it('Earthborn : un 6 en Arcane réveille l’Âme de Géant', () => {
-    const r = lancerSort(nouveauPerso('earthborn'), catalog, { sortId: 'terraformation' }, rngManuel([6]))
-    expect(r.arcane).toMatchObject({ ameDeGeant: true, effetAleatoire: false })
+  it('Earthborn : un 6 en Arcane déclenche l’Effet B et réveille l’Âme de Géant', () => {
+    const r = lancerSort(
+      nouveauPerso('earthborn'),
+      catalog,
+      { sortId: 'terraformation' },
+      rngManuel([2, 6]),
+    )
+    expect(r.jetMagique).toMatchObject({ effetB: true, ameDeGeant: true, pointsEnergie: 6 })
+    // Le « sur un 6 » qui vivait dans le texte du sort est devenu son Effet B.
+    expect(r.effets.join(' ')).toContain("l'équivalent d'une maison")
   })
 
   describe('Eclipsed', () => {
@@ -1767,7 +1912,9 @@ describe('Astromancien, Earthborn, Eclipsed', () => {
 
     it('Raging Claw consomme deux Marques, lance son d6 puis sa pièce', () => {
       const claw = catalog.sort('raging-claw') as Sort
-      expect(desDuSort(claw)).toEqual([
+      // L'Ombre ne porte pas de jet : le sort garde le sien, sans Effet B.
+      expect(jetMagiqueDuSort(claw, catalog)).toEqual({ de: '1d6' })
+      expect(desDuSort(claw, catalog)).toEqual([
         { nombre: 1, faces: 6 },
         { nombre: 1, faces: 2 },
       ])
@@ -1775,7 +1922,8 @@ describe('Astromancien, Earthborn, Eclipsed', () => {
       const avant = enOmbre(4)
       const r = lancerSort(avant, catalog, { sortId: claw.id }, rngManuel([3, 2]))
       expect(r.char.marques).toBe(2)
-      expect(r.de).toBe(3)
+      expect(r.des).toEqual([3])
+      expect(r.jetMagique).toMatchObject({ pointsEnergie: 3, effetB: false })
       expect(r.effets.join(' ')).toContain('Pile')
       // Deux Marques restent : l'Ombre tient.
       expect(etatDe(resoudrePassifs(avant, r.char, catalog).char)).toBe('ombre')
@@ -1794,8 +1942,13 @@ describe('Astromancien, Earthborn, Eclipsed', () => {
       expect(r.effets).toContain('Points de Fatigue +1')
     })
 
-    it('[Couleur] Rouge ajoute le d6 au Social — ou 5, en réussite automatique', () => {
-      const r = lancerSort(nouveauPerso('eclipsed'), catalog, { sortId: couleur.id }, rngManuel([4]))
+    it('[Couleur] Rouge ajoute les Points d’Énergie au Social — ou 5, d’office', () => {
+      const r = lancerSort(
+        nouveauPerso('eclipsed'),
+        catalog,
+        { sortId: couleur.id },
+        rngManuel([4, 2]),
+      )
       expect(computeCompetence(r.char, catalog, 'social').bonus).toBe(4)
       expect(r.effets).toContain('Social +4 — 1 heure')
 
@@ -4139,21 +4292,23 @@ describe('dés saisis à la main', () => {
  * une valeur de trop resterait inutilisée, une de moins ferait lever.
  */
 describe('les dés annoncés sont ceux qui sont consommés', () => {
-  it('un sort à dé seul', () => {
+  it('un sort d’Arcane : les deux dés de son type, et pas un de plus', () => {
     const polymorph = catalog.sort('polymorph') as Sort
     const char = nouveauPerso('trickster', { grimoire: [polymorph.id] })
 
-    expect(desDuSort(polymorph)).toEqual([{ nombre: 1, faces: 6 }])
-    const r = lancerSort(char, catalog, { sortId: polymorph.id }, rngManuel([5]))
-    expect(r.de).toBe(5)
+    expect(desDuSort(polymorph, catalog)).toEqual([{ nombre: 2, faces: 6 }])
+    const r = lancerSort(char, catalog, { sortId: polymorph.id }, rngManuel([5, 3]))
+    expect(r.des).toEqual([5, 3])
   })
 
   it('un sort sans dé ne demande rien', () => {
     const crackers = catalog.sort('word-crackers') as Sort
     const char = nouveauPerso('trickster', { grimoire: [crackers.id], foi: 5 })
 
-    expect(desDuSort(crackers)).toEqual([])
-    expect(lancerSort(char, catalog, { sortId: crackers.id }, rngManuel([])).de).toBeNull()
+    expect(desDuSort(crackers, catalog)).toEqual([])
+    const r = lancerSort(char, catalog, { sortId: crackers.id }, rngManuel([]))
+    expect(r.des).toEqual([])
+    expect(r.jetMagique).toBeNull()
   })
 
   it('un sort à dé et à tables : le dé d’abord, puis chaque table', () => {
@@ -4177,14 +4332,15 @@ describe('les dés annoncés sont ceux qui sont consommés', () => {
     const catalogue = createCatalog([...SEED, rituel])
     const char = nouveauPerso('soulshifter', { grimoire: [rituel.id] })
 
-    expect(desDuSort(rituel)).toEqual([
-      { nombre: 1, faces: 6 },
+    // Le sort est d'Arcane : son type impose 2d6, et son propre `de` n'est plus lu.
+    expect(desDuSort(rituel, catalogue)).toEqual([
+      { nombre: 2, faces: 6 },
       { nombre: 1, faces: 4 },
       { nombre: 1, faces: 8 },
     ])
 
-    const r = lancerSort(char, catalogue, { sortId: rituel.id }, rngManuel([6, 3, 7]))
-    expect(r.de).toBe(6)
+    const r = lancerSort(char, catalogue, { sortId: rituel.id }, rngManuel([6, 1, 3, 7]))
+    expect(r.des).toEqual([6, 1])
     expect(r.effets).toContain('A3')
     // La table déterministe rend toujours sa seule entrée, sans consommer de dé.
     expect(r.effets).toContain('B unique')

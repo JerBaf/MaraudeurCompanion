@@ -230,17 +230,18 @@ export interface ConditionReaction {
  * Une règle spéciale : ce qu'un passif change aux règles elles-mêmes, et
  * qu'aucun chiffre ne dit.
  *
- * L'Âme de Géant change ce qu'un 6 veut dire, la réussite automatique remplace
- * un jet, l'état Ombre ferme le Grimoire. Chaque règle a son point
- * d'application dans le moteur ; le contenu décide qui en bénéficie. Ajouter une
- * règle, c'est ajouter une variante ici et la lire là où elle agit.
+ * L'Âme de Géant ajoute à l'Effet B, la réussite automatique remplace un jet,
+ * l'état Ombre ferme le Grimoire. Chaque règle a son point d'application dans
+ * le moteur ; le contenu décide qui en bénéficie. Ajouter une règle, c'est
+ * ajouter une variante ici et la lire là où elle agit.
  */
 export type Regle =
-  /** Arcane : un 6 ne déclenche pas d'Effet Aléatoire, il décuple le sort. */
+  /** Arcane : sur un Effet B, l'effet du sort est en outre décuplé. */
   | { kind: 'ame-de-geant' }
   /**
-   * Un Test de Compétence ou un Jet d'Arcane réussi d'office, contre ce prix —
-   * annoncé avant le jet. En Arcane, le dé vaut alors 5.
+   * Un Test de Compétence réussi d'office, ou un Jet Magique dont on s'assure
+   * l'Effet A, contre ce prix — annoncé avant le jet. Le jet n'a alors pas
+   * lieu : il est tenu pour `DE_REUSSITE_AUTOMATIQUE`.
    */
   | { kind: 'reussite-automatique'; cout: Cout }
   /** Les sorts préparés sont inutilisables ; seuls restent ceux qu'une option débloque. */
@@ -285,6 +286,27 @@ export interface Passif {
   declenchement: Declenchement
   effet: EffetPassif
 }
+
+/**
+ * Le jet que lancent tous les sorts d'un type magique, et ce qu'il décide.
+ *
+ * L'Arcane : « 2d6, et un 6 au moins déclenche l'Effet B ». Porté par le type
+ * et non par chaque sort — c'est une règle d'école de magie, pas une propriété
+ * de sort. C'est aussi ce qui dispense de réécrire les sorts déjà en base
+ * lorsque la règle du jet change.
+ */
+export interface JetMagique {
+  /** Le lot lancé à chaque sort : « 2d6 ». */
+  de: string
+  /**
+   * Un dé au moins à ce résultat : c'est l'Effet B du sort qui survient.
+   * Absent — le jet ne fait que chiffrer la puissance.
+   */
+  seuilEffetB?: number
+}
+
+/** L'Arcane, telle que la règle la fixe aujourd'hui. */
+export const JET_ARCANE: JetMagique = { de: '2d6', seuilEffetB: 6 }
 
 /** Une table d'effets. Une seule face rend l'effet déterministe. */
 export interface TableAleatoire {
@@ -501,7 +523,19 @@ export interface Sort extends EntreeCatalogueBase, PorteurActifs {
   /** '1d6', '1d4'… ou null quand le sort ne demande aucun jet. */
   de: string | null
   duree: string
+  /**
+   * L'effet de base — l'**Effet A** quand le type magique porte un seuil.
+   * C'est lui qui survient tant que le jet ne franchit pas ce seuil.
+   */
   effet: string
+  /**
+   * L'**Effet B** : ce qui survient à la place quand le jet du type magique
+   * franchit son seuil — un 6 au moins, en Arcane.
+   *
+   * Absent sur un sort dont l'Effet B n'a pas (encore) été écrit : le moteur le
+   * signale alors à la table plutôt que de le passer sous silence.
+   */
+  effetB?: string
   /**
    * Classes autorisées à le lancer. Vide ou absent = ouvert à toutes.
    *
@@ -635,11 +669,24 @@ export interface TypeMagique extends EntreeCatalogueBase, PorteurEffets {
   kind: 'type-magique'
   /** L'Élément Variable dans lequel ses sorts se paient d'ordinaire. */
   elementCoutParDefaut?: string
-  /** Le dé qui lui est associé — « 1d6 » pour l'Arcane. */
+  /**
+   * Le jet que lancent tous ses sorts, et ce qu'il décide — « 2d6, Effet B sur
+   * un 6 » pour l'Arcane. Absent : ses sorts lancent leur propre `Sort.de`,
+   * ou rien.
+   */
+  jet?: JetMagique
+  /**
+   * ⚠️ **Ancien champ**, du temps où le dé d'un type magique n'était qu'une
+   * indication que rien ne lisait. `normaliserEntree` le convertit en `jet`.
+   */
   deParDefaut?: string | null
   /**
    * Ses sorts consomment un cristal, épuisable jusqu'au prochain camp.
-   * C'est la mécanique « Hexite épuisé », jusqu'ici câblée sur l'Arcane.
+   *
+   * La mécanique reste entière — état sur la fiche, correction à la main,
+   * restitution au camp —, mais plus rien ne l'épuise d'office : le 1-2 qui le
+   * faisait était la règle d'Arcane d'avant les 2d6. C'est désormais la MJ qui
+   * déclare un cristal épuisé.
    */
   cristal?: boolean
   teinte?: string
@@ -881,7 +928,10 @@ export interface Character {
    */
   chargesObjets: Record<string, number>
 
-  /** Sorts Arcane dont le cristal est épuisé (d6 à 1 ou 2), jusqu'au prochain camp. */
+  /**
+   * Sorts d'un type magique à cristal dont le cristal est épuisé, jusqu'au
+   * prochain camp. Déclaré par la MJ ou la joueuse : plus aucun jet ne l'épuise.
+   */
   sortsEpuises: string[]
 
   /** Cicatrices accumulées, décrites librement par la MJ. */

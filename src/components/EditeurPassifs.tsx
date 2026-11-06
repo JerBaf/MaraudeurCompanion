@@ -116,7 +116,7 @@ const ETIQUETTES: Record<'passif' | 'effet', { cible: string; competence: string
 
 /** Ce que chaque règle change, pour la MJ qui compose. */
 const EXPLICATION_REGLE: Record<KindRegle, string> = {
-  'ame-de-geant': 'un 6 en Arcane décuple le sort au lieu de l’Effet Aléatoire',
+  'ame-de-geant': 'un Effet B en Arcane décuple en outre le sort',
   'reussite-automatique':
     'réussir d’office un Test de Compétence ou un Jet d’Arcane (le dé vaut 5), contre un prix',
   'sorts-suspendus': 'seuls les sorts qu’une option débloque restent lançables',

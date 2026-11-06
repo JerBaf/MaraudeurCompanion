@@ -1,5 +1,6 @@
 import { COUT_GRATUIT, type Cout, type PartCout } from './couts.ts'
 import { normaliserCible, type Cible } from './elements.ts'
+import { JET_ARCANE } from './types.ts'
 import type {
   Actif,
   Amelioration,
@@ -89,6 +90,26 @@ export function normaliserEntree(brut: EntreeCatalogue): EntreeCatalogue {
       // Une quête importée d'un JSON retouché à la main peut arriver sans sa
       // récompense ; sans ce repli, le premier `.map()` de l'écran lèverait.
       return { ...brut, recompense: brut.recompense ?? { entrees: [] } }
+    case 'type-magique': {
+      if (brut.jet) return brut
+      /*
+       * L'Arcane d'avant la règle des 2d6 : un dé qui n'était qu'une
+       * indication, et un cristal qui s'épuisait sur un 1 ou un 2. L'amorçage
+       * ne réécrit jamais une entrée déjà en base ; la conversion vit donc ici.
+       *
+       * ⚠️ Ciblée sur l'identifiant historique, et sur lui seul : un type à
+       * cristal que la MJ créera garde sa mécanique intacte. Et dès qu'elle
+       * enregistre l'Arcane depuis son écran, `jet` est posé et sa saisie fait
+       * foi — cette clause ne le rattrape plus.
+       */
+      if (brut.id === 'arcane') {
+        const { cristal: _cristal, deParDefaut: _de, ...propre } = brut
+        return { ...propre, jet: JET_ARCANE }
+      }
+      // Tout autre type dont le dé n'était qu'une indication : il devient son
+      // jet, sans seuil — il ne chiffre que la puissance.
+      return brut.deParDefaut ? { ...brut, jet: { de: brut.deParDefaut } } : brut
+    }
     case 'sort':
       return {
         ...brut,

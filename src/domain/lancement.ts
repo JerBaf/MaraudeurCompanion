@@ -3,11 +3,12 @@ import { payerCout, type ChoixPaiement, type Cout } from './couts.ts'
 import { decrireCible } from './elements.ts'
 import {
   DE_REUSSITE_AUTOMATIQUE,
+  EFFET_B_ABSENT,
   disponibiliteSort,
-  resoudreArcane,
-  sortAUnCristal,
+  jetMagiqueDuSort,
+  resoudreJetMagique,
   type RaisonIndisponible,
-  type ResultatArcane,
+  type ResultatJetMagique,
 } from './magie.ts'
 import { estEcritureDirecte, regleActive, resoudreOperation } from './passifs.ts'
 import { appliquerEcriture } from './reactions.ts'
@@ -36,8 +37,8 @@ export interface DemandeLancement {
   /** La valeur choisie pour le « X » d'un coût variable. */
   x?: number
   /**
-   * Réussir le Jet d'Arcane d'office, au prix que fixe la règle : le dé vaut
-   * alors 5, sans être lancé.
+   * S'assurer l'Effet A sans lancer, au prix que fixe la règle : le jet est
+   * alors tenu pour un `DE_REUSSITE_AUTOMATIQUE` unique.
    */
   reussiteAutomatique?: boolean
 }
@@ -47,27 +48,32 @@ export interface ResultatLancement {
   sort: Sort
   /** Ce qui a été prélevé et ce que le paiement a entraîné (Combustion…). */
   recits: string[]
-  /** Le résultat du dé du sort, s'il en porte un. */
-  de: number | null
-  /** Les effets appliqués, en toutes lettres. */
+  /** Les dés du sort tels qu'ils sont tombés. Vide s'il n'en porte aucun. */
+  des: number[]
+  /** Les effets appliqués, en toutes lettres — l'Effet B compris. */
   effets: string[]
-  /** La lecture du dé d'un sort à cristal — le Jet d'Arcane —, sinon `null`. */
-  arcane: ResultatArcane | null
+  /** La lecture du Jet Magique, pour un sort dont le type en porte un. */
+  jetMagique: ResultatJetMagique | null
   reussiteAutomatique: boolean
 }
 
 /**
  * La réussite automatique que ce sort offre à cette joueuse, et son prix.
  *
- * Il faut la règle, et un Jet d'Arcane à réussir : un sort à cristal qui porte
- * un dé. Un Miracle ne se rate pas, il n'y a rien à réussir d'office.
+ * Il faut la règle, et quelque chose à s'assurer : un jet qui pourrait basculer
+ * en Effet B. Un Miracle ne se rate pas, il n'y a rien à réussir d'office.
+ *
+ * ⚠️ La condition portait sur `sortAUnCristal` : un Jet d'Arcane était réputé
+ * ratable parce qu'il épuisait le cristal. L'Arcane ayant perdu son cristal,
+ * l'offre se serait évaporée sans qu'aucun test ne s'en plaigne. Ce qu'elle
+ * garantit désormais nomme sa propre condition.
  */
 export function reussiteAutomatiqueOfferte(
   sort: Sort,
   char: Character,
   catalog: Catalog,
 ): { cout: Cout; source: string } | null {
-  if (!sort.de || !sortAUnCristal(sort, catalog)) return null
+  if (jetMagiqueDuSort(sort, catalog)?.seuilEffetB === undefined) return null
   const active = regleActive(char, catalog, 'reussite-automatique')
   return active ? { cout: active.regle.cout, source: active.source } : null
 }
@@ -99,17 +105,25 @@ function nouvelId(sortId: string): string {
  *
  * Un dé à une seule face n'est jamais demandé : son résultat ne peut être que 1,
  * et `rngManuel` le rend sans rien consommer. C'est le cas d'une table
- * déterministe comme d'un `Sort.de` illisible, que `facesDuDe` ramène à 1.
+ * déterministe comme d'un dé illisible, que `parserDes` ramène à 1 face.
  *
- * Une réussite automatique ne lance pas le dé du sort — il vaut 5 d'office —,
- * mais ses tables, si.
+ * Une réussite automatique ne lance pas le jet du sort — il est tenu pour un 5
+ * —, mais ses tables, si.
+ *
+ * ⚠️ Le jet vient du **type magique** quand il en porte un : un sort d'Arcane
+ * annonce donc `2d6`, même s'il n'a aucun `Sort.de`.
  */
-export function desDuSort(sort: Sort, options: { reussiteAutomatique?: boolean } = {}): Des[] {
+export function desDuSort(
+  sort: Sort,
+  catalog: Catalog,
+  options: { reussiteAutomatique?: boolean } = {},
+): Des[] {
   const des: Des[] = []
 
-  if (sort.de && !options.reussiteAutomatique) {
-    const faces = facesDuDe(sort.de)
-    if (faces > 1) des.push({ nombre: 1, faces })
+  const jet = jetMagiqueDuSort(sort, catalog)
+  if (jet && !options.reussiteAutomatique) {
+    const lot = parserDes(jet.de)
+    if (lot.faces > 1) des.push(lot)
   }
 
   for (const actif of sort.actifs ?? []) {
@@ -160,20 +174,29 @@ export function lancerSort(
   }
 
   // --- Tirer ---
-  // Le dé du sort est lancé par l'application : c'est un aléa dont l'effet
+  // Les dés du sort sont lancés par l'application : c'est un aléa dont l'effet
   // dépend, et non un jet de compétence — ceux-là restent physiques, à table.
-  const de = offre ? DE_REUSSITE_AUTOMATIQUE : sort.de ? rng.int(1, facesDuDe(sort.de)) : null
+  //
+  // Une réussite automatique ne lance rien : un dé unique tenu pour 5, ce qui
+  // suffit à donner sa puissance au sort sans pouvoir basculer en Effet B.
+  const jet = jetMagiqueDuSort(sort, catalog)
+  const lot = jet ? parserDes(jet.de) : null
+  const des = offre ? [DE_REUSSITE_AUTOMATIQUE] : lot ? rng.roll(lot.nombre, lot.faces) : []
 
-  // Le dé d'un sort à cristal se lit : c'est le Jet d'Arcane. Un type magique
-  // créé par la MJ hérite de la mécanique dès qu'il porte `cristal`.
-  const arcane =
-    de !== null && sortAUnCristal(sort, catalog)
-      ? resoudreArcane(de, regleActive(char, catalog, 'ame-de-geant') !== null)
-      : null
+  // Le jet se lit dès que le type magique en porte un : c'est le Jet Magique,
+  // et c'est lui qui décide de l'Effet A ou de l'Effet B.
+  const jetMagique = jet
+    ? resoudreJetMagique(des, jet, regleActive(char, catalog, 'ame-de-geant') !== null)
+    : null
 
   // --- Appliquer ---
   const effets: string[] = []
   const modifiers: Modifier[] = []
+
+  // Quel effet survient est une règle, et c'est donc ici qu'on en décide ; les
+  // écrans ne font que le raconter. L'Effet A n'est pas répété : il est déjà
+  // sous les yeux, dans le texte du sort.
+  if (jetMagique?.effetB) effets.push(`Effet B — ${sort.effetB ?? EFFET_B_ABSENT}`)
 
   for (const actif of sort.actifs ?? []) {
     const face = actif.table.faces > 1 ? rng.int(1, actif.table.faces) : 1
@@ -183,8 +206,10 @@ export function lancerSort(
     if (effet.texte) effets.push(effet.texte)
 
     for (const brute of effet.operations ?? []) {
-      // Le X payé et le dé tiré donnent leur valeur aux opérations variables.
-      const operation = resoudreOperation(brute, { x, de })
+      // Le X payé et le jet donnent leur valeur aux opérations variables.
+      // `add-de` vaut les Points d'Énergie — le plus haut dé, et non leur
+      // somme : c'est la décision de la MJ sur la puissance d'un sort.
+      const operation = resoudreOperation(brute, { x, de: jetMagique?.pointsEnergie ?? null })
 
       if (estEcritureDirecte(operation.cible)) {
         // Une jauge se met à jour d'un cran, tout de suite.
@@ -218,28 +243,39 @@ export function lancerSort(
 
   if (modifiers.length) courant = { ...courant, modifiers: [...courant.modifiers, ...modifiers] }
 
-  // Sur 1 et 2, l'Hexite ne répond plus jusqu'à l'avoir réétudié au camp. La
-  // règle vivait dans l'écran ; la réussite automatique, qui l'épargne, a
-  // besoin qu'elle vive ici.
-  if (arcane?.cristalEpuise && !courant.sortsEpuises.includes(sort.id)) {
-    courant = { ...courant, sortsEpuises: [...courant.sortsEpuises, sort.id] }
-  }
+  /*
+   * Plus rien n'épuise un cristal d'office : le 1-2 qui le faisait était la
+   * règle d'Arcane d'avant les 2d6. L'état subsiste pour un type magique à
+   * cristal, mais c'est la MJ ou la joueuse qui le déclare, depuis la case de
+   * la ligne du sort.
+   */
 
   return {
     char: courant,
     sort,
     recits,
-    de,
+    des,
     effets,
-    arcane,
+    jetMagique,
     reussiteAutomatique: offre !== null,
   }
 }
 
-/** « 1d6 » → 6. Sans face lisible, on s'en tient à 1 : l'effet est déterministe. */
-export function facesDuDe(de: string): number {
-  const faces = Number(de.split(/d/i)[1] ?? '')
-  return Number.isFinite(faces) && faces > 0 ? faces : 1
+/**
+ * « 2d6 » → deux dés à six faces.
+ *
+ * Lit le **nombre** de dés, qu'on ignorait du temps où tout jet de sort était
+ * unique. Sans face lisible, on s'en tient à un dé à une face : l'effet est
+ * alors déterministe, et aucune saisie n'est demandée.
+ */
+export function parserDes(de: string): Des {
+  const [avant, apres] = de.split(/d/i)
+  const faces = Number(apres ?? '')
+  const nombre = Number(avant ?? '')
+  return {
+    nombre: Number.isInteger(nombre) && nombre > 0 ? nombre : 1,
+    faces: Number.isFinite(faces) && faces > 0 ? faces : 1,
+  }
 }
 
 /**

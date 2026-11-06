@@ -57,7 +57,7 @@ export const RAPPELS_COMBAT: RappelRegle[] = [
     id: 'arcane',
     titre: "Arcane — coûts additionnels",
     texte:
-      "Un sort d'Arcane se lance au d6, qui donne directement les Points d'Énergie. Un 1 ou un 2 épuise le cristal jusqu'au prochain feu de camp ; un 6 déchaîne un Effet Aléatoire. Modifier la portée, la durée, le nombre de cibles ou la discrétion coûte des Points d'Énergie supplémentaires :",
+      "Un sort d'Arcane se lance à 2d6 : le plus haut des deux dés donne les Points d'Énergie. Si au moins un 6 sort, c'est l'Effet B du sort qui survient, sinon son Effet A. Modifier la portée, la durée, le nombre de cibles ou la discrétion coûte des Points d'Énergie supplémentaires :",
     table: {
       entetes: ['Coût', 'Cibles', 'Portée', 'Durée', 'Discrétion'],
       lignes: [

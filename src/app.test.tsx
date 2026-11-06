@@ -502,11 +502,11 @@ describe('outillage de table', () => {
   })
 
   /**
-   * Le cristal ne s'épuise que sur un sort d'Arcane préparé : c'est le seul qui
-   * puisse être lancé, et la joueuse tire son d6 à table — l'app ne fait
-   * qu'enregistrer le résultat.
+   * L'Arcane a perdu son cristal avec la règle des 2d6 : plus rien ne l'épuise,
+   * et la case qui le marquait n'a plus lieu d'être. Le drapeau `cristal` reste
+   * offert à un type magique que la MJ créera — ce que couvre `rules.test.ts`.
    */
-  it('la joueuse marque un cristal d’Arcane épuisé', async () => {
+  it('n’offre plus d’épuiser un Hexite sur un sort d’Arcane', async () => {
     await tablePreteAvecPersonnage('Trickster')
 
     sessionStorage.setItem('maraudeur:role', 'joueuse')
@@ -514,10 +514,32 @@ describe('outillage de table', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
     await waitFor(() => expect(screen.getByText('Polymorph')).toBeTruthy())
 
-    const cases = screen.getAllByRole('checkbox')
-    expect(cases.length).toBeGreaterThan(0)
-    fireEvent.click(cases[0] as HTMLElement)
-    await waitFor(() => expect((cases[0] as HTMLInputElement).checked).toBe(true))
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+    expect(screen.queryByText('Hexite épuisé')).toBeNull()
+  })
+
+  it('demande ses deux dés à la joueuse, et raconte l’Effet B d’un 6', async () => {
+    mesPropresDes()
+    await tablePreteAvecPersonnage('Trickster')
+
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Sorts' }))
+
+    // Déplier le sort révèle le lanceur — et ses deux effets.
+    fireEvent.click(await screen.findByText('Polymorph'))
+    const champs = await screen.findAllByLabelText('Résultat du d6')
+    expect(champs).toHaveLength(2)
+    expect(screen.getByText(/Effet B —/)).toBeTruthy()
+
+    fireEvent.change(champs[0] as HTMLElement, { target: { value: '6' } })
+    fireEvent.change(champs[1] as HTMLElement, { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lancer' }))
+
+    // Le récit dit le jet, les Points d'Énergie et l'Effet B qui survient.
+    const recit = await screen.findByText(/2d6 → 6 \+ 2/)
+    expect(recit.textContent).toContain("6 Point(s) d'Énergie")
+    expect(recit.textContent).toContain('Effet B —')
   })
 
   it('n’offre pas d’épuiser un cristal aux magies qui n’en ont pas', async () => {
@@ -530,6 +552,40 @@ describe('outillage de table', () => {
     // Le Dusk Hunter ne prépare que du Sang et du Miracle.
     await waitFor(() => expect(screen.getByText('Burst')).toBeTruthy())
     expect(screen.queryByText(/Cristal épuisé/)).toBeNull()
+  })
+
+  /**
+   * L'Effet Aléatoire a quitté le jet d'Arcane : la règle des 2d6 l'a remplacé
+   * par l'Effet B. Il reste un outil de la MJ, posé sur la joueuse qu'elle a
+   * sélectionnée — c'est sa fiche qui portera la Cicatrice.
+   */
+  it('la MJ déclenche un Effet Aléatoire, et la Cicatrice arrive sur la fiche', async () => {
+    mesPropresDes()
+    await tablePreteAvecPersonnage()
+
+    sessionStorage.setItem('maraudeur:role', 'mj')
+    await monter()
+    fireEvent.click(await screen.findByText('Ilma'))
+
+    const cause = await screen.findByLabelText('Cause de l’Effet Aléatoire')
+    fireEvent.change(cause, { target: { value: 'Un pacte mal tourné' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Effet Aléatoire' }))
+
+    // Un double : la puissance vaut 3, et la Cicatrice est proposée.
+    const des = await screen.findAllByLabelText('Résultat du d4')
+    expect(des).toHaveLength(2)
+    fireEvent.change(des[0] as HTMLElement, { target: { value: '3' } })
+    fireEvent.change(des[1] as HTMLElement, { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tirer l’Effet Aléatoire' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /prendre une Cicatrice/ }))
+    await waitFor(() => expect(screen.getByText(/Cicatrice inscrite/)).toBeTruthy())
+    cleanup()
+
+    // La joueuse la retrouve sur sa fiche, nommée par sa cause.
+    sessionStorage.setItem('maraudeur:role', 'joueuse')
+    await monter()
+    await waitFor(() => expect(screen.getByText(/Un pacte mal tourné/)).toBeTruthy())
   })
 
   it('la MJ accorde un sort, la joueuse le voit arriver', async () => {

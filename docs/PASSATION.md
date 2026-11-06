@@ -402,8 +402,11 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Point | Décision | Raison |
 |---|---|---|
 | Points de Fatigue | Dusk Hunter **5**, Soulshifter **4**, Trickster **4**, Astromancien **4**, Earthborn **5**, Eclipsed **4** | absent des PDF, choisi par la MJ |
-| Arcane, d6 → Points d'Énergie | PE = résultat du dé | lecture la plus directe |
-| Cristal épuisé | sur **1 et 2** | le texte fait foi contre la table du PDF, qui se contredisait |
+| **Arcane : 2d6, Effet A / Effet B** | on lance **2d6** ; si **au moins un 6** sort, c'est l'**Effet B** du sort qui survient, sinon son **Effet A**. PE = **le plus haut des deux dés** | règle de la MJ, en remplacement du d6. Les PE gardent l'échelle 1-6 d'avant, et les deux effets sont écrits dans le sort (`Sort.effet`, `Sort.effetB`) |
+| **Jet porté par le type magique** | `TypeMagique.jet` = `{ de, seuilEffetB? }` ; **tous** les sorts du type le lancent, `Sort.de` n'est plus lu | lancer 2d6 est une règle d'école, pas une propriété de sort. C'est aussi ce qui a permis à la règle de changer **sans réécrire les quatorze sorts d'Arcane déjà en base** (piège n° 1) |
+| **Hexite et épuisement : abrogés en Arcane** | plus aucun jet n'épuise de cristal ; `TypeMagique.cristal` reste offert à un type que la MJ créera | le 1-2 qui épuisait était la règle du d6. L'état, la correction à la main et la restitution au camp subsistent intacts : seul le **déclenchement automatique** disparaît |
+| **Effet Aléatoire : retiré du jet** | plus déclenché par un 6 ; devient un **outil de la MJ**, dans le détail du personnage sélectionné | la règle ne l'appelle plus, mais la mécanique (2d4, force, Cicatrice sur un double) reste bonne à sortir quand la fiction l'appelle. `cause` remplace le nom de sort |
+| ⚠️ **Ancien** — Arcane, d6 → PE ; cristal épuisé sur 1 et 2 ; Effet Aléatoire sur 6 | abrogé | conservé ici pour relire les commits d'avant |
 | Pool du Détachement | tous sorts et équipements possédés, **sac à dos compris** ; hors améliorations et matériel de base | le PDF exclut explicitement les améliorations |
 | Voie de la Flamme | paliers **cumulatifs** | à 7 brûlures on garde le 6ᵉ Sens du seuil 4 |
 | Sorts débloqués par une option de classe | **dérivés du passif**, pas possédés | « donne accès à » ≠ « possède ». `Sort.requiertPassif` nomme l'option ; généralise l'ancien drapeau `illusion`, qui ne décrivait que l'Illusionniste |
@@ -439,7 +442,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Écran Réglages | une **barre d'onglets** ; un onglet **Création** fabrique, les autres consultent | le bouton « Ajouter » était sous une liste qui s'allonge à chaque session. Créer une classe ou un type magique n'était possible nulle part |
 | Rareté | palette nommée, `Equipement.rarete` ; absent = commun | la couleur veut dire quelque chose à table, et suit l'objet partout |
 | Entrées `seed` | **supprimables** | le drapeau ne sert plus qu'à les faire revenir à la réinitialisation |
-| Cristal épuisé | signalé **par la joueuse**, sur un sort préparé dont le type magique porte `cristal` | elle lance son d6 à table ; seul un sort préparé peut être lancé, donc s'épuiser. Le drapeau était câblé sur l'Arcane : un type magique créé par la MJ aurait perdu la mécanique |
+| Cristal épuisé | signalé **par la joueuse**, sur un sort préparé dont le type magique porte `cristal` — et **plus aucun type livré n'en porte** | le drapeau était câblé sur l'Arcane : un type magique créé par la MJ aurait perdu la mécanique. L'Arcane l'a perdu avec la règle des 2d6, et le repli de `sortAUnCristal` est passé à `false` |
 | Inventaire joueuse | chaque onglet montre **tout**, marqué de ce qui est en jeu | comparer un objet porté à un objet en réserve demandait deux onglets |
 | Résolution du camp | à **l'ouverture** | voir piège n° 4 |
 | Session | ouverte par le lancement d'un camp initial | c'est là que les investissements rendent leurs comptes |
@@ -451,7 +454,7 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Marque sur échec critique | **proposée d'un bouton**, jamais prise d'office | « la MJ *tentera* d'ajouter une Marque » ; cohérent avec « les Marques, rien d'automatique » |
 | Forcer le Destin | un second d20, **une seule fois** | `forcerDestin` lève au deuxième appel : l'écran le cache déjà, mais la règle ne peut pas dépendre d'un écran |
 | Brûlures sur un jet | **+1 par brûlure**, sur tout jet qui a un total | la règle existait au PDF et dans un commentaire de `brulures.ts`, sans aucune UI. Passe par `consommerBrulures`, donc la Combustion à la neuvième part toute seule |
-| Jet d'Arcane | `resoudreArcane` **branché**, et lu par `lancerSort` | il était écrit et testé mais appelé par aucun écran. PE annoncés, cristal épuisé automatique sur 1-2, Effet Aléatoire (2d4) demandé sur un 6. La case « Hexite épuisé » reste, en **correction**. L'épuisement vit dans `lancerSort` depuis que la réussite automatique doit l'épargner |
+| Jet Magique | `resoudreJetMagique(des, jet, ameDeGeant)`, lu par `lancerSort` | **générique, et non propre à l'Arcane** : tout type qui porte un `jet` l'emprunte, comme le cristal se lit sur un drapeau plutôt que sur l'identifiant `arcane`. Nommé « Magique » pour ne pas se confondre avec le `Jet` de `jets.ts`. `parserDes('2d6')` lit enfin le **nombre** de dés, qu'on ignorait du temps où tout jet de sort était unique |
 | Osselets saisis à la main | la joueuse annonce **le nombre de points rouges** | elle les a comptés en regardant ses osselets ; lui redemander les quatre faces serait une double saisie pour le même résultat. Seul cas volontairement hors de `LanceurDes` |
 | Remontée des jets | **journal 🔒 seulement** | aucun document nouveau, aucune règle Firestore à toucher. La MJ les relit dans son onglet Journal |
 | Réglage de dés | `localStorage`, **jamais sur la fiche** | ce n'est pas un fait de fiction ; deux joueuses partageant un personnage n'auraient pas à partager leurs dés, et `Character` n'a pas un champ de plus à normaliser |
@@ -469,15 +472,15 @@ Les PDF laissaient des points ouverts. Voici ce qui a été tranché, et pourquo
 | Part « au plus » | payable dès qu'il reste une unité, elle prélève ce qui reste | décision de la MJ : un sort Ombre lancé sur une seule Marque la vide, et l'Eclipsed revient à la Lumière |
 | Parts d'une branche | **additionnées** par élément et par sens avant d'être comparées | vérifiées une à une, « 1 Foi + X Foi » passait avec 3 Foi et X = 3, et laissait la joueuse à −1 |
 | Règles spéciales | `Regle` sur l'effet d'un passif **permanent** : Âme de Géant, réussite automatique, sorts suspendus | ce qu'aucun chiffre ne dit. Le registre est fermé — chaque règle a son point d'application —, qui en bénéficie se compose en données |
-| Réussite automatique | annoncée **avant** le jet, contre son prix (1 Marque prise) ; en Arcane le dé vaut **5**, sans être lancé | décision de la MJ : la plus haute puissance qui n'épuise pas le cristal et ne déborde pas en Effet Aléatoire |
-| Âme de Géant | un 6 en Arcane ne déclenche pas l'Effet Aléatoire ; les PE restent 6, l'app annonce l'effet décuplé | l'ampleur est dite par le texte « sur un 6 » du sort, ou par la MJ |
+| Réussite automatique | annoncée **avant** le jet, contre son prix (1 Marque prise) ; en Arcane elle **s'assure l'Effet A** : le jet n'a pas lieu et vaut un **5** unique | décision de la MJ : la plus haute valeur qui ne fait pas basculer en Effet B. ⚠️ Sa condition portait sur `sortAUnCristal` — un Jet d'Arcane était réputé ratable parce qu'il épuisait le cristal ; l'offre se serait **évaporée** avec le cristal, sans qu'aucun test ne s'en plaigne. Elle nomme désormais ce qu'elle garantit (`seuilEffetB !== undefined`) |
+| Âme de Géant | **s'ajoute** à l'Effet B sans le remplacer : l'Effet B survient pour tous, et l'app annonce en outre l'effet décuplé | l'Effet B est devenu la règle de tous ; le passif n'y ajoute plus que son ampleur, dite par la MJ |
 | Ombre | **tous** les sorts préparés sont suspendus ; restent ceux qu'une option débloque | décision de la MJ, plutôt qu'un filtre par type magique |
 | Verrou à jeton | le **premier** choix est libre ; chaque changement suivant consomme un jeton que la **MJ rend** | « une fois par heure » parle de l'heure de fiction, comme l'invocation du Soulshifter. La MJ ne consomme jamais le jeton |
 | Choix automatique | l'état se lit à **chaque écriture**, après les réactions ; un forçage de la MJ tient le temps de l'écriture | lire l'état plutôt que le franchissement rattrape un plafond qui baisse ou une écriture passée sans résolution. Aux extrémités, la règle reprend la main |
 | Option de départ | `ChoixClasse.defaut`, **lu, jamais écrit** | une fiche créée avant le réglage en profite aussi (piège n° 1). Les défauts d'Hexcore et de voie, antérieurs, restent posés à la création |
 | Étoiles à débloquer | `OptionChoixClasse.requiertAmelioration` ; une option devenue inaccessible **n'agit plus**, sans être effacée | chaque personnage progresse séparément, et une Amélioration ne se perd pas au Détachement |
 | X d'une réaction | `add-x` vaut l'**ampleur** du changement qui l'arme | Ito : un Point de Foi **par** Marque prise |
-| Dé d'un sort dans un effet | `add-de` | [Couleur] Rouge ajoute le d6 au Social ; en réussite automatique, 5 |
+| Dé d'un sort dans un effet | `add-de` vaut les **Points d'Énergie** — le plus haut dé, et non leur somme | [Couleur] Rouge ajoute ses PE au Social ; en réussite automatique, 5 |
 | 6th Sens et Actions Rapides dans un passif | la jauge compte les points **utilisés** ; le plafond des Actions Rapides se dérive du Physique et se hausse | un seuil sur les points restants tournerait en rond dans `derivedModifiers`. Un seuil ou une réaction sur ces deux éléments faisait planter la fiche |
 | Void Call | résultats en **texte**, sauf le 4 (+1 Fatigue à la lanceuse) | l'app ne sait pas quelles joueuses sont à la table ce soir |
 | Amaterasu | un **sort** débloqué par l'étoile | le PDF tient toute capacité de classe pour un Sort ; aucun mécanisme neuf |
@@ -779,8 +782,12 @@ Ce sont des interprétations. Si la MJ dit autre chose, elle a raison.
 - **Les gains de Foi sont réservés au camp initial.** Le PDF les réserve au « premier feu
   de camp de la journée » ; sans notion de journée, le camp qui ouvre la session en tient
   lieu. Ils restent limités à une fois par session.
-- **Effet Aléatoire de l'Arcane** : sur un double, `signe` vaut `positif` par
-  convention, mais c'est la Cicatrice qui compte.
+- **Effet Aléatoire** : sur un double, `signe` vaut `positif` par convention, mais c'est
+  la Cicatrice qui compte. Il ne se déclenche plus sur un 6 — la MJ le sort depuis le
+  détail du personnage.
+- **Un Effet B qui manque se dit** : faute de texte, la table lit « Effet B (non
+  renseigné) » plutôt que rien. Les quatorze sorts livrés en ont un ; ceux déjà saisis en
+  base attendent la plume de la MJ.
 - **Le nom d'un adversaire retiré n'est pas réattribué** : trois Carcasses puis un
   retrait donne « Carcasse 4 » à la suivante, pour éviter la confusion à table.
 
@@ -1034,7 +1041,7 @@ mécanismes génériques, tous composables depuis Réglages.
 | Bonne Étoile « une fois par heure » | `verrou: 'jeton'` ; `EtatPassifs.jetonsChoix`, rendu par la MJ | `passifs.ts` (`peutChangerOption`, `retenirOption`, `rendreJetonChoix`) |
 | Lumière ⇄ Ombre selon les Marques | `verrou: 'automatique'`, `OptionChoixClasse.bascule`, `ChoixClasse.defaut` | `reactions.ts` (`appliquerBascules`) |
 | Étoiles à débloquer plus tard | `OptionChoixClasse.requiertAmelioration` | `passifs.ts` (`optionAccessible`) |
-| Ito : un Point de Foi **par** Marque ; [Couleur] Rouge : + d6 | `add-x` = ampleur du changement dans une réaction ; `add-de` = dé du sort | `passifs.ts` (`resoudreOperation`) |
+| Ito : un Point de Foi **par** Marque ; [Couleur] Rouge : + ses PE | `add-x` = ampleur du changement dans une réaction ; `add-de` = Points d'Énergie du jet | `passifs.ts` (`resoudreOperation`) |
 
 ### Ce qui se lit, et ce qui s'écrit
 

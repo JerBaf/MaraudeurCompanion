@@ -3,7 +3,15 @@ import { decrireCout, montantPart, peutPayer } from './couts.ts'
 import { ajusterFatigue } from './fatigue.ts'
 import { MAX_FOI } from './modifiers.ts'
 import { aRetenu, regleActive } from './passifs.ts'
-import { LIBELLE_MAGIE, type Character, type Magie, type Portee, type Sort } from './types.ts'
+import {
+  JET_ARCANE,
+  LIBELLE_MAGIE,
+  type Character,
+  type JetMagique,
+  type Magie,
+  type Portee,
+  type Sort,
+} from './types.ts'
 
 /*
  * La mécanique des brûlures vit dans `brulures.ts` — `couts.ts` en a besoin
@@ -55,43 +63,57 @@ export function appliquerConsommation(
 }
 
 // ---------------------------------------------------------------------------
-// Arcane
+// Le Jet Magique — l'Arcane, et tout type qui porte un jet
 // ---------------------------------------------------------------------------
 
-export interface ResultatArcane {
-  de: number
-  /** Décision retenue avec la MJ : les Points d'Énergie valent le résultat du d6. */
+/**
+ * La lecture d'un Jet Magique.
+ *
+ * Générique, et non propre à l'Arcane : tout type magique qui porte un `jet`
+ * l'emprunte, comme la mécanique du cristal se lit sur un drapeau plutôt que
+ * sur l'identifiant `arcane`. Nommé « Magique » et non « Jet » tout court pour
+ * ne pas se confondre avec le Test de Compétence de `jets.ts`.
+ */
+export interface ResultatJetMagique {
+  /** Les dés tels qu'ils sont tombés. */
+  des: number[]
+  /** Décision retenue avec la MJ : les Points d'Énergie valent le plus haut dé. */
   pointsEnergie: number
+  /** Au moins un dé au seuil : c'est l'Effet B du sort qui survient. */
+  effetB: boolean
   /**
-   * Le cristal s'épuise sur 1 **et** 2.
-   * Le texte du PDF fait foi sur la table (qui ne colorait que le 1).
-   */
-  cristalEpuise: boolean
-  /** Sur un 6 : la magie devient incontrôlable, on tire l'Effet Aléatoire (2d4). */
-  effetAleatoire: boolean
-  /**
-   * Sur un 6, pour qui porte l'Âme de Géant : pas d'Effet Aléatoire, l'effet du
-   * sort est décuplé — ce que son texte « sur un 6 » précise, ou la MJ.
+   * Âme de Géant : sur un Effet B, l'effet du sort est **en outre** décuplé.
+   * L'Effet B survient de toute façon — c'est la règle de tous désormais.
    */
   ameDeGeant: boolean
 }
 
 /**
- * Le dé d'Arcane d'une réussite automatique.
+ * Le résultat que tient pour acquis une réussite automatique.
  *
  * Décision de la MJ : pas de jet, le sort part comme sur un 5 — la plus haute
- * puissance qui n'épuise pas le cristal et ne déborde pas en Effet Aléatoire.
+ * valeur qui ne fait pas basculer en Effet B.
  */
 export const DE_REUSSITE_AUTOMATIQUE = 5
 
-export function resoudreArcane(de: number, ameDeGeant = false): ResultatArcane {
-  const six = de === 6
+/**
+ * Ce que ces dés produisent.
+ *
+ * `seuilEffetB` absent : le jet ne fait que chiffrer la puissance, et il n'y a
+ * pas d'Effet B à déclencher.
+ */
+export function resoudreJetMagique(
+  des: number[],
+  jet: JetMagique,
+  ameDeGeant = false,
+): ResultatJetMagique {
+  const seuil = jet.seuilEffetB
+  const effetB = seuil !== undefined && des.some((d) => d >= seuil)
   return {
-    de,
-    pointsEnergie: de,
-    cristalEpuise: de <= 2,
-    effetAleatoire: six && !ameDeGeant,
-    ameDeGeant: six && ameDeGeant,
+    des,
+    pointsEnergie: Math.max(...des),
+    effetB,
+    ameDeGeant: effetB && ameDeGeant,
   }
 }
 
@@ -174,7 +196,25 @@ export function decrireCoutSort(sort: Sort, char?: Character, catalog?: Catalog)
  */
 export function resumeSort(sort: Sort, char: Character, catalog: Catalog): string {
   const cout = decrireCoutSort(sort, char, catalog)
-  return [libelleMagie(sort.magieId, catalog), cout, sort.de, sort.duree].filter(Boolean).join(' · ')
+  // Le dé vient du jet et non de `Sort.de` : celui d'un sort d'Arcane est
+  // désormais porté par son type magique, et la ligne le perdrait.
+  const de = jetMagiqueDuSort(sort, catalog)?.de
+  return [libelleMagie(sort.magieId, catalog), cout, de, sort.duree].filter(Boolean).join(' · ')
+}
+
+/** Ce qu'on lit faute d'Effet B écrit : la table a quelque chose à trancher. */
+export const EFFET_B_ABSENT = 'Effet B (non renseigné)'
+
+/**
+ * L'effet d'un sort tel qu'il se lit en entier, Effet B compris.
+ *
+ * Un seul endroit pour les écrans qui déplient un sort — Grimoire, sac à dos,
+ * phase Grimoire du camp, inventaire de la MJ. Sans Effet B à annoncer, rend le
+ * texte seul : un sort qui n'en a pas se lit comme avant.
+ */
+export function detailSort(sort: Sort, catalog: Catalog): string {
+  if (!sortAUnEffetB(sort, catalog)) return sort.effet
+  return `${sort.effet}\n\nEffet B — ${sort.effetB ?? EFFET_B_ABSENT}`
 }
 
 /**
@@ -196,12 +236,40 @@ export function libelleMagie(magieId: string, catalog: Catalog): string {
 /**
  * Les sorts de ce type consomment-ils un cristal, épuisable jusqu'au camp ?
  *
- * L'Arcane par défaut, tant que le catalogue n'a pas répondu — c'était la
- * mécanique câblée avant que les types magiques ne deviennent du contenu.
+ * Plus aucun type livré n'en porte : l'Arcane l'a perdu avec la règle des 2d6,
+ * et le drapeau n'attend plus qu'un type créé par la MJ. D'où le repli à
+ * `false` quand le catalogue n'a pas encore répondu — il valait `true` pour
+ * l'Arcane du temps où la mécanique y était câblée.
  */
 export function sortAUnCristal(sort: Sort, catalog: Catalog): boolean {
+  return catalog.typeMagique(sort.magieId)?.cristal === true
+}
+
+/**
+ * Le jet que ce sort lance, et ce qu'il décide.
+ *
+ * Le type magique d'abord — lancer 2d6 et basculer sur un 6 est une règle
+ * d'école, que tous ses sorts suivent, y compris ceux qui ne portaient aucun
+ * dé. À défaut, le `Sort.de` d'un sort qui porte le sien (le Raging Claw de
+ * l'Ombre) : il ne décide alors que de la puissance, sans Effet B.
+ *
+ * ⚠️ Pour un type à `jet`, `Sort.de` n'est plus lu. C'est ce qui a permis à la
+ * règle de changer sans réécrire les quatorze sorts d'Arcane déjà en base.
+ *
+ * Le repli sur l'Arcane couvre le même moment que celui de `libelleMagie` : une
+ * joueuse connectée avant que la MJ n'ait amorcé la table n'y verrait sinon
+ * aucun jet là où la règle en demande un.
+ */
+export function jetMagiqueDuSort(sort: Sort, catalog: Catalog): JetMagique | null {
   const type = catalog.typeMagique(sort.magieId)
-  return type ? type.cristal === true : sort.magieId === 'arcane'
+  if (type) return type.jet ?? (sort.de ? { de: sort.de } : null)
+  if (sort.magieId === 'arcane') return JET_ARCANE
+  return sort.de ? { de: sort.de } : null
+}
+
+/** Ce sort peut-il basculer en Effet B ? */
+export function sortAUnEffetB(sort: Sort, catalog: Catalog): boolean {
+  return jetMagiqueDuSort(sort, catalog)?.seuilEffetB !== undefined
 }
 
 /**

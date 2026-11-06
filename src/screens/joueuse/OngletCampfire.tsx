@@ -25,7 +25,7 @@ import {
 } from '../../domain/campfire.ts'
 import type { Catalog } from '../../domain/catalog.ts'
 import { tailleGrimoire } from '../../domain/competences.ts'
-import { ajusterFoi, GAINS_FOI, resumeSort } from '../../domain/magie.ts'
+import { ajusterFoi, detailSort, GAINS_FOI, resumeSort } from '../../domain/magie.ts'
 import { detailObjet, resumeEquipement } from '../../domain/objets.ts'
 import { MAX_FOI, modificateurFardeau, modificateurSerment } from '../../domain/modifiers.ts'
 import { cryptoRng } from '../../domain/random.ts'
@@ -462,7 +462,7 @@ function Grimoire({ char, catalog, ctx, personnages, edition }: ProprietesPhase)
               icone={sort.icone}
               nom={sort.nom}
               meta={resumeSort(sort, char, catalog)}
-              detail={sort.effet}
+              detail={detailSort(sort, catalog)}
               actif={actif}
               indisponible={!actif && plein}
               {...(actif ? { puce: <span className="puce puce--ambre">Préparé</span> } : {})}

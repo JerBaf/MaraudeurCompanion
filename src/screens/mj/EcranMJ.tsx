@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { Compteur } from '../../components/Compteur.tsx'
 import { Effets } from '../../components/Effets.tsx'
+import { EffetAleatoire } from '../../components/EffetAleatoire.tsx'
 import { Icone } from '../../components/Icone.tsx'
 import { Onglets } from '../../components/Onglets.tsx'
 import { Passifs } from '../../components/Passifs.tsx'
@@ -251,9 +252,15 @@ function DetailPersonnage({
   const [secret, setSecret] = useState<CharacterSecret | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [cyclesVisibles, setCyclesVisibles] = useState(false)
+  // L'Effet Aléatoire se déclare avant de se lancer : sa cause s'inscrira sur
+  // la Cicatrice, et un jet sans cause ne se relirait pas six mois plus tard.
+  const [cause, setCause] = useState('')
+  const [effetAleatoire, setEffetAleatoire] = useState<string | null>(null)
 
   useEffect(() => {
     setCyclesVisibles(false)
+    setEffetAleatoire(null)
+    setCause('')
     return surSecret(char.id, setSecret)
   }, [char.id])
 
@@ -496,6 +503,34 @@ function DetailPersonnage({
       <Passifs char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} moment="mj" />
 
       <Effets char={char} catalog={catalog} vies={VIES_SOULSHIFTER} maj={maj} />
+
+      <hr className="separateur" />
+
+      {/* L'Effet Aléatoire n'est plus déclenché par un 6 en Arcane — la règle
+          des 2d6 l'a remplacé par l'Effet B. Il reste un outil que la MJ sort
+          quand la fiction l'appelle, sur la joueuse déjà sélectionnée. */}
+      {effetAleatoire ? (
+        <EffetAleatoire char={char} cause={effetAleatoire} onFini={() => setEffetAleatoire(null)} />
+      ) : (
+        <div className="rangee" style={{ gap: 8 }}>
+          <input
+            type="text"
+            value={cause}
+            placeholder="Cause de l’Effet Aléatoire"
+            aria-label="Cause de l’Effet Aléatoire"
+            style={{ flex: 1 }}
+            onChange={(e) => setCause(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={cause.trim() === ''}
+            onClick={() => setEffetAleatoire(cause.trim())}
+          >
+            Effet Aléatoire
+          </button>
+        </div>
+      )}
 
       <hr className="separateur" />
 

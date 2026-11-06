@@ -27,8 +27,10 @@ import {
   type DemandeLancement,
 } from '../../domain/lancement.ts'
 import {
+  detailSort,
   disponibiliteSort,
   grimoireEffectif,
+  jetMagiqueDuSort,
   libelleMagie,
   resumeSort,
   sortAUnCristal,
@@ -36,7 +38,6 @@ import {
 import { regleActive } from '../../domain/passifs.ts'
 import type { Rng } from '../../domain/random.ts'
 import type { Character, Sort } from '../../domain/types.ts'
-import { EffetAleatoire } from './EffetAleatoire.tsx'
 
 function LigneSort({
   sort,
@@ -75,8 +76,8 @@ function LigneSort({
   const precision = precisionPersonnalite(sort.id, char, VIES_SOULSHIFTER)
   const vie = vieActive(char, VIES_SOULSHIFTER)
 
-  // Seule l'Arcane consomme un Hexite. La joueuse lance son d6 à table ; l'app
-  // ne fait qu'enregistrer que le cristal ne répond plus.
+  // Réservé aux types magiques à cristal — l'Arcane n'en est plus un. Plus
+  // aucun jet ne l'épuise : c'est la table qui déclare qu'il ne répond plus.
   function basculerEpuise() {
     maj?.((c) => ({
       ...c,
@@ -91,7 +92,7 @@ function LigneSort({
       icone={sort.icone}
       nom={sort.nom}
       meta={resumeSort(sort, char, catalog)}
-      detail={sort.effet}
+      detail={detailSort(sort, catalog)}
       indisponible={!dispo.disponible}
       {...(precision && vie ? { precision: { titre: `Sous ${vie.nom}`, texte: precision } } : {})}
       {...(maj && sortAUnCristal(sort, catalog)
@@ -154,7 +155,7 @@ function LigneSort({
                       onChange={(e) => setAuto(e.target.checked)}
                     />
                     <span className="tres-discret">
-                      Réussite automatique — {decrireCout(offre.cout)}
+                      Effet A garanti — {decrireCout(offre.cout)}
                     </span>
                   </label>
                 )}
@@ -165,7 +166,7 @@ function LigneSort({
                     lanceur quand la case change, ses saisies avec lui. */}
                 <LanceurDes
                   key={enAuto ? 'auto' : 'jet'}
-                  des={desDuSort(sort, { reussiteAutomatique: enAuto })}
+                  des={desDuSort(sort, catalog, { reussiteAutomatique: enAuto })}
                   libelle={
                     dispo.raisons.includes('suspendu')
                       ? 'Suspendu'
@@ -226,31 +227,28 @@ export function OngletSorts({
   // Le récit du lancement vit hors de la ligne du sort : un effet tiré doit
   // rester lisible même quand le sort redevient indisponible dans la foulée.
   const [dernierLancement, setDernierLancement] = useState<string | null>(null)
-  // Le 6 de l'Arcane demande un second jet — 2d4 — que le dé du sort ne pouvait
-  // pas annoncer d'avance.
-  const [effetAleatoire, setEffetAleatoire] = useState<string | null>(null)
 
   function lancer(demande: DemandeLancement, rng: Rng) {
     const r = lancerSort(char, catalog, demande, rng)
 
     /*
-     * Le Jet d'Arcane est lu par `lancerSort` — Âme de Géant, réussite
-     * automatique et cristal épuisé compris : l'écran ne fait que le raconter.
-     * La case « Hexite épuisé » de la ligne reste, en correction.
+     * Le Jet Magique est lu par `lancerSort` — Effet A ou B, Âme de Géant et
+     * réussite automatique compris : l'écran ne fait que le raconter. L'Effet B
+     * arrive dans `r.effets`, avec ce que les opérations ont produit.
      */
-    const { arcane } = r
+    const { jetMagique } = r
     const tirage = r.reussiteAutomatique
-      ? 'réussite automatique'
-      : r.de !== null
-        ? `${r.sort.de} → ${r.de}`
+      ? 'Effet A garanti'
+      : r.des.length > 0
+        ? `${jetMagiqueDuSort(r.sort, catalog)?.de} → ${r.des.join(' + ')}`
         : null
 
     setDernierLancement(
       `${r.sort.nom}${tirage ? ` — ${tirage}` : ''}` +
-        (arcane ? ` · ${arcane.pointsEnergie} Point(s) d'Énergie` : '') +
-        (arcane?.cristalEpuise ? ' · le cristal s’épuise' : '') +
-        (arcane?.effetAleatoire ? ' · la magie vous échappe' : '') +
-        (arcane?.ameDeGeant ? ' · l’Âme de Géant résonne : l’effet du sort est décuplé' : '') +
+        (jetMagique ? ` · ${jetMagique.pointsEnergie} Point(s) d'Énergie` : '') +
+        (jetMagique?.ameDeGeant
+          ? ' · l’Âme de Géant résonne : l’effet est en outre décuplé'
+          : '') +
         (r.effets.length ? ` · ${r.effets.join(' · ')}` : '') +
         (r.recits.length ? ` — ${r.recits.join(' · ')}` : ''),
     )
@@ -260,21 +258,11 @@ export function OngletSorts({
       `${char.nom} lance ${r.sort.nom}${tirage ? ` (${tirage})` : ''}.`,
     )
 
-    if (arcane?.effetAleatoire) setEffetAleatoire(r.sort.nom)
-
     maj((c) => ({ ...r.char, id: c.id }))
   }
 
   return (
     <div className="pile">
-      {effetAleatoire && (
-        <EffetAleatoire
-          char={char}
-          sortNom={effetAleatoire}
-          onFini={() => setEffetAleatoire(null)}
-        />
-      )}
-
       <section className="carte pile pile--serree">
         <div className="carte__titre">
           <span className="etiquette">Sorts préparés</span>

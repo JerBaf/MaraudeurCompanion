@@ -305,7 +305,15 @@ function resume(e: EntreeCatalogue, catalog: Catalog): string {
         .filter(Boolean)
         .join(' · ')
     case 'type-magique':
-      return [e.deParDefaut, e.cristal ? 'à cristal' : null].filter(Boolean).join(' · ') || 'Type magique'
+      return (
+        [
+          e.jet?.de,
+          e.jet?.seuilEffetB !== undefined ? `Effet B sur ${e.jet.seuilEffetB}+` : null,
+          e.cristal ? 'à cristal' : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Type magique'
+      )
     // Aucun onglet famille ne liste les quêtes — elles vivent dans leur propre
     // onglet MJ. Le cas est là pour que le `switch` reste exhaustif.
     case 'quete':

@@ -1,38 +1,42 @@
 import { useState } from 'react'
 
-import { LanceurDes } from '../../components/LanceurDes.tsx'
-import { journaliser, modifierPersonnage } from '../../data/repo.ts'
-import { tirerEffetAleatoire, type Des } from '../../domain/random.ts'
-import type { Character } from '../../domain/types.ts'
+import { LanceurDes } from './LanceurDes.tsx'
+import { journaliser, modifierPersonnage } from '../data/repo.ts'
+import { tirerEffetAleatoire, type Des } from '../domain/random.ts'
+import type { Character } from '../domain/types.ts'
 
 /**
- * L'Effet Aléatoire de l'Arcane, déclenché par un 6 au dé du sort.
+ * L'Effet Aléatoire : « la magie se manifeste de manière puissante et
+ * incontrôlable ». 2d4, un blanc pour la force positive et un noir pour la
+ * négative. Le plus haut donne la puissance et le signe ; un double ajoute une
+ * Cicatrice.
  *
- * « La magie se manifeste de manière puissante et incontrôlable » : la joueuse
- * lance 2d4, un blanc pour la force positive et un noir pour la négative. Le
- * plus haut donne la puissance et le signe ; un double ajoute une Cicatrice.
+ * ⚠️ **Ce n'est plus un 6 en Arcane qui le déclenche** : la règle des 2d6 l'a
+ * remplacé par l'Effet B, écrit dans le sort. La mécanique reste, devenue un
+ * outil que la MJ sort quand la fiction l'appelle — d'où `cause`, qui dit
+ * d'où elle vient, là où seul un nom de sort pouvait se lire avant.
  *
- * C'est un second jet, demandé après coup : le dé du sort ne pouvait pas
- * l'annoncer d'avance, et le lancer d'office aurait fait passer sous les yeux
- * un résultat que personne n'attendait encore.
+ * Vit dans `components/` et non plus sous `screens/joueuse/` depuis qu'il sert
+ * à l'écran de la MJ.
  */
 
 const DEUX_D4: Des[] = [{ nombre: 2, faces: 4 }]
 
 export function EffetAleatoire({
   char,
-  sortNom,
+  cause,
   onFini,
 }: {
   char: Character
-  sortNom: string
+  /** Ce qui l'a déclenché, tel qu'il s'inscrira sur la Cicatrice. */
+  cause: string
   onFini: () => void
 }) {
   const [resultat, setResultat] = useState<ReturnType<typeof tirerEffetAleatoire> | null>(null)
   const [cicatricePrise, setCicatricePrise] = useState(false)
 
   function prendreLaCicatrice() {
-    const texte = `Effet Aléatoire de l’Arcane — ${sortNom}`
+    const texte = `Effet Aléatoire — ${cause}`
     void modifierPersonnage(char, (c) => ({ ...c, cicatrices: [...c.cicatrices, texte] }))
     void journaliser(char.nom, 'cicatrice', `${char.nom} prend une Cicatrice : ${texte}.`)
     setCicatricePrise(true)
@@ -50,7 +54,7 @@ export function EffetAleatoire({
       {!resultat && (
         <>
           <p className="discret" style={{ margin: 0 }}>
-            Un 6 : la magie de « {sortNom} » vous échappe. Lancez 2d4 — un blanc pour la force
+            La magie de « {cause} » échappe à tout contrôle. Lancez 2d4 — un blanc pour la force
             positive, un noir pour la négative. Puis tirez une carte du Random Deck.
           </p>
           <LanceurDes
@@ -62,7 +66,7 @@ export function EffetAleatoire({
               void journaliser(
                 char.nom,
                 'arcane',
-                `${char.nom} — Effet Aléatoire sur « ${sortNom} » : blanc ${r.blanc}, noir ${r.noir} → ` +
+                `${char.nom} — Effet Aléatoire (${cause}) : blanc ${r.blanc}, noir ${r.noir} → ` +
                   `puissance ${r.puissance} ${r.signe}${r.cicatrice ? ', double : Cicatrice' : ''}.`,
               )
             }}

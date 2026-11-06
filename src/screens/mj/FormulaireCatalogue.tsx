@@ -109,7 +109,7 @@ export function entreeVierge(kind: KindCreable, typesMagiques: TypeMagique[]): E
       // Le dossier « ALL » n'est jamais créé : c'est l'absence de filtre.
       return { ...base, kind: 'dossier', ordre: 0 } as Dossier
     case 'type-magique':
-      return { ...base, kind: 'type-magique', deParDefaut: null } as TypeMagique
+      return { ...base, kind: 'type-magique' } as TypeMagique
     case 'classe':
       /*
        * Des valeurs de départ jouables, pas des zéros : `creerPersonnage` lit
@@ -265,13 +265,34 @@ export function FormulaireCatalogue({
                 ))}
               </select>
             </label>
+            {/* Le jet est porté par le type et non par chaque sort : c'est une
+                règle d'école, que tous ses sorts suivent. Un seuil renseigné
+                fait basculer le sort sur son Effet B. */}
             <label className="champ" style={{ flex: 1, minWidth: 100 }}>
-              <span className="tres-discret">Dé associé</span>
+              <span className="tres-discret">Jet de ses sorts</span>
               <input
                 type="text"
-                value={brouillon.deParDefaut ?? ''}
-                placeholder="1d6"
-                onChange={(e) => maj({ deParDefaut: e.target.value || null })}
+                value={brouillon.jet?.de ?? ''}
+                placeholder="2d6"
+                onChange={(e) =>
+                  maj({ jet: e.target.value ? { ...brouillon.jet, de: e.target.value } : undefined })
+                }
+              />
+            </label>
+            <label className="champ" style={{ flex: 1, minWidth: 100 }}>
+              <span className="tres-discret">Seuil de l’Effet B</span>
+              <input
+                type="number"
+                min={1}
+                value={brouillon.jet?.seuilEffetB ?? ''}
+                placeholder="aucun"
+                disabled={!brouillon.jet?.de}
+                onChange={(e) => {
+                  const de = brouillon.jet?.de
+                  if (!de) return
+                  const seuil = Number(e.target.value)
+                  maj({ jet: seuil > 0 ? { de, seuilEffetB: seuil } : { de } })
+                }}
               />
             </label>
           </div>
@@ -627,9 +648,25 @@ export function FormulaireCatalogue({
             <input type="text" value={brouillon.duree} onChange={(e) => maj({ duree: e.target.value })} />
           </label>
           <label className="champ">
-            <span className="tres-discret">Effet</span>
+            <span className="tres-discret">Effet A — l’effet de base</span>
             <textarea value={brouillon.effet} onChange={(e) => maj({ effet: e.target.value })} />
           </label>
+
+          {/* Seuls les types magiques à seuil font survenir un Effet B ; pour
+              les autres, le champ n'aurait aucun moment où se déclencher. */}
+          {typesMagiques.find((t) => t.id === brouillon.magieId)?.jet?.seuilEffetB !==
+            undefined && (
+            <label className="champ">
+              <span className="tres-discret">
+                Effet B — quand le jet franchit son seuil
+              </span>
+              <textarea
+                value={brouillon.effetB ?? ''}
+                placeholder="À défaut, la table saura qu’il reste à écrire."
+                onChange={(e) => maj({ effetB: e.target.value || undefined })}
+              />
+            </label>
+          )}
 
           {/* Le coût d'un sort n'était éditable nulle part : tout sort composé
               depuis cet écran naissait gratuit, quoi qu'en dise son texte. */}
